@@ -50,24 +50,7 @@ export async function scenario2(h: Harness, mirrorKey?: string, label = "2"): Pr
 
   if (alreadyHeld < userStake) {
     log.group("setup: give the user tAAPL on the mirror chain");
-    const need = userStake - alreadyHeld;
-    const options = Options.new().addExecutorLzReceive(200_000n).build();
-    const sendParam = {
-      dstEid: h.eid(mirror),
-      to: toBytes32(userAddr),
-      amountLD: need,
-      minAmountLD: 0n,
-      extraOptions: options,
-      composeMsg: "0x" as const,
-      oftCmd: "0x" as const,
-    };
-    const oft = h.addr(home.key, "TokenizedStock");
-    const fee = await home.read<{ nativeFee: bigint; lzTokenFee: bigint }>(oft, OFT_ABI, "quoteSend", [
-      sendParam,
-      false,
-    ]);
-    await home.write(oft, OFT_ABI, "send", [sendParam, fee, home.deployer], fee.nativeFee);
-    await h.waitFor("user funding to arrive", async () => (await h.tokenBalance(mirror, userAddr)) >= userStake);
+    await h.ensureUserFunded(mirror, userStake);
     log.ok(`user funded with ${h.fmtToken(userStake)} on ${h.name(mirror)}`);
     log.groupEnd();
   }

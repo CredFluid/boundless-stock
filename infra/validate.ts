@@ -12,6 +12,8 @@ import { Harness, type ScenarioResult } from "./validation/harness.js";
 import { scenario1 } from "./validation/01-direct-bridge.js";
 import { scenario2 } from "./validation/02-swap-roundtrip.js";
 import { scenario3 } from "./validation/03-bad-slippage.js";
+import { scenario4 } from "./validation/04-stalled-message.js";
+import { scenario5 } from "./validation/05-multi-mirror.js";
 import { log } from "./lib/logger.js";
 
 function arg(name: string): string | undefined {
@@ -38,6 +40,8 @@ async function main(): Promise<void> {
     { id: "1", run: () => scenario1(h) },
     { id: "2", run: () => scenario2(h) },
     { id: "3", run: () => scenario3(h) },
+    { id: "4", run: () => scenario4(h) },
+    { id: "5", run: () => scenario5(h) },
   ];
 
   const selected = only ? all.filter((s) => s.id === only) : all;

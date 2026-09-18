@@ -55,7 +55,16 @@ export class Chain {
     });
 
     const transport = http(config.rpcUrl, { timeout: 120_000, retryCount: 3 });
-    this.publicClient = createPublicClient({ chain, transport }) as PublicClient;
+
+    // cacheTime: 0 is load-bearing, not a tuning knob.
+    //
+    // viem caches getBlockNumber() for `cacheTime`, which defaults to the polling interval
+    // (4s). A deployment tool and a packet relayer both make decisions from the chain head
+    // within that window: the relayer compares head against its scan cursor, and a stale head
+    // makes it conclude there is nothing new and skip blocks that DO contain packets. That
+    // failure is invisible and timing-dependent — it disappears the moment anything waits a
+    // few seconds. Nothing here should ever act on a cached view of chain state.
+    this.publicClient = createPublicClient({ chain, transport, cacheTime: 0 }) as PublicClient;
     this.walletClient = createWalletClient({ chain, transport, account: this.account });
   }
 

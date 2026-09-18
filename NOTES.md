@@ -344,3 +344,91 @@ balance. A failed swap is therefore more expensive for the protocol than a succe
 the user does not pay for it. At scale that is a griefing vector — someone could submit orders
 they know will fail and drain the relay's gas buffer. Not addressed in this POC; flagged in
 `agents.md` §9.
+
+---
+
+### [2026-09-18] viem caches `getBlockNumber()` — this silently broke packet delivery
+**Milestone:** V4 — found while building the stalled-message scenario
+
+**What happened / what to know:** The relayer intermittently failed to deliver packets that
+were plainly on chain. A scan would report "nothing new" for a block range that contained a
+`PacketSent`, and the same packet would be picked up fine a few seconds later.
+
+Cause: **`viem`'s `getBlockNumber()` is cached.** The default `cacheTime` is the client's
+polling interval — 4 seconds. The relayer compares the chain head against its scan cursor to
+decide what to scan; with a stale head it concluded `head <= cursor` and skipped the range
+entirely. The cursor then advanced past those blocks on the next scan, so the packets were
+never revisited.
+
+This is a nasty failure mode:
+
+- It is **timing-dependent**. Anything that waits a few seconds makes it vanish, so it
+  disappears under a debugger and reappears in fast back-to-back operations.
+- It is **silent**. No error, no revert — just a delivery that does not happen.
+- It looked exactly like a CrossStock protocol bug. Hours could go into the contracts before
+  suspecting the RPC client.
+
+**Why it matters / what breaks if ignored:** Fixed by constructing every public client with
+`cacheTime: 0` in `infra/lib/chains.ts`. That is deliberately applied to **all** infra clients,
+not just the relayer's: a deployment pipeline and a relayer both make decisions from chain
+state, and neither should ever act on a cached view of it. The small extra RPC load is worth
+far more than the debugging time.
+
+Generalisable lesson for anyone building on this: when an on-chain tool behaves
+non-deterministically in a way that "waiting fixes", suspect the client library's caching
+before suspecting the chain.
+
+---
+
+### [2026-09-18] Test isolation: a scenario that misconfigures a contract must restore it
+**Milestone:** V4 — stalled-message scenario
+
+**What happened / what to know:** Scenario 4 deliberately sets `homeComposeGas` to 30,000 to
+starve the composed call. An early version restored it at the end of the happy path. A run that
+was interrupted mid-scenario therefore left the deployment misconfigured, and the *next* run's
+Phase A inherited the broken gas setting and failed in a way that looked unrelated.
+
+**Why it matters / what breaks if ignored:** The restore now lives in a `finally` block that
+wraps the whole scenario, so an interruption cannot leave a deployment in a state that
+misleads the next person. Worth generalising: any validation step that mutates deployment
+configuration owns restoring it, and owns restoring it on the failure path too.
+
+Related, and visible in the run output: `SwapRelay` still held tokens stranded by those earlier
+interrupted runs. That residue is a real illustration of the scenario's own finding — nothing
+sweeps stranded funds automatically — but as *test* state it is noise. Run the validation suite
+against a fresh deployment when the numbers matter.
+
+---
+
+### [2026-09-18] CORRECTION: earlier latency figures were measuring the viem cache
+**Milestone:** V1–V3 (numbers superseded)
+
+**What happened / what to know:** Every latency figure recorded before the `cacheTime: 0` fix
+is wrong. Scenarios 1–3 reported ~4,100 ms round trips. That number was almost entirely the
+relayer waiting out viem's 4-second `getBlockNumber` cache before it would scan again — it was
+measuring the bug, not the protocol.
+
+Corrected figures, same code, clean deployment, after the fix:
+
+| Scenario | Before (cached) | After (correct) |
+|---|---|---|
+| 1 — direct bridge | 4,100 ms | **56 ms** |
+| 2 — swap round trip | 4,129 ms | **102 ms** |
+| 3 — bad-slippage refund | 4,129 ms | **97 ms** |
+| 4 — recovery after retry | — | **28 ms** |
+| 5 — second mirror | — | **70 ms** |
+
+**Why it matters / what breaks if ignored:** The commits for V1–V3 quote the old numbers and
+are left as they are, because rewriting them would erase the fact that the measurement was
+wrong for a while — which is itself the useful part.
+
+Two things follow, and the second matters more than the first:
+
+1. **These are local-anvil numbers and say nothing about production latency.** Real LayerZero
+   latency is dominated by DVN attestation and destination block times, typically tens of
+   seconds to minutes across testnets. What the local figures *do* establish is that the
+   protocol adds no meaningful overhead of its own: the round trip is bounded by message
+   transport, not by anything CrossStock does.
+2. **A measurement harness can be the thing under test.** The 4,100 ms figure was stable,
+   plausible and repeatable, which is exactly why it went unquestioned. Treat suspiciously
+   round numbers that match a library's default timing constant as a red flag.

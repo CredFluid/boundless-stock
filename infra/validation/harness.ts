@@ -5,6 +5,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { loadConfig, allChains } from "../lib/config.js";
 import { loadManifestAt, loadManifest } from "../lib/manifest.js";
 import { forgeArtifact } from "../lib/artifacts.js";
+import { Options } from "../lib/options.js";
+import { toBytes32 } from "../lib/address.js";
 import { Relayer } from "../relayer.js";
 
 /** Anvil account #1 — the end user, deliberately not the deployer. */
@@ -75,7 +77,7 @@ export class Harness {
     this.manifest = manifest;
     this.chains = buildChains(allChains(config));
     this.relayer = manifest.environment === "local" ? new Relayer(manifest, this.chains) : null;
-    if (this.relayer) this.relayer.verbose = false;
+    if (this.relayer) this.relayer.verbose = process.env.RELAY_VERBOSE === "1";
   }
 
   static async create(opts: { config?: string; manifest?: string }): Promise<Harness> {
@@ -202,6 +204,42 @@ export class Harness {
     const rawQuotePerBase = baseIsToken0 ? rawToken1PerToken0 : 1 / rawToken1PerToken0;
 
     return rawQuotePerBase * 10 ** (this.tokenDecimals - this.quoteDecimals);
+  }
+
+
+  /**
+   * Makes sure the end user holds at least `amount` of the omnichain asset on a mirror chain,
+   * bridging from the home chain if not.
+   *
+   * Setup, not part of any proof: the user has to get the asset onto the mirror somehow, and
+   * the direct bridge (already validated by scenario 1) is how. Note what this does *not* do —
+   * it never puts the quote asset or any liquidity on the mirror chain, because that is
+   * precisely the thing being claimed absent.
+   */
+  async ensureUserFunded(mirrorKey: string, amount: bigint): Promise<void> {
+    const held = await this.tokenBalance(mirrorKey, this.userAddress);
+    if (held >= amount) return;
+
+    const need = amount - held;
+    const oft = this.addr(this.manifest.homeChainKey, "TokenizedStock");
+    const sendParam = {
+      dstEid: this.eid(mirrorKey),
+      to: toBytes32(this.userAddress),
+      amountLD: need,
+      minAmountLD: 0n,
+      extraOptions: Options.new().addExecutorLzReceive(200_000n).build(),
+      composeMsg: "0x" as const,
+      oftCmd: "0x" as const,
+    };
+    const fee = await this.home.read<{ nativeFee: bigint; lzTokenFee: bigint }>(oft, OFT_ABI, "quoteSend", [
+      sendParam,
+      false,
+    ]);
+    await this.home.write(oft, OFT_ABI, "send", [sendParam, fee, this.home.deployer], fee.nativeFee);
+    await this.waitFor(
+      "user funding to arrive",
+      async () => (await this.tokenBalance(mirrorKey, this.userAddress)) >= amount
+    );
   }
 
   async getRequest(mirrorKey: string, requestId: bigint): Promise<RequestRecord> {

@@ -251,15 +251,21 @@ export class Relayer {
 
   private async drainChain(ep: Endpoint): Promise<number> {
     const head = await ep.chain.publicClient.getBlockNumber();
-    if (head <= ep.cursor) return 0;
+    if (head <= ep.cursor) {
+      if (this.verbose) log.dim(`scan eid ${ep.eid}: SKIP (head ${head} <= cursor ${ep.cursor})`);
+      return 0;
+    }
 
+    const from = ep.cursor + 1n;
     const logs = await ep.chain.publicClient.getLogs({
       address: ep.endpoint,
       event: ENDPOINT_ABI[0],
-      fromBlock: ep.cursor + 1n,
+      fromBlock: from,
       toBlock: head,
     });
     ep.cursor = head;
+
+    if (this.verbose) log.dim(`scan eid ${ep.eid}: blocks ${from}-${head}, ${logs.length} PacketSent`);
 
     let count = 0;
     for (const entry of logs) {
