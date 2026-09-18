@@ -93,3 +93,59 @@ The user's EOA address is the same across all EVM chains, so "delivered to the u
 on the home chain" needs no extra identity mapping today. **That assumption breaks for Solana**
 (different key format, different address space) and breaks for smart-contract wallets, which
 are *not* guaranteed to share an address across chains. Flagged in `agents.md` §9.
+
+---
+
+### [2026-09-18] Peer wiring is directed, and "bidirectional" means two separate writes
+**Milestone:** M3 — peer wiring
+
+**What happened / what to know:** `setPeer(eid, peer)` sets *one direction only*. A path from
+Base Sepolia to Arbitrum Sepolia needs `setPeer` called on the Base contract naming Arbitrum's
+address **and** on the Arbitrum contract naming Base's address. Setting one and assuming the
+other exists produces a deployment where sends succeed and deliveries silently fail.
+
+The infra therefore treats the wiring as a set of *directed* links: the OFT uses a full mesh
+(n·(n−1) links — 6 for three chains) so the token can move between mirrors directly, and the
+relay pair uses a star with the home chain as hub (2·m links — 4 for two mirrors), since a
+SwapRequest only ever talks to the home SwapRelay.
+
+**Why it matters / what breaks if ignored:** Every `setPeer` is followed by reading `peers(eid)`
+straight back off the chain and comparing before moving to the next link. This is not
+defensive padding — an unverified peer produces a deployment that looks complete and then drops
+messages at runtime, which is expensive to debug and nearly free to prevent. The read-back also
+catches the redeploy case: if a peer slot is already non-zero and different, the infra logs a
+warning that it is repointing a live path rather than silently overwriting it.
+
+---
+
+### [2026-09-18] Local chain ids and eids deliberately match the real testnets
+**Milestone:** M1–M3
+
+**What happened / what to know:** `config/localnet.json` uses the *real* chain ids (84532,
+421614, 11155420) and the *real* LayerZero eids (40245, 40231, 40232) even though the chains
+are local anvil instances.
+
+**Why it matters / what breaks if ignored:** It makes the reusability claim checkable with a
+diff instead of a promise. `diff config/localnet.json config/testnet.json` differs only in
+`name`, `rpcUrl`, `lzEndpoint`, `explorer`, and the Uniswap `factory` field. Token parameters,
+pool parameters, relay gas parameters and the entire chain topology are identical, and **no
+module code differs between a local run and a live run**.
+
+`Chain.preflight()` asserts that the chain id the RPC reports matches the chain id in config
+before anything is deployed, so a copy-pasted RPC URL pointing at the wrong network is refused
+up front rather than discovered after contracts are live on it.
+
+---
+
+### [2026-09-18] Anvil needs `--disable-code-size-limit` for Uniswap's position manager
+**Milestone:** M4 prep
+
+**What happened / what to know:** `NonfungiblePositionManager`'s creation bytecode is ~25 KB
+and its runtime code sits right at the EIP-170 24,576-byte limit. Deploying it to a default
+anvil instance is marginal, so `infra/localnet.ts` starts every node with
+`--disable-code-size-limit`.
+
+**Why it matters / what breaks if ignored:** The failure mode is a deployment revert with no
+useful message, which reads like a CrossStock bug and is not one. The flag affects only the
+local environment — live chains already host these contracts, and the infra uses the canonical
+factory address from config there.

@@ -9,3 +9,6 @@ broadcast/
 .DS_Store
 deployments/*.local.json
 .localnet/
+
+# Manifests are generated. The one committed at M6 is the record of a real run.
+deployments/*.manifest.json

@@ -181,22 +181,33 @@ Individual scenarios can be run on their own; see §6 for what each one proves.
 
 ## 7. Current state
 
-**Milestone 0 — repo + documentation scaffold. IN PROGRESS.**
+**Milestones 1–3 complete: token deployment, mirror deployment, peer wiring.**
 
 | Area | State |
 |---|---|
-| `agents.md` / `NOTES.md` | ✅ created |
-| Repo scaffold, Foundry + node toolchain | ✅ created |
-| Solidity dependencies (LayerZero V2, OZ v5, Uniswap V3) | ⏳ installing |
-| Module 1 — token deployment | ⬜ not started |
-| Module 2 — mirror deployment | ⬜ not started |
-| Module 3 — peer wiring | ⬜ not started |
+| `agents.md` / `NOTES.md` | ✅ current |
+| Contracts: `TokenizedStock` (OFT), `USDCMock` | ✅ built, deployed, verified on-chain |
+| Local 3-chain environment (real `EndpointV2` per chain + relayer) | ✅ working |
+| Module 0 — endpoint bootstrap | ✅ deploys/uses LayerZero endpoint per chain |
+| Module 1 — token deployment | ✅ home token + pairing asset, supply verified on-chain |
+| Module 2 — mirror deployment | ✅ loops mirror list, both mirrors deployed with supply 0 (verified) |
+| Module 3 — peer wiring | ✅ **6/6 OFT mesh links verified bidirectionally by read-back** |
 | Module 4 — pool deployment | ⬜ not started |
 | Module 5 — relay contracts | ⬜ not started |
 | Module 6 — manifest | ⬜ not started |
 | Validation 1–5 | ⬜ not started |
 
-**Core proof point (scenario 2): NOT YET PROVEN.**
+**Core proof point (scenario 2): NOT YET PROVEN.** Requires modules 4–6.
+
+### What runs today
+
+```bash
+npm run chains:up
+npm run deploy -- --config config/localnet.json
+```
+
+Deploys tAAPL + USDC on the home chain, an empty tAAPL on each of the two mirror chains, and
+wires the full OFT peer mesh with read-back verification on every link.
 
 ---
 
