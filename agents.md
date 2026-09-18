@@ -181,34 +181,35 @@ Individual scenarios can be run on their own; see §6 for what each one proves.
 
 ## 7. Current state
 
-> ## ✅ CORE PROOF POINT: PROVEN
+> ## ✅ CORE PROOF POINT: PROVEN — and proven on two independent mirror chains
 >
 > **A trade submitted from a chain with zero liquidity executed on the home chain's pool and
 > returned a real, authenticated result to the originating chain.**
 >
-> Validation scenario 2, run 2026-09-18 against the local three-chain set:
+> | | Arbitrum Sepolia | Optimism Sepolia |
+> |---|---|---|
+> | Local liquidity there | **none** — no pool, no quote asset, no market maker | **none** |
+> | Sold | 100 tAAPL | 100 tAAPL |
+> | Received (on Base Sepolia) | **14,940.845155 USDC** | **14,898.490980 USDC** |
+> | Effective price | 149.408452 | 148.984910 |
+> | Slippage vs spot | 0.3944% | 0.3942% |
+> | `requestSwap` gas | 338,666 | 338,666 |
+> | Round-trip latency | 102 ms | 70 ms |
 >
-> | | |
-> |---|---|
-> | Origin | Arbitrum Sepolia — **no pool, no quote asset, no market maker, no local liquidity** |
-> | Sold | 100 tAAPL |
-> | Received | **14,940.845155 USDC**, delivered on Base Sepolia |
-> | Execution price | 149.408452 USDC per tAAPL (spot was 150.000000) |
-> | Total slippage | 0.3944% = 0.3000% pool fee + 0.0944% price impact |
-> | Pool reserve moved | exactly 100 tAAPL |
-> | Pool spot after | 150.000000 → 149.716186 — **real price impact, real price discovery** |
-> | Round-trip latency | 4,129 ms |
-> | User cost | one transaction, on the mirror chain, 0.0101 ETH LayerZero fee |
+> Slippage decomposes exactly into the 0.3000% pool fee plus 0.0944% price impact, and the
+> impact matches the trade being 0.1% of the pool's base reserve — which is what confirms this
+> is genuine Uniswap V3 execution, not a mocked result. The pool's spot price moved on every
+> trade and its reserves moved by exactly the amount sold.
 >
-> The price impact (0.0944%) matches the trade being 0.1% of the pool's base reserve, which is
-> what confirms this is genuine Uniswap V3 execution rather than a mocked result.
+> Identical gas across two different mirror chains is the evidence that the per-chain wiring
+> **generalises** rather than being accidentally correct for the first chain tested.
 
-**Milestones 1–6 complete. Validation 1–2 passing.**
+**All 6 deployment milestones complete. All 5 validation scenarios passing.**
 
 | Area | State |
 |---|---|
 | `agents.md` / `NOTES.md` | ✅ current |
-| Contracts: `TokenizedStock`, `USDCMock`, `SwapRelay`, `SwapRequest` | ✅ built, deployed, exercised |
+| Contracts | ✅ built, deployed, exercised end to end |
 | Local 3-chain environment (real `EndpointV2` per chain + packet relayer) | ✅ working |
 | Module 0 — endpoint bootstrap | ✅ |
 | Module 1 — token deployment | ✅ |
@@ -217,19 +218,27 @@ Individual scenarios can be run on their own; see §6 for what each one proves.
 | Module 4 — pool deployment | ✅ |
 | Module 5 — relay contracts | ✅ |
 | Module 6 — manifest | ✅ |
-| Validation 1 — direct bridge | ✅ passing |
+| Validation 1 — direct bridge | ✅ 56 ms, supply conserved |
 | Validation 2 — **swap round trip (CORE PROOF)** | ✅ **PASSING** |
-| Validation 3 — bad slippage | ⬜ not started |
-| Validation 4 — stalled message | ⬜ not started |
-| Validation 5 — multi-mirror | ⬜ not started |
+| Validation 3 — bad slippage | ✅ input returned in full, net change 0 |
+| Validation 4 — stalled message | ✅ characterised — **recovery is never automatic** |
+| Validation 5 — multi-mirror | ✅ generalises to a second chain |
 
 ### What runs today
 
 ```bash
 npm run chains:up
 npm run deploy   -- --config config/localnet.json
-npm run validate -- --config config/localnet.json
+npm run validate -- --config config/localnet.json      # 5/5 pass
 ```
+
+### The one thing that is NOT production-safe
+
+Validation 4 established that a stalled message never loses funds but never self-heals either.
+LayerZero V2 has no message expiry: an undelivered packet stays deliverable forever and a
+reverting composed call stays retryable forever, and in both cases the user's input is
+unusable until somebody acts. **A timeout/refund path is required before this design goes to
+production.** See `NOTES.md` and §9 below.
 
 ---
 

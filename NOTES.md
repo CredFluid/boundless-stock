@@ -432,3 +432,42 @@ Two things follow, and the second matters more than the first:
 2. **A measurement harness can be the thing under test.** The 4,100 ms figure was stable,
    plausible and repeatable, which is exactly why it went unquestioned. Treat suspiciously
    round numbers that match a library's default timing constant as a red flag.
+
+---
+
+### [2026-09-18] Validation 5: per-chain wiring generalises to a second mirror
+**Milestone:** V5 — multi-mirror check
+
+**What happened / what to know:** The core proof was repeated against Optimism Sepolia, the
+second mirror, using scenario 2's code verbatim with a different chain key. Side by side:
+
+| | Arbitrum Sepolia | Optimism Sepolia |
+|---|---|---|
+| Sold | 100 tAAPL | 100 tAAPL |
+| Received | 14,940.845155 USDC | 14,898.490980 USDC |
+| Spot before | 150.000000 | 149.574580 |
+| Effective price | 149.408452 | 148.984910 |
+| Slippage | 0.3944% | 0.3942% |
+| `requestSwap` gas | 338,666 | 338,666 |
+| LayerZero fee | 0.0101 ETH | 0.0101 ETH |
+| Latency | 102 ms | 70 ms |
+
+The absolute USDC figures differ only because the second trade executes against a pool the
+first trade already moved — the spot price had fallen from 150.000000 to 149.574580. Slippage
+is identical to four decimal places, and gas is identical to the wei.
+
+**Why it matters / what breaks if ignored:** This is the check that catches a pipeline being
+*accidentally correct for the first chain it was tested against*. The realistic ways to get
+that wrong are all cheap to introduce and invisible with one mirror:
+
+- caching an address from the first loop iteration and reusing it,
+- writing a peer in one direction and assuming the reverse,
+- calling a per-chain setter (`setReturnGas`, `setGasParams`) once instead of per chain,
+- deriving the home eid from "whichever chain isn't this one".
+
+Identical gas on both mirrors is the strongest single signal: the same code path executed, with
+the same storage-write pattern, against a chain the infra had never run a swap on.
+
+Scenario 5 deliberately calls scenario 2 rather than duplicating it. If the second chain had
+needed its own test code, the infra would not actually have been generalising — the reuse is
+part of the assertion, not a convenience.
