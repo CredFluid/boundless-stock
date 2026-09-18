@@ -9,12 +9,19 @@ import {
   type PublicClient,
   type WalletClient,
   type TransactionReceipt,
+  encodeDeployData,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ChainConfig } from "./types.js";
 import type { Artifact } from "./artifacts.js";
 
 /** Anvil's first default account. Used only when no DEPLOYER_PRIVATE_KEY is configured. */
+/**
+ * Safety margin applied on top of every gas estimate. 1.4x is chosen to clear the cold-SSTORE
+ * boundary comfortably while still failing fast on a genuinely runaway call.
+ */
+export const GAS_MARGIN = 1.4;
+
 export const ANVIL_KEY_0: Hex = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
 export function deployerKey(): Hex {
@@ -71,6 +78,13 @@ export class Chain {
       args: args as never,
       account: this.account,
       chain: this.walletClient.chain,
+      gas: await this.gasWithMargin(() =>
+        this.publicClient.estimateGas({
+          account: this.account,
+          data: encodeDeployData({ abi: artifact.abi, bytecode: artifact.bytecode, args: args as never }),
+          ...(value !== undefined ? { value } : {}),
+        })
+      ),
       ...(value !== undefined ? { value } : {}),
     } as never);
     const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
@@ -94,7 +108,19 @@ export class Chain {
       account: this.account,
       ...(value !== undefined ? { value } : {}),
     });
-    const hash = await this.walletClient.writeContract(request as never);
+
+    const gas = await this.gasWithMargin(() =>
+      this.publicClient.estimateContractGas({
+        address,
+        abi,
+        functionName,
+        args: args as never,
+        account: this.account,
+        ...(value !== undefined ? { value } : {}),
+      })
+    );
+
+    const hash = await this.walletClient.writeContract({ ...(request as object), gas } as never);
     const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
     if (receipt.status !== "success") {
       throw new Error(`${functionName}() reverted on ${this.name} (tx ${hash}).`);
@@ -124,6 +150,25 @@ export class Chain {
       functionName,
       args: args as never,
     })) as T;
+  }
+
+  /**
+   * Gas limit for a write: the node's estimate plus a safety margin.
+   *
+   * A bare `eth_estimateGas` result is the minimum sufficient for the *simulated* state, and
+   * writes whose cost is dominated by cold SSTOREs land close enough to that boundary to
+   * revert once mined. That failure mode is particularly bad for a deployment pipeline: the
+   * transaction does real work, runs out of gas at the tail, and leaves chain state half
+   * changed while the pipeline reports a failure. See NOTES.md, M4.
+   *
+   * The margin is capped at the block gas limit so a large deployment still fits in a block.
+   */
+  private async gasWithMargin(estimate: () => Promise<bigint>): Promise<bigint> {
+    const raw = await estimate();
+    const padded = (raw * BigInt(Math.round(GAS_MARGIN * 100))) / 100n;
+    const block = await this.publicClient.getBlock({ blockTag: "latest" });
+    const ceiling = (block.gasLimit * 9n) / 10n;
+    return padded > ceiling ? ceiling : padded;
   }
 
   async balance(address?: Address): Promise<bigint> {

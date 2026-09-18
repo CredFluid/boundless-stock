@@ -189,3 +189,48 @@ Two lessons worth carrying to production:
    redeploy reproduces the previous ordering. `infra/lib/uniswap.ts` already computes ordering
    from the addresses — this incident is what confirms that was necessary rather than
    fastidious.
+
+---
+
+### [2026-09-18] M4 FIX: explicit gas estimation with a 1.4x margin on every write
+**Milestone:** M4 — pool deployment (the fix)
+
+**What happened / what to know:** `Chain.deploy()` and `Chain.write()` now estimate gas
+explicitly and apply a 1.4x margin, capped at 90% of the block gas limit. Previously they let
+`writeContract` fall back to a bare `eth_estimateGas`.
+
+**Why it matters / what breaks if ignored:** Verified against both token orderings, since the
+ordering is what flipped the cost over the cliff. Three consecutive fresh deployments:
+
+| Run | token0 | Pool seeded | mint gas used |
+|---|---|---|---|
+| 1 | tAAPL | ✅ | 603,752 |
+| 2 | USDC | ✅ | 603,528 |
+| 3 | USDC | ✅ | 603,528 |
+
+Run 1 is the ordering that previously failed. The actual gas used barely differs between
+orderings (224 gas) — which confirms the estimate was the problem, not the call. The margin
+applies to *every* infra write, so the class of bug is closed rather than the one instance.
+
+One thing this does not fix: on a live chain, a transaction can still fail on *price* rather
+than gas limit, if the base fee moves between estimation and inclusion. That needs retry
+logic with fee bumping before this is production-safe. Not implemented — flagged in
+`agents.md` §9.
+
+---
+
+### [2026-09-18] Pool reserves do not exactly match the configured seed amounts
+**Milestone:** M4 — pool deployment
+
+**What happened / what to know:** Config asks for 100,000 tAAPL and 15,000,000 USDC. The pool
+ends up holding 99,999.999999999999926594 tAAPL and 14,998,807.794277 USDC.
+
+**Why it matters / what breaks if ignored:** This is correct Uniswap V3 behaviour, not a bug,
+and it will look like one to whoever reads the manifest next. A V3 position is defined by a
+liquidity value `L` over a tick range, not by two token amounts. The position manager takes
+the desired amounts as *maxima*, computes the largest `L` that both can support, and pulls only
+what that `L` actually requires — here, the tAAPL side binds and ~1,192 USDC is left unused.
+
+Practical consequences: don't assert exact reserve equality in tests, and read the pool's real
+reserves from the manifest (module 4 records what the chain reports, not what config asked
+for) rather than recomputing them from the config figures.
