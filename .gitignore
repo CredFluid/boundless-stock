@@ -1,0 +1,11 @@
+node_modules/
+cache/
+out/
+broadcast/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+deployments/*.local.json
+.localnet/

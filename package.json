@@ -1,0 +1,34 @@
+{
+  "name": "crossstock-infra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CrossStock — config-driven omnichain token deployment infrastructure (LayerZero V2)",
+  "type": "module",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test -vv",
+    "chains:up": "tsx infra/localnet.ts up",
+    "chains:down": "tsx infra/localnet.ts down",
+    "relayer": "tsx infra/relayer.ts",
+    "deploy": "tsx infra/deploy.ts",
+    "validate": "tsx infra/validate.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@layerzerolabs/lz-evm-messagelib-v2": "^3.0.168",
+    "@layerzerolabs/lz-evm-protocol-v2": "^3.0.168",
+    "@layerzerolabs/oapp-evm": "^0.3.3",
+    "@layerzerolabs/oft-evm": "^3.2.1",
+    "@layerzerolabs/test-devtools-evm-foundry": "^6.0.3",
+    "@openzeppelin/contracts": "^5.6.1",
+    "@openzeppelin/contracts-upgradeable": "^5.6.1",
+    "@uniswap/v3-core": "^1.0.1",
+    "@uniswap/v3-periphery": "^1.4.4",
+    "solidity-bytes-utils": "^0.8.4",
+    "viem": "^2.21.55"
+  }
+}
