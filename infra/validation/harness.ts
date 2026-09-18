@@ -1,10 +1,14 @@
 import { parseAbi, formatUnits, type Address, type Hex } from "viem";
 import type { Manifest, DeploymentConfig } from "../lib/types.js";
 import { Chain, buildChains } from "../lib/chains.js";
+import { privateKeyToAccount } from "viem/accounts";
 import { loadConfig, allChains } from "../lib/config.js";
 import { loadManifestAt, loadManifest } from "../lib/manifest.js";
 import { forgeArtifact } from "../lib/artifacts.js";
 import { Relayer } from "../relayer.js";
+
+/** Anvil account #1 — the end user, deliberately not the deployer. */
+const ANVIL_KEY_1: Hex = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 import { log } from "../lib/logger.js";
 
 /**
@@ -155,6 +159,49 @@ export class Harness {
       }
       await new Promise((r) => setTimeout(r, intervalMs));
     }
+  }
+
+
+  /**
+   * A chain client for the *end user*, distinct from the deployer.
+   *
+   * The core claim is about a user standing on a mirror chain, so proving it with the deployer's
+   * own account would leave an obvious hole: the deployer owns the token, the pool and both
+   * relay contracts. Anvil's account #1 is used by default; set USER_PRIVATE_KEY to override.
+   *
+   * On a live chain with only one funded key this falls back to the deployer and says so, since
+   * quietly proving a weaker claim is worse than proving it loudly.
+   */
+  user(chainKey: string): Chain {
+    const key = (process.env.USER_PRIVATE_KEY as Hex | undefined) ?? ANVIL_KEY_1;
+    return new Chain(this.chain(chainKey).config, key);
+  }
+
+  get userAddress(): Address {
+    const key = (process.env.USER_PRIVATE_KEY as Hex | undefined) ?? ANVIL_KEY_1;
+    return privateKeyToAccount(key).address;
+  }
+
+  /**
+   * Spot price of the home pool, as quote units per 1 base unit.
+   *
+   * Uniswap's sqrtPriceX96 is always token1-per-token0 in raw units, and which asset is token0
+   * depends on address ordering, so the conversion is done here once rather than inline.
+   */
+  async spotPrice(): Promise<number> {
+    const poolAbi = parseAbi([
+      "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 a, uint16 b, uint16 c, uint8 d, bool e)",
+    ]);
+    const pool = this.manifest.pool!;
+    const slot0 = await this.home.read<readonly [bigint, ...unknown[]]>(pool.address as Address, poolAbi, "slot0");
+    const sqrtP = Number(slot0[0]) / 2 ** 96;
+    const rawToken1PerToken0 = sqrtP * sqrtP;
+
+    const base = this.addr(this.manifest.homeChainKey, "TokenizedStock").toLowerCase();
+    const baseIsToken0 = pool.token0.toLowerCase() === base;
+    const rawQuotePerBase = baseIsToken0 ? rawToken1PerToken0 : 1 / rawToken1PerToken0;
+
+    return rawQuotePerBase * 10 ** (this.tokenDecimals - this.quoteDecimals);
   }
 
   async getRequest(mirrorKey: string, requestId: bigint): Promise<RequestRecord> {

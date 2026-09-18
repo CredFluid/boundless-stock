@@ -263,3 +263,47 @@ Two places this shows up concretely:
 across an OFT hop is wrong, and the discrepancy is small enough to pass casual testing and
 then accumulate. Never compute an expected destination balance by adding the requested amount;
 read what the OFT reports it actually sent.
+
+---
+
+### [2026-09-18] ✅ CORE PROOF: zero-liquidity cross-chain trade works end to end
+**Milestone:** V2 — full swap-relay round trip
+
+**What happened / what to know:** A user on Arbitrum Sepolia — a chain with no pool, no quote
+asset, no market maker and no local liquidity of any kind — sold 100 tAAPL and received
+14,940.845155 USDC on Base Sepolia. One transaction, submitted on the mirror chain, paying
+0.0101 ETH in LayerZero fees. Round trip 4,129 ms.
+
+The numbers decompose exactly, which is what makes this a proof rather than a demo:
+
+| Component | Value |
+|---|---|
+| Gross at spot (150.000000) | 15,000.000000 USDC |
+| Less 0.30% pool fee | 14,955.000000 USDC |
+| Actual received | 14,940.845155 USDC |
+| Residual = price impact | 14.154845 USDC (0.0944%) |
+| Trade as share of base reserve | 0.1000% |
+
+Price impact of 0.0944% against a trade worth 0.1000% of the base reserve is exactly what
+Uniswap V3 tick math produces for a swap of that size. The pool's spot price moved
+150.000000 → 149.716186 and its base reserve moved by exactly the 100 tAAPL sold. A mocked or
+shortcut execution would not reproduce that relationship.
+
+**Why it matters / what breaks if ignored:** The assertions deliberately do not trust the
+contracts' own reporting. The scenario cross-checks four independent sources: the settlement
+receipt the mirror chain received, the user's actual USDC balance change on the home chain,
+the pool's base reserve delta, and the pool's spot price movement. The receipt matching the
+balance matters most — a relay that reported a number it had not actually delivered would pass
+a weaker test.
+
+Design points confirmed by this run:
+
+1. **Coupling tokens to the instruction works.** The order rides as the `composeMsg` of the OFT
+   `send()`, so the relay physically cannot be asked to execute an order whose funds have not
+   arrived. No separate "did the money land" check is needed.
+2. **One user transaction covers the whole round trip.** The return-leg fee is pre-paid via the
+   `lzCompose` value in the executor options, forwarded to SwapRelay, and spent there. The user
+   never touches the home chain.
+3. **The user's EOA address is the same on both chains**, so "delivered to the user's address on
+   the home chain" needs no identity mapping today. This breaks for Solana and for
+   smart-contract wallets — see `agents.md` §9.
