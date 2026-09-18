@@ -149,3 +149,43 @@ anvil instance is marginal, so `infra/localnet.ts` starts every node with
 useful message, which reads like a CrossStock bug and is not one. The flag affects only the
 local environment — live chains already host these contracts, and the infra uses the canonical
 factory address from config there.
+
+---
+
+### [2026-09-18] M4 FAILURE: pool seeding ran out of gas, non-deterministically
+**Milestone:** M4 — pool deployment (failure state, committed before the fix)
+
+**What happened / what to know:** `NonfungiblePositionManager.mint()` reverted with `OutOfGas`
+— but only on the *second* deployment run, against the same code that had succeeded on the
+first. The trace shows the mint fully executing: tokens transferred into the pool, `Mint`
+emitted with `amount0 = 99999999999999999926594`, `amount1 = 14998807794277`, position
+recorded — and then running out of gas on the tail of the call. Gas used: 606,552.
+
+Root cause is gas *estimation*, not the mint itself. `viem`'s `simulateContract` →
+`writeContract` path does not attach a gas limit, so the gas comes from `eth_estimateGas`,
+whose binary search lands on a figure that is exactly sufficient for the simulated state and
+marginally insufficient once mined. An NFT mint whose cost is dominated by cold SSTOREs sits
+right on that boundary, which is why it passed once and failed once with no code change.
+
+The run-to-run difference that exposed it: **token ordering flipped between runs.** Uniswap
+orders `token0`/`token1` by address, and redeploying produced a tAAPL address lower than
+USDC's where the first run produced the reverse. Different ordering means different storage
+slots written and a slightly different gas profile. Both orderings are correct; only one was
+over the estimation cliff.
+
+**Why it matters / what breaks if ignored:** This is a latent failure in *every* write the
+infra makes, not just the mint. Any deployment step could land on the wrong side of an
+estimate and revert after doing real work — which is the worst possible failure mode for a
+deployment pipeline, because the chain state is half-changed and the manifest says the step
+failed. Live chains make this worse, not better: estimates there contend with real mempool
+dynamics and fluctuating base fees.
+
+Two lessons worth carrying to production:
+
+1. **Never rely on a bare gas estimate for a deployment write.** Fixed in the next commit by
+   estimating explicitly and applying a safety multiplier in `Chain.write()` / `Chain.deploy()`.
+2. **Token ordering is not stable across deployments.** Anything that depends on which asset is
+   `token0` must derive it from the addresses at runtime, never cache it, and never assume a
+   redeploy reproduces the previous ordering. `infra/lib/uniswap.ts` already computes ordering
+   from the addresses — this incident is what confirms that was necessary rather than
+   fastidious.

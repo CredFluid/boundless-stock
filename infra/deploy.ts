@@ -16,6 +16,7 @@ import { ensureEndpoints } from "./modules/00-endpoints.js";
 import { deployHomeToken } from "./modules/01-token.js";
 import { deployMirrorTokens } from "./modules/02-mirrors.js";
 import { wirePeers, type PeerNode } from "./modules/03-peers.js";
+import { deployPool } from "./modules/04-pool.js";
 import { log } from "./lib/logger.js";
 import type { Address } from "viem";
 
@@ -80,11 +81,12 @@ async function main(): Promise<void> {
   }
   log.ok(`OFT mesh: ${oftWiring.verified}/${oftWiring.wired} links verified bidirectionally`);
 
+  await deployPool(cfg, chains, manifest);
   const path = saveManifest(manifest);
 
-  log.banner("Token + mirrors deployed and peer-wired");
+  log.banner("Token, mirrors, peer wiring and home-chain pool are live");
   log.info(`Manifest: ${path}`);
-  log.warn("Pool, relay contracts and manifest finalisation are not implemented yet.");
+  log.warn("Relay contracts and manifest finalisation are not wired into the pipeline yet.");
 }
 
 main().catch((e) => {
