@@ -234,3 +234,32 @@ what that `L` actually requires — here, the tAAPL side binds and ~1,192 USDC i
 Practical consequences: don't assert exact reserve equality in tests, and read the pool's real
 reserves from the manifest (module 4 records what the chain reports, not what config asked
 for) rather than recomputing them from the config figures.
+
+---
+
+### [2026-09-18] Validation 1: bridge works; OFT shared decimals quantise every transfer
+**Milestone:** V1 — direct bridge sanity check
+
+**What happened / what to know:** 1,000 tAAPL moved Base Sepolia → Arbitrum Sepolia. Home
+debited exactly 1,000, mirror credited exactly 1,000, aggregate supply across all three chains
+unchanged at 1,000,000. Latency 4,100 ms locally, send gas 120,443, LayerZero fee 1e14 wei
+(the local message library's configured flat base fee — **not** a real-world figure).
+
+The important nuance is `sharedDecimals`. A LayerZero OFT bridges amounts at 6 decimals of
+precision regardless of the token's own decimals. For an 18-decimal token that means the
+bottom **12 decimal places are silently dropped** on every `send()`: the OFT debits only the
+quantised amount and leaves the remainder in the caller's balance.
+
+Two places this shows up concretely:
+
+- The home deployer balance reads `900000.000000000000073406 tAAPL` rather than a round number.
+  That `0.000000000000073406` is dust left over from pool seeding, not a rounding error.
+- `SwapRequest.requestSwap()` must return the dust to the user. If it did not, every request
+  would strand a sliver of the user's input in the contract forever. It reads
+  `oftReceipt.amountSentLD` from the send and refunds `amountIn - amountSentLD` explicitly,
+  and records the *sent* amount as the request's `amountIn` so the receipt reconciles.
+
+**Why it matters / what breaks if ignored:** Any code that assumes `amountSent == amountRequested`
+across an OFT hop is wrong, and the discrepancy is small enough to pass casual testing and
+then accumulate. Never compute an expected destination balance by adding the requested amount;
+read what the OFT reports it actually sent.

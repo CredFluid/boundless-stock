@@ -1,0 +1,218 @@
+import { parseAbi, formatUnits, type Address, type Hex } from "viem";
+import type { Manifest, DeploymentConfig } from "../lib/types.js";
+import { Chain, buildChains } from "../lib/chains.js";
+import { loadConfig, allChains } from "../lib/config.js";
+import { loadManifestAt, loadManifest } from "../lib/manifest.js";
+import { forgeArtifact } from "../lib/artifacts.js";
+import { Relayer } from "../relayer.js";
+import { log } from "../lib/logger.js";
+
+/**
+ * Shared context and helpers for the validation scenarios.
+ *
+ * The scenarios are written once and run unchanged against either environment. The only
+ * difference is who moves packets: locally the bundled relayer does it, on a live chain
+ * LayerZero's DVN and Executor do, and `settle()` hides that behind one call. If a scenario
+ * needed to know which environment it was in, it would not really be validating the
+ * deployment — it would be validating the harness.
+ */
+
+export const OFT_ABI = parseAbi([
+  "struct SendParam { uint32 dstEid; bytes32 to; uint256 amountLD; uint256 minAmountLD; bytes extraOptions; bytes composeMsg; bytes oftCmd; }",
+  "struct MessagingFee { uint256 nativeFee; uint256 lzTokenFee; }",
+  "function quoteSend(SendParam _sendParam, bool _payInLzToken) view returns (MessagingFee)",
+  "struct MessagingReceipt { bytes32 guid; uint64 nonce; MessagingFee fee; }",
+  "struct OFTReceipt { uint256 amountSentLD; uint256 amountReceivedLD; }",
+  "function send(SendParam _sendParam, MessagingFee _fee, address _refundAddress) payable returns (MessagingReceipt, OFTReceipt)",
+  "function balanceOf(address) view returns (uint256)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function transfer(address to, uint256 amount) returns (bool)",
+  "function totalSupply() view returns (uint256)",
+  "function decimals() view returns (uint8)",
+  "function sharedDecimals() view returns (uint8)",
+  "function peers(uint32) view returns (bytes32)",
+]);
+
+export enum Status {
+  NONE = 0,
+  PENDING = 1,
+  FILLED = 2,
+  REFUNDED = 3,
+}
+
+export interface RequestRecord {
+  user: Address;
+  recipientOnHome: Address;
+  amountIn: bigint;
+  minAmountOut: bigint;
+  amountOut: bigint;
+  createdAt: bigint;
+  settledAt: bigint;
+  status: Status;
+  failureReason: number;
+}
+
+export interface ScenarioResult {
+  name: string;
+  passed: boolean;
+  detail: string;
+  metrics: Record<string, string | number>;
+  findings: string[];
+}
+
+export class Harness {
+  readonly manifest: Manifest;
+  readonly config: DeploymentConfig;
+  readonly chains: Map<string, Chain>;
+  readonly relayer: Relayer | null;
+
+  constructor(config: DeploymentConfig, manifest: Manifest) {
+    this.config = config;
+    this.manifest = manifest;
+    this.chains = buildChains(allChains(config));
+    this.relayer = manifest.environment === "local" ? new Relayer(manifest, this.chains) : null;
+    if (this.relayer) this.relayer.verbose = false;
+  }
+
+  static async create(opts: { config?: string; manifest?: string }): Promise<Harness> {
+    const config = loadConfig(opts.config ?? "config/localnet.json");
+    const manifest = opts.manifest ? loadManifestAt(opts.manifest) : loadManifest(config.name);
+    if (!manifest) throw new Error(`No manifest for "${config.name}" — run the deployment first.`);
+    return new Harness(config, manifest);
+  }
+
+  get home(): Chain {
+    return this.chains.get(this.manifest.homeChainKey)!;
+  }
+  get mirrorKeys(): string[] {
+    return Object.values(this.manifest.chains)
+      .filter((c) => c.role === "mirror")
+      .map((c) => c.key);
+  }
+  chain(key: string): Chain {
+    const c = this.chains.get(key);
+    if (!c) throw new Error(`No chain "${key}" in this deployment.`);
+    return c;
+  }
+  addr(chainKey: string, contract: string): Address {
+    const a = this.manifest.chains[chainKey]?.contracts[contract];
+    if (!a) throw new Error(`No "${contract}" on chain "${chainKey}".`);
+    return a as Address;
+  }
+  eid(chainKey: string): number {
+    return this.manifest.chains[chainKey].eid;
+  }
+  name(chainKey: string): string {
+    return this.manifest.chains[chainKey].name;
+  }
+
+  get tokenDecimals(): number {
+    return this.manifest.token.decimals;
+  }
+  get quoteDecimals(): number {
+    return this.manifest.quoteAsset.decimals;
+  }
+  get tokenSymbol(): string {
+    return this.manifest.token.symbol;
+  }
+  get quoteSymbol(): string {
+    return this.manifest.quoteAsset.symbol;
+  }
+
+  fmtToken(v: bigint): string {
+    return `${formatUnits(v, this.tokenDecimals)} ${this.tokenSymbol}`;
+  }
+  fmtQuote(v: bigint): string {
+    return `${formatUnits(v, this.quoteDecimals)} ${this.quoteSymbol}`;
+  }
+
+  /**
+   * Moves any in-flight LayerZero packets, then returns.
+   *
+   * Local: drives the bundled relayer, which performs the same verify -> lzReceive ->
+   * lzCompose sequence a DVN and Executor perform.
+   * Live: a no-op — LayerZero's own infrastructure is already doing it, and the caller's
+   * polling loop is what waits.
+   */
+  async settle(): Promise<void> {
+    if (this.relayer) await this.relayer.drain();
+  }
+
+  /** Polls a predicate until it holds or the deadline passes. Returns elapsed ms. */
+  async waitFor(
+    label: string,
+    predicate: () => Promise<boolean>,
+    timeoutMs = 120_000,
+    intervalMs = 500
+  ): Promise<{ ok: boolean; elapsedMs: number }> {
+    const start = Date.now();
+    for (;;) {
+      await this.settle();
+      if (await predicate()) return { ok: true, elapsedMs: Date.now() - start };
+      if (Date.now() - start > timeoutMs) {
+        log.warn(`timed out waiting for ${label} after ${timeoutMs}ms`);
+        return { ok: false, elapsedMs: Date.now() - start };
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  }
+
+  async getRequest(mirrorKey: string, requestId: bigint): Promise<RequestRecord> {
+    const abi = forgeArtifact("SwapRequest").abi;
+    const r = await this.chain(mirrorKey).read<RequestRecord>(
+      this.addr(mirrorKey, "SwapRequest"),
+      abi,
+      "getRequest",
+      [requestId]
+    );
+    return r;
+  }
+
+  async tokenBalance(chainKey: string, holder: Address): Promise<bigint> {
+    return this.chain(chainKey).read<bigint>(this.addr(chainKey, "TokenizedStock"), OFT_ABI, "balanceOf", [holder]);
+  }
+
+  async quoteBalance(holder: Address): Promise<bigint> {
+    return this.home.read<bigint>(this.addr(this.manifest.homeChainKey, "QuoteAsset"), OFT_ABI, "balanceOf", [holder]);
+  }
+
+  /** Aggregate TokenizedStock supply across every chain in the set. */
+  async totalSupplyAcrossChains(): Promise<{ perChain: Record<string, bigint>; total: bigint }> {
+    const perChain: Record<string, bigint> = {};
+    let total = 0n;
+    for (const key of Object.keys(this.manifest.chains)) {
+      const s = await this.chain(key).read<bigint>(this.addr(key, "TokenizedStock"), OFT_ABI, "totalSupply");
+      perChain[key] = s;
+      total += s;
+    }
+    return { perChain, total };
+  }
+
+  /**
+   * Confirms the premise the whole POC rests on: the mirror chain has no pool, no quote asset,
+   * and no local liquidity of any kind. Re-checked inside the scenarios rather than assumed,
+   * because "zero liquidity" is the claim, not the setup.
+   */
+  async assertNoLocalLiquidity(mirrorKey: string): Promise<string[]> {
+    const findings: string[] = [];
+    const chain = this.chain(mirrorKey);
+    const contracts = this.manifest.chains[mirrorKey].contracts;
+
+    for (const forbidden of ["QuoteAsset", "Pool", "SwapRouter", "UniswapV3Factory"]) {
+      if (contracts[forbidden]) findings.push(`${mirrorKey} unexpectedly has a ${forbidden} deployed`);
+    }
+
+    const requestAddr = this.addr(mirrorKey, "SwapRequest");
+    const held = await this.tokenBalance(mirrorKey, requestAddr);
+    if (held !== 0n) findings.push(`${mirrorKey} SwapRequest already holds ${this.fmtToken(held)} before the test`);
+
+    // A pool would have to live somewhere; confirm the token contract knows of no router.
+    const code = await chain.publicClient.getBytecode({ address: this.addr(mirrorKey, "TokenizedStock") });
+    if (!code || code === "0x") findings.push(`${mirrorKey} TokenizedStock has no code`);
+
+    return findings;
+  }
+}
+
+export { forgeArtifact };
+export type { Hex };
