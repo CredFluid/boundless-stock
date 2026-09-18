@@ -3,6 +3,7 @@ import { Chain } from "../lib/chains.js";
 import { forgeArtifact } from "../lib/artifacts.js";
 import { setContract, recordStep } from "../lib/manifest.js";
 import { endpointOf } from "./00-endpoints.js";
+import { reuse } from "../lib/reuse.js";
 import { log } from "../lib/logger.js";
 
 /**
@@ -33,20 +34,23 @@ export async function deployMirrorTokens(
 
     log.group(`${mc.name} (mirror, eid ${mc.eid})`);
 
-    const token = await chain.deploy(artifact, [
-      cfg.token.name,
-      cfg.token.symbol,
-      endpoint,
-      chain.deployer,
-      0n, // empty by construction
-    ]);
+    const existing = await reuse(manifest, chain, mc.key, "TokenizedStock");
+    const token =
+      existing ??
+      (await chain.deploy(artifact, [
+        cfg.token.name,
+        cfg.token.symbol,
+        endpoint,
+        chain.deployer,
+        0n, // empty by construction
+      ]));
     log.kv(`${cfg.token.symbol} (OFT)`, token);
 
     const supply = await chain.read<bigint>(token, artifact.abi, "totalSupply");
-    if (supply !== 0n) {
+    if (!existing && supply !== 0n) {
       throw new Error(`Mirror ${mc.name} deployed with non-zero supply ${supply} — zero-liquidity premise violated.`);
     }
-    log.kv("total supply", "0 (verified)");
+    log.kv("total supply", existing ? `${supply} (existing mirror, bridged balance)` : "0 (verified)");
 
     setContract(manifest, mc.key, "TokenizedStock", token);
     deployed[mc.key] = token;

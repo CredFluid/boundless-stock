@@ -24,6 +24,7 @@ function arg(name: string): string | undefined {
 async function main(): Promise<void> {
   const h = await Harness.create({ config: arg("config"), manifest: arg("manifest") });
   const only = arg("only");
+  const mirror = arg("mirror"); // target a specific mirror chain by key
 
   log.banner(`CrossStock validation — ${h.manifest.name}`);
   log.kv("environment", h.manifest.environment);
@@ -38,8 +39,8 @@ async function main(): Promise<void> {
 
   const all: { id: string; run: () => Promise<ScenarioResult> }[] = [
     { id: "1", run: () => scenario1(h) },
-    { id: "2", run: () => scenario2(h) },
-    { id: "3", run: () => scenario3(h) },
+    { id: "2", run: () => scenario2(h, mirror) },
+    { id: "3", run: () => scenario3(h, mirror) },
     { id: "4", run: () => scenario4(h) },
     { id: "5", run: () => scenario5(h) },
   ];

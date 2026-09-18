@@ -5,6 +5,7 @@ import { forgeArtifact } from "../lib/artifacts.js";
 import { setContract, recordStep, getContract } from "../lib/manifest.js";
 import { endpointOf } from "./00-endpoints.js";
 import { wirePeers, type PeerNode } from "./03-peers.js";
+import { reuse } from "../lib/reuse.js";
 import { log } from "../lib/logger.js";
 
 /**
@@ -31,21 +32,25 @@ export async function deployRelays(
   // ---------------------------------------------------------------- home: SwapRelay
 
   log.group(`${home.name} (home)`);
-  const relay = await home.deploy(relayArtifact, [
-    endpointOf(manifest, home.key),
-    home.deployer,
-    getContract(manifest, home.key, "TokenizedStock"),
-    getContract(manifest, home.key, "QuoteAsset"),
-    getContract(manifest, home.key, "SwapRouter"),
-    cfg.pool.feeTier,
-  ]);
+  const existingRelay = await reuse(manifest, home, home.key, "SwapRelay");
+  const relay =
+    existingRelay ??
+    (await home.deploy(relayArtifact, [
+      endpointOf(manifest, home.key),
+      home.deployer,
+      getContract(manifest, home.key, "TokenizedStock"),
+      getContract(manifest, home.key, "QuoteAsset"),
+      getContract(manifest, home.key, "SwapRouter"),
+      cfg.pool.feeTier,
+    ]));
   log.kv("SwapRelay", relay);
   setContract(manifest, home.key, "SwapRelay", relay);
 
   // A buffer, not the primary funding path: each inbound order forwards its own return-leg
   // value via lzCompose. The buffer only covers fee drift between quote and execution.
+  // Only funded on first deployment — an incremental run must not keep topping it up.
   const buffer = parseEther(cfg.relay.relayNativeBuffer);
-  if (buffer > 0n) {
+  if (!existingRelay && buffer > 0n) {
     await home.write(relay, relayArtifact.abi, "fundNative", [], buffer);
     log.kv("native buffer", `${cfg.relay.relayNativeBuffer} ETH`);
   }
@@ -59,12 +64,14 @@ export async function deployRelays(
     const chain = chains.get(mc.key)!;
     log.group(`${mc.name} (mirror)`);
 
-    const request = await chain.deploy(requestArtifact, [
-      endpointOf(manifest, mc.key),
-      chain.deployer,
-      getContract(manifest, mc.key, "TokenizedStock"),
-      cfg.homeChain.eid,
-    ]);
+    const request =
+      (await reuse(manifest, chain, mc.key, "SwapRequest")) ??
+      (await chain.deploy(requestArtifact, [
+        endpointOf(manifest, mc.key),
+        chain.deployer,
+        getContract(manifest, mc.key, "TokenizedStock"),
+        cfg.homeChain.eid,
+      ]));
     log.kv("SwapRequest", request);
 
     await chain.write(request, requestArtifact.abi, "setGasParams", [

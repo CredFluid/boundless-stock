@@ -4,6 +4,7 @@ import { Chain } from "../lib/chains.js";
 import { forgeArtifact, packageArtifact } from "../lib/artifacts.js";
 import { setContract, recordStep, getContract } from "../lib/manifest.js";
 import { priceToSqrtPriceX96, tickSpacingFor, sqrtPriceX96ToTick, nearestUsableTick } from "../lib/uniswap.js";
+import { reuse } from "../lib/reuse.js";
 import { log } from "../lib/logger.js";
 
 const UNI = {
@@ -34,6 +35,25 @@ export async function deployPool(
   const home = chains.get(cfg.homeChain.key)!;
   const base = getContract(manifest, home.key, "TokenizedStock") as Address;
   const quote = getContract(manifest, home.key, "QuoteAsset") as Address;
+
+  // An already-live pool is never re-seeded. Adding a mirror chain must not move the home
+  // chain's price or pull more liquidity from the deployer.
+  const existingPool = await reuse(manifest, home, home.key, "Pool");
+  if (existingPool && manifest.pool) {
+    const poolAbiExisting = packageArtifact(UNI.pool).abi;
+    const liq = await home.read<bigint>(existingPool, poolAbiExisting, "liquidity");
+    const erc20 = forgeArtifact("USDCMock").abi;
+    manifest.pool.liquidity = liq.toString();
+    manifest.pool.reserves = {
+      base: formatUnits(await home.read<bigint>(base, erc20, "balanceOf", [existingPool]), cfg.token.decimals),
+      quote: formatUnits(await home.read<bigint>(quote, erc20, "balanceOf", [existingPool]), cfg.quoteAsset.decimals),
+    };
+    log.ok(`pool already live at ${existingPool} — not re-seeded`);
+    log.kv("liquidity (L)", liq.toString());
+    log.kv("reserves", `${manifest.pool.reserves.base} base / ${manifest.pool.reserves.quote} quote`);
+    recordStep(manifest, "04-pool", "ok", "reused existing pool");
+    return manifest.pool;
+  }
 
   const factoryArtifact = packageArtifact(UNI.factory);
   const routerArtifact = packageArtifact(UNI.router);

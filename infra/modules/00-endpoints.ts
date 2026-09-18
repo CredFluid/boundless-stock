@@ -4,6 +4,7 @@ import { Chain } from "../lib/chains.js";
 import { forgeArtifact } from "../lib/artifacts.js";
 import { upsertChain, recordStep } from "../lib/manifest.js";
 import { allChains } from "../lib/config.js";
+import { reuseAddress } from "../lib/reuse.js";
 import { log } from "../lib/logger.js";
 
 /**
@@ -45,24 +46,37 @@ export async function ensureEndpoints(
       continue;
     }
 
-    log.group(`${cc.name} (eid ${cc.eid}) — deploying local endpoint stack`);
-
     const endpointArtifact = forgeArtifact("LocalEndpointV2");
-    const endpoint = await chain.deploy(endpointArtifact, [cc.eid, chain.deployer]);
-    log.kv("EndpointV2", endpoint);
-
     const libArtifact = forgeArtifact("LocalMessageLib");
-    const messageLib = await chain.deploy(libArtifact, [endpoint, chain.deployer, baseFee]);
+
+    // Reuse an endpoint stack this infra deployed on a previous run. Redeploying it would
+    // orphan every contract already bound to the old endpoint address.
+    const recorded = manifest.chains[cc.key];
+    const existingEndpoint = await reuseAddress(chain, recorded?.lzEndpoint, "EndpointV2");
+    const existingLib = await reuseAddress(chain, recorded?.localMessageLib, "LocalMessageLib");
+
+    const isNew = !existingEndpoint || !existingLib;
+    log.group(`${cc.name} (eid ${cc.eid}) — ${isNew ? "deploying" : "reusing"} local endpoint stack`);
+
+    const endpoint = existingEndpoint ?? (await chain.deploy(endpointArtifact, [cc.eid, chain.deployer]));
+    const messageLib = existingLib ?? (await chain.deploy(libArtifact, [endpoint, chain.deployer, baseFee]));
+    log.kv("EndpointV2", endpoint);
     log.kv("LocalMessageLib", messageLib);
 
-    await chain.write(endpoint, endpointArtifact.abi, "registerLibrary", [messageLib]);
+    if (isNew) {
+      await chain.write(endpoint, endpointArtifact.abi, "registerLibrary", [messageLib]);
+    }
 
-    // Default libraries are configured per remote eid, so every peer chain needs a route.
+    // Default libraries are configured per remote eid. On an incremental run only the newly
+    // added chains lack a route, so each one is checked rather than blindly rewritten.
     for (const other of configs) {
       if (other.eid === cc.eid) continue;
+      const current = await chain.read<string>(endpoint, endpointArtifact.abi, "defaultSendLibrary", [other.eid]);
+      if (current.toLowerCase() === messageLib.toLowerCase()) continue;
+
       await chain.write(endpoint, endpointArtifact.abi, "setDefaultSendLibrary", [other.eid, messageLib]);
       await chain.write(endpoint, endpointArtifact.abi, "setDefaultReceiveLibrary", [other.eid, messageLib, 0n]);
-      log.dim(`routes to eid ${other.eid} configured`);
+      log.dim(`route to eid ${other.eid} configured`);
     }
 
     upsertChain(manifest, {

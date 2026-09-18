@@ -471,3 +471,52 @@ the same storage-write pattern, against a chain the infra had never run a swap o
 Scenario 5 deliberately calls scenario 2 rather than duplicating it. If the second chain had
 needed its own test code, the infra would not actually have been generalising — the reuse is
 part of the assertion, not a convenience.
+
+---
+
+### [2026-09-18] "Add a mirror chain to an already-launched token" — made to work, then verified
+**Milestone:** M7 — incremental deployment
+
+**What happened / what to know:** The brief asks whether a future "add a new mirror chain"
+flow would reuse the mirror-deployment and peer-wiring modules. Checked rather than assumed —
+and the honest first answer was **no**.
+
+Modules 0, 1, 2, 4 and 5 deployed unconditionally. Re-running the pipeline with one extra chain
+in the config would have deployed a *second* home-chain token and a *second* pool, forking the
+supply and orphaning the live one. Module 3 (peer wiring) was already idempotent, because it
+reads each peer back before writing.
+
+Fixed by making every module reuse-first via `infra/lib/reuse.ts`. The manifest is treated as a
+*claim*, not the truth: an address is reused only if there is actually code at it on that chain,
+which catches a manifest left over from a chain that has since been reset.
+
+Verified by adding a fourth chain (Polygon Amoy, eid 40267) to an already-deployed set and
+re-running the same pipeline with no flags:
+
+| | Before | After |
+|---|---|---|
+| Home `TokenizedStock` | `0x75c6…1135` | `0x75c6…1135` — **unchanged** |
+| Pool | `0xF8dd…A648` | `0xF8dd…A648` — **unchanged** |
+| Pool liquidity `L` | 1288875159409035126 | 1288875159409035126 — **not re-seeded** |
+| `SwapRelay` | existing | reused |
+| Peer links | 10, all verified | 18, all verified |
+| Chains | 3 | 4 |
+
+Then the core proof was run against the newly added chain: 100 tAAPL sold from Polygon Amoy →
+**14,842.298327 USDC** delivered on Base Sepolia, slippage 0.3941%, `requestSwap` gas 338,666 —
+identical to the gas on both original mirrors.
+
+**Why it matters / what breaks if ignored:** This is the flow an issuer actually performs
+repeatedly; a launch happens once. Two specific traps are now closed, and both would have been
+silent:
+
+- **Re-seeding the pool.** An incremental run must not pull more liquidity from the deployer or
+  move the home chain's price. Module 4 now returns early on an existing pool and only refreshes
+  the reserve figures it reports.
+- **Re-funding the relay buffer.** Module 5 funds `SwapRelay`'s native buffer only on first
+  deployment, so repeated runs do not quietly drain the deployer's gas.
+
+One caveat worth carrying forward: the incremental run rewrites `setReturnGas` for every mirror
+and re-checks every peer link, so cost grows with the size of the existing chain set rather than
+with the number of chains being added. Harmless at four chains; worth making delta-only before
+this runs against a large set.
