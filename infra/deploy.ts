@@ -89,7 +89,7 @@ async function main(): Promise<void> {
   await deployRelays(cfg, chains, manifest);
   saveManifest(manifest);
 
-  const result = finalizeManifest(manifest);
+  const result = finalizeManifest(manifest, chains);
   printManifest(manifest);
 
   if (!result.complete) {

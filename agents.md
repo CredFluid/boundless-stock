@@ -4,7 +4,9 @@
 > read **only this file** and know what this is, how it works, how to run it, and where the
 > sharp edges are. **Update the "Current State" section at the end of every milestone.**
 >
-> Companion file: [`NOTES.md`](NOTES.md) — the running log of gotchas and hard-won findings.
+> Companion files: [`NOTES.md`](NOTES.md) — running log of gotchas and hard-won findings.
+> [`REPORT.md`](REPORT.md) — final report: config-driven vs hardcoded, gas and latency, what
+> still needs manual intervention, what is not production-safe.
 
 ---
 
@@ -49,9 +51,16 @@ no manual follow-up steps.
 | **Home** | Base Sepolia | `40245` | TokenizedStock OFT, USDC (plain ERC-20), Uniswap V3 pool, SwapRelay |
 | **Mirror** | Arbitrum Sepolia | `40231` | TokenizedStock OFT (empty), SwapRequest |
 | **Mirror** | Optimism Sepolia | `40232` | TokenizedStock OFT (empty), SwapRequest |
+| **Mirror** (added later) | Polygon Amoy | `40267` | TokenizedStock OFT (empty), SwapRequest |
 
 The second mirror chain exists specifically to prove the per-chain wiring **generalizes** —
 that the infra is not accidentally correct only for the first chain it was tested against.
+
+Polygon Amoy is not part of the base config. It was added to an **already-deployed** chain set
+via `config/localnet-add-chain.json` to exercise the "add a supported chain to a live token"
+flow, and the core proof was then run against it. That config is kept as the worked example of
+that flow — diff it against `config/localnet.json` and the only change is one extra entry in
+`mirrorChains`.
 
 Messaging is **LayerZero directly**, not the Hyperbridge adapter. This is deliberate: Solana
 is a likely future mirror target and Hyperbridge does not support Solana, so the infra's
@@ -133,7 +142,7 @@ be). The full pipeline is the modules in order.
 > **Status:** see §7 for what is actually built right now.
 
 ```bash
-npm install          # node deps (viem, tsx)
+npm install          # node deps (viem, tsx). NOTE: uses --legacy-peer-deps, see NOTES.md
 forge build          # contracts
 
 # bring up the local three-chain environment (home + 2 mirrors)
@@ -142,7 +151,8 @@ npm run chains:up
 # run the full pipeline against a config
 npm run deploy -- --config config/localnet.json
 
-# => writes deployments/<network-set>.manifest.json
+# => writes deployments/crossstock-localnet.manifest.json
+npm run chains:down
 ```
 
 To target live testnets instead, point at the testnet config and supply a funded key:
@@ -155,15 +165,33 @@ npm run deploy -- --config config/testnet.json
 **No code changes are required between those two runs.** That is the whole point of the
 config-driven design — see §8 for the honest accounting of what is and isn't config-driven.
 
+### Adding a chain to an already-launched token
+
+Add one entry to `mirrorChains` and re-run the same pipeline. Every module is reuse-first, so
+existing contracts are kept, the pool is **not** re-seeded and the home token is untouched:
+
+```bash
+npm run deploy -- --config config/localnet-add-chain.json
+```
+
+The pipeline is idempotent generally: re-running it is safe. `--fresh` forces a clean
+deployment, ignoring any existing manifest.
+
 ---
 
 ## 5. How to run the validation suite
 
 ```bash
-npm run validate -- --manifest deployments/<name>.manifest.json
+npm run validate -- --config config/localnet.json          # all five
+npm run validate -- --config config/localnet.json --only 2 # just the core proof
+npm run validate -- --only 2 --mirror polygon-amoy         # against a specific mirror
 ```
 
-Individual scenarios can be run on their own; see §6 for what each one proves.
+A manifest can be named directly with `--manifest <path>` instead of a config. Set
+`RELAY_VERBOSE=1` to see every LayerZero packet, its gas, and any failed delivery.
+
+Run against a **fresh** deployment when the numbers matter — scenario 4 deliberately strands
+funds, and the residue is real (see `NOTES.md`). See §6 for what each scenario proves.
 
 ---
 
@@ -232,6 +260,15 @@ npm run deploy   -- --config config/localnet.json
 npm run validate -- --config config/localnet.json      # 5/5 pass
 ```
 
+### Headline numbers
+
+| | |
+|---|---|
+| Full 3-chain deployment | 54,952,788 gas / 51 txs (home 31.9M incl. deploying Uniswap V3 from scratch) |
+| Adding a 4th chain | 12,378,021 gas / 31 txs — pool **not** re-seeded, home token unchanged |
+| One cross-chain swap | 812,945 gas across both chains; user pays **0.0101 ETH once, on the mirror chain** |
+| Local round-trip latency | 70–102 ms (says nothing about live LayerZero latency — see `REPORT.md` §4) |
+
 ### The one thing that is NOT production-safe
 
 Validation 4 established that a stalled message never loses funds but never self-heals either.
@@ -244,26 +281,65 @@ production.** See `NOTES.md` and §9 below.
 
 ## 8. Config-driven vs hardcoded
 
-*(Filled in honestly as the build progresses — see §11 of the final report.)*
+Full accounting in [`REPORT.md`](REPORT.md) §2. Summary:
+
+**Config-driven:** home chain and mirror list (any length), chain ids, LayerZero eids, endpoint
+addresses, RPCs, token name/symbol/decimals/supply, pairing asset, pool fee tier / price / seed
+liquidity / tick range, every LayerZero gas and fee parameter, and Uniswap addresses per chain.
+
+Verified by grep: **no chain identity appears anywhere in `src/` or `infra/` outside comments.**
+`config/localnet.json` and `config/testnet.json` differ only in `name`, `rpcUrl`, `lzEndpoint`,
+`explorer` and the Uniswap `factory` — checkable with `diff`, because the local config
+deliberately uses the real chain ids and eids.
+
+**Still hardcoded, and worth knowing:**
+
+- **Uniswap V3 as the venue.** A different DEX needs a new relay implementation. Should be
+  abstracted behind a venue interface before production.
+- **Sell-only direction.** A mirror user can sell but not buy — buying needs the quote asset on
+  the mirror chain, which the zero-liquidity premise forbids. See §9.
+- Default gas constants in the contracts (all overridable by owner setters the infra calls from
+  config), the position-NFT descriptor, the mint deadline, and the trade sizes inside the
+  validation scenarios.
+
 
 ---
 
 ## 9. Open questions / unresolved design decisions
 
-1. **Return-leg asset.** Settled: receipt-to-mirror + USDC-to-home-address. The alternative
-   (making USDC an OFT too) was rejected as contradicting the zero-liquidity premise. Revisit
-   if the product needs the output asset to be spendable on the mirror chain.
-2. **Stalled-message recovery.** LayerZero V2 delivers or reverts; it does not time out. If a
-   destination call permanently fails, what releases the locked input on the mirror chain?
-   Validation scenario 4 exists to characterise this. **Likely a production blocker.**
-3. **Who pays the return-leg fee?** The home→mirror receipt costs native gas on the home
-   chain. Currently funded from value forwarded with the original request. Needs review for
-   fee-volatility safety.
-4. **Solana as a future mirror.** The messaging layer is LayerZero specifically to keep this
-   open, but `SwapRequest` is Solidity. A Solana mirror needs an equivalent program and a
-   different address encoding (32-byte native, which LayerZero already assumes).
-5. **Price staleness / MEV.** A cross-chain order is exposed to home-chain price movement for
-   the full message latency. `minOut` is the only protection right now.
+Ordered by severity. Full discussion in [`REPORT.md`](REPORT.md) §6.
+
+1. **No timeout or refund for a stalled message. THIS IS THE BLOCKER.** Validation scenario 4
+   established that funds are never destroyed — every stall is recoverable — but recovery is
+   **never automatic**. LayerZero V2 has no message expiry: an undelivered packet stays
+   deliverable indefinitely, a reverting composed call stays retryable indefinitely, and in both
+   cases the user's input is unusable until somebody acts. In the "delivered but compose
+   reverted" case the tokens sit in `SwapRelay` on the home chain where the user cannot reach
+   them at all. A production version needs a claim path with a deadline.
+2. **A failed swap costs the protocol, not the user.** The refund is a second LayerZero message
+   paid from `SwapRelay`'s balance. At scale, deliberately-failing orders could drain the relay's
+   gas buffer.
+3. **Price staleness across message latency.** A cross-chain order is exposed to home-chain price
+   movement for the full round trip — tens of seconds to minutes on live chains. `minAmountOut`
+   is the only protection, so users face a choice between wide slippage tolerance and frequent
+   refunds. Inherent to the design; the strongest argument for the market-maker fast path that
+   was out of scope here.
+4. **Sell-only.** This POC proves cross-chain access to home-chain liquidity in **one direction**.
+   Buying from a mirror chain needs either a bridgeable quote asset or a credit/intent mechanism.
+5. **Address identity assumes EVM.** "Proceeds delivered to the user's address on the home chain"
+   works because an EOA shares an address across EVM chains. That breaks for smart-contract
+   wallets and completely for Solana — the stated reason LayerZero was chosen over Hyperbridge.
+   A Solana mirror needs an explicit recipient mapping.
+6. **No fee-bump retry.** The gas *limit* problem is fixed; a live transaction can still fail on
+   *price* if the base fee moves between estimation and inclusion.
+7. **Single owner key across all chains.** Every contract is owned by the deployer EOA.
+8. **Incremental runs scale with the existing set**, not with the number of chains being added:
+   every peer link is re-checked and `setReturnGas` rewritten for every mirror. Harmless at four
+   chains; make it delta-only before running against a large set.
+
+**Settled during this build:** the return-leg asset question (receipt to the mirror + quote asset
+delivered on the home chain) — see `NOTES.md`.
+
 
 ---
 

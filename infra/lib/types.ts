@@ -110,6 +110,8 @@ export interface ChainDeployment {
   /** Present only for locally deployed endpoint stacks. */
   localMessageLib?: string;
   contracts: Record<string, string>;
+  /** Deployment cost on this chain for the run that produced this manifest. */
+  deploymentGas?: { gasUsed: string; txCount: number };
 }
 
 export interface PoolDeployment {

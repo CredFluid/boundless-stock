@@ -1,4 +1,5 @@
 import type { Manifest } from "../lib/types.js";
+import type { Chain } from "../lib/chains.js";
 import { saveManifest, peerSummary, recordStep } from "../lib/manifest.js";
 import { log } from "../lib/logger.js";
 
@@ -13,8 +14,19 @@ import { log } from "../lib/logger.js";
  * unverified peer link or a missing contract is a manifest that will mislead whoever picks it
  * up next, so the discrepancies are surfaced loudly here.
  */
-export function finalizeManifest(manifest: Manifest): { path: string; complete: boolean; problems: string[] } {
+export function finalizeManifest(
+  manifest: Manifest,
+  chains?: Map<string, Chain>
+): { path: string; complete: boolean; problems: string[] } {
   log.step("Module 6 — manifest");
+
+  if (chains) {
+    for (const [key, chain] of chains) {
+      if (manifest.chains[key]) {
+        manifest.chains[key].deploymentGas = { gasUsed: chain.gasUsed.toString(), txCount: chain.txCount };
+      }
+    }
+  }
 
   const problems: string[] = [];
   const homeKey = manifest.homeChainKey;
@@ -49,6 +61,13 @@ export function finalizeManifest(manifest: Manifest): { path: string; complete: 
   log.kv("mirror chains", String(Object.values(manifest.chains).filter((c) => c.role === "mirror").length));
   log.kv("peer links", `${peers.verified}/${peers.total} verified`);
   log.kv("pool", manifest.pool?.address ?? "none");
+  let totalGas = 0n;
+  for (const c of Object.values(manifest.chains)) {
+    if (!c.deploymentGas) continue;
+    totalGas += BigInt(c.deploymentGas.gasUsed);
+    log.kv(`gas — ${c.name}`, `${Number(c.deploymentGas.gasUsed).toLocaleString()} (${c.deploymentGas.txCount} txs)`);
+  }
+  if (totalGas > 0n) log.kv("gas — total", Number(totalGas).toLocaleString());
   log.groupEnd();
 
   if (complete) {

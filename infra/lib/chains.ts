@@ -43,6 +43,11 @@ export class Chain {
   readonly walletClient: WalletClient;
   readonly account: ReturnType<typeof privateKeyToAccount>;
 
+  /** Cumulative gas this deployment run has spent on this chain. Reported in the manifest. */
+  gasUsed = 0n;
+  /** Number of transactions this run has sent on this chain. */
+  txCount = 0;
+
   constructor(config: ChainConfig, privateKey: Hex = deployerKey()) {
     this.config = config;
     this.account = privateKeyToAccount(privateKey);
@@ -100,6 +105,8 @@ export class Chain {
     const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
     if (receipt.status !== "success") throw new Error(`Deployment reverted on ${this.name} (tx ${hash}).`);
     if (!receipt.contractAddress) throw new Error(`No contract address in receipt on ${this.name} (tx ${hash}).`);
+    this.gasUsed += receipt.gasUsed;
+    this.txCount++;
     return receipt.contractAddress;
   }
 
@@ -135,6 +142,8 @@ export class Chain {
     if (receipt.status !== "success") {
       throw new Error(`${functionName}() reverted on ${this.name} (tx ${hash}).`);
     }
+    this.gasUsed += receipt.gasUsed;
+    this.txCount++;
     return receipt;
   }
 

@@ -520,3 +520,31 @@ One caveat worth carrying forward: the incremental run rewrites `setReturnGas` f
 and re-checks every peer link, so cost grows with the size of the existing chain set rather than
 with the number of chains being added. Harmless at four chains; worth making delta-only before
 this runs against a large set.
+
+---
+
+### [2026-09-18] Toolchain trim: forge-std removed, Foundry is compile-only here
+**Milestone:** final
+
+**What happened / what to know:** `forge-std` was installed early out of habit and never used —
+this repo has no Foundry tests. It was vendored with `forge install --no-git`, which copies the
+files in rather than adding a submodule, so 68 files of someone else's repo had been committed.
+Removed, along with its remapping and the `lib` entry in `foundry.toml`.
+
+**Why it matters / what breaks if ignored:** Worth knowing the division of labour here, because
+it is not the usual Foundry layout:
+
+- **Foundry is used only to compile.** `forge build` produces the artifacts in `out/`, and
+  nothing else in the toolchain touches it.
+- **All orchestration and all testing is TypeScript** (`infra/`), reading those artifacts via
+  `infra/lib/artifacts.ts`.
+
+That split is deliberate. Foundry tests run in a single EVM instance, which cannot represent
+three independent chains with their own endpoints, their own block production and a real
+off-chain relayer between them — and that separation *is* the thing under test. A Foundry test
+using `TestHelperOz5` would have proven the contracts work; it could not have proven the
+deployment infrastructure works across a chain set.
+
+Consequence for anyone adding tests: `forge test` will find nothing. Add contract-level unit
+tests under `test/` with `forge-std` reinstalled if you want them, but keep cross-chain
+behaviour in `infra/validation/`, where it exercises the real deployment.
