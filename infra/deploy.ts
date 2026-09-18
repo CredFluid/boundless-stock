@@ -17,6 +17,8 @@ import { deployHomeToken } from "./modules/01-token.js";
 import { deployMirrorTokens } from "./modules/02-mirrors.js";
 import { wirePeers, type PeerNode } from "./modules/03-peers.js";
 import { deployPool } from "./modules/04-pool.js";
+import { deployRelays } from "./modules/05-relays.js";
+import { finalizeManifest, printManifest } from "./modules/06-manifest.js";
 import { log } from "./lib/logger.js";
 import type { Address } from "viem";
 
@@ -82,11 +84,22 @@ async function main(): Promise<void> {
   log.ok(`OFT mesh: ${oftWiring.verified}/${oftWiring.wired} links verified bidirectionally`);
 
   await deployPool(cfg, chains, manifest);
-  const path = saveManifest(manifest);
+  saveManifest(manifest);
 
-  log.banner("Token, mirrors, peer wiring and home-chain pool are live");
-  log.info(`Manifest: ${path}`);
-  log.warn("Relay contracts and manifest finalisation are not wired into the pipeline yet.");
+  await deployRelays(cfg, chains, manifest);
+  saveManifest(manifest);
+
+  const result = finalizeManifest(manifest);
+  printManifest(manifest);
+
+  if (!result.complete) {
+    log.fail("Deployment finished with problems — see above.");
+    process.exit(1);
+  }
+
+  log.banner("Deployment complete — no manual follow-up steps required");
+  log.info(`Manifest: ${result.path}`);
+  log.info(`Next: npm run validate -- --manifest ${result.path}`);
 }
 
 main().catch((e) => {

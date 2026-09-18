@@ -8,7 +8,6 @@ broadcast/
 *.log
 .DS_Store
 deployments/*.local.json
+# NOTE: deployments/*.manifest.json IS tracked -- it is module 6's deliverable
+# and the record of a real deployment run.
 .localnet/
-
-# Manifests are generated. The one committed at M6 is the record of a real run.
-deployments/*.manifest.json

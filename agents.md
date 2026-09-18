@@ -181,23 +181,28 @@ Individual scenarios can be run on their own; see §6 for what each one proves.
 
 ## 7. Current state
 
-**Milestones 1–3 complete: token deployment, mirror deployment, peer wiring.**
+**Milestones 1–6 complete: the full deployment pipeline runs end to end.**
 
 | Area | State |
 |---|---|
 | `agents.md` / `NOTES.md` | ✅ current |
-| Contracts: `TokenizedStock` (OFT), `USDCMock` | ✅ built, deployed, verified on-chain |
-| Local 3-chain environment (real `EndpointV2` per chain + relayer) | ✅ working |
-| Module 0 — endpoint bootstrap | ✅ deploys/uses LayerZero endpoint per chain |
+| Contracts: `TokenizedStock` (OFT), `USDCMock`, `SwapRelay`, `SwapRequest` | ✅ built and deployed |
+| Local 3-chain environment (real `EndpointV2` per chain + packet relayer) | ✅ working |
+| Module 0 — endpoint bootstrap | ✅ deploys locally / uses configured address on live chains |
 | Module 1 — token deployment | ✅ home token + pairing asset, supply verified on-chain |
-| Module 2 — mirror deployment | ✅ loops mirror list, both mirrors deployed with supply 0 (verified) |
-| Module 3 — peer wiring | ✅ **6/6 OFT mesh links verified bidirectionally by read-back** |
-| Module 4 — pool deployment | ⬜ not started |
-| Module 5 — relay contracts | ⬜ not started |
-| Module 6 — manifest | ⬜ not started |
-| Validation 1–5 | ⬜ not started |
+| Module 2 — mirror deployment | ✅ loops mirror list, both mirrors verified at supply 0 |
+| Module 3 — peer wiring | ✅ **10/10 links verified by read-back** (6 OFT mesh + 4 relay star) |
+| Module 4 — pool deployment | ✅ Uniswap V3 tAAPL/USDC live, seeded, reserves confirmed |
+| Module 5 — relay contracts | ✅ SwapRelay on home, SwapRequest on each mirror, auto peer-wired |
+| Module 6 — manifest | ✅ `deployments/crossstock-localnet.manifest.json` |
+| Validation 1 — direct bridge | ⬜ not started |
+| Validation 2 — **swap round trip (CORE PROOF)** | ⬜ **not started** |
+| Validation 3 — bad slippage | ⬜ not started |
+| Validation 4 — stalled message | ⬜ not started |
+| Validation 5 — multi-mirror | ⬜ not started |
 
-**Core proof point (scenario 2): NOT YET PROVEN.** Requires modules 4–6.
+**Core proof point (scenario 2): NOT YET PROVEN.** The deployment exists and is wired; nothing
+has yet been traded across it.
 
 ### What runs today
 
@@ -206,8 +211,9 @@ npm run chains:up
 npm run deploy -- --config config/localnet.json
 ```
 
-Deploys tAAPL + USDC on the home chain, an empty tAAPL on each of the two mirror chains, and
-wires the full OFT peer mesh with read-back verification on every link.
+One command produces a fully wired omnichain deployment with **no manual follow-up steps**:
+token + pairing asset on the home chain, empty mirrors on two other chains, full OFT peer
+mesh, a seeded Uniswap V3 pool, relay contracts on every chain, and a manifest.
 
 ---
 
