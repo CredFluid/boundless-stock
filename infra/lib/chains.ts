@@ -10,6 +10,7 @@ import {
   type WalletClient,
   type TransactionReceipt,
   encodeDeployData,
+  encodeFunctionData,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { ChainConfig } from "./types.js";
@@ -126,6 +127,36 @@ export class Chain {
       throw new Error(`${functionName}() reverted on ${this.name} (tx ${hash}).`);
     }
     return receipt;
+  }
+
+
+  /**
+   * Sends a transaction with an explicit gas limit and no pre-flight simulation, returning the
+   * receipt whether it succeeded or reverted.
+   *
+   * Needed by the local relayer, which must behave like a LayerZero Executor: an Executor
+   * grants exactly the gas the sender's options asked for, and a call that exceeds it is mined
+   * as a *failed* delivery rather than never being broadcast. Simulating first, or letting the
+   * node pick the gas limit, would make under-provisioned options silently succeed and hide a
+   * whole class of production failure.
+   */
+  async sendRaw(
+    address: Address,
+    abi: Abi,
+    functionName: string,
+    args: readonly unknown[] = [],
+    opts: { value?: bigint; gas?: bigint } = {}
+  ): Promise<TransactionReceipt> {
+    const data = encodeFunctionData({ abi, functionName, args: args as never });
+    const hash = await this.walletClient.sendTransaction({
+      to: address,
+      data,
+      account: this.account,
+      chain: this.walletClient.chain,
+      ...(opts.value !== undefined ? { value: opts.value } : {}),
+      ...(opts.gas !== undefined ? { gas: opts.gas } : {}),
+    } as never);
+    return this.publicClient.waitForTransactionReceipt({ hash });
   }
 
   /** Like {@link write}, but returns null instead of throwing. Used where a revert is expected. */

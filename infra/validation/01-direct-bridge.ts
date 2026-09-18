@@ -34,8 +34,10 @@ export async function scenario1(h: Harness, mirrorKey?: string): Promise<Scenari
   log.kv("mirror balance before", h.fmtToken(before.mirror));
   log.kv("aggregate supply before", h.fmtToken(before.supply.total));
 
+  // Informational, not a failure: re-running the suite against an existing deployment
+  // legitimately leaves a prior balance. What this scenario actually asserts is the deltas.
   if (before.mirror !== 0n) {
-    findings.push(`mirror ${mirror} already held ${h.fmtToken(before.mirror)} before the bridge`);
+    log.dim(`mirror already holds ${h.fmtToken(before.mirror)} from an earlier run — asserting deltas only`);
   }
 
   const options = Options.new().addExecutorLzReceive(200_000n).build();

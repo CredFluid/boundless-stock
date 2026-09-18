@@ -307,3 +307,40 @@ Design points confirmed by this run:
 3. **The user's EOA address is the same on both chains**, so "delivered to the user's address on
    the home chain" needs no identity mapping today. This breaks for Solana and for
    smart-contract wallets — see `agents.md` §9.
+
+---
+
+### [2026-09-18] Validation 3: bad slippage refunds the user in full, on the mirror chain
+**Milestone:** V3 — failure case, bad slippage
+
+**What happened / what to know:** A request demanding 2x the spot price (unsatisfiable at any
+trade size) was submitted from Arbitrum Sepolia. Exact behaviour observed:
+
+1. The user was debited 50 tAAPL on the mirror chain at submit time, as normal.
+2. The OFT packet delivered the 50 tAAPL to `SwapRelay` on Base Sepolia.
+3. `SwapRelay.lzCompose` called the router, which reverted on `amountOutMinimum`.
+4. The `try/catch` around the swap caught it, cleared the router allowance, and bridged the
+   50 tAAPL **back** to Arbitrum Sepolia with a `RefundNotice` as the composeMsg.
+5. `SwapRequest.lzCompose` marked the request `REFUNDED` (reason `1` = SLIPPAGE) and
+   transferred the tokens to the user.
+
+Measured: net token change **0**, USDC received **0**, pool base reserve change **0**, refund
+latency 4,129 ms.
+
+**Why it matters / what breaks if ignored:** Two implementation details are what make this
+safe, and both are easy to get wrong:
+
+1. **The swap is wrapped in `try/catch` rather than allowed to revert the whole `lzCompose`.**
+   If the compose reverted, the tokens would sit in `SwapRelay` and the message would be stuck
+   in a retryable-but-failing state forever — the user's funds would be recoverable only by
+   manual intervention. Catching converts a failed swap into a refund the protocol performs by
+   itself.
+2. **The router allowance is cleared in the catch branch before the refund is dispatched.** A
+   leftover allowance over tokens that are about to be bridged away is exactly the kind of
+   dangling approval that becomes an exploit later.
+
+Also worth noting: the refund costs a *second* LayerZero message, paid from SwapRelay's native
+balance. A failed swap is therefore more expensive for the protocol than a successful one, and
+the user does not pay for it. At scale that is a griefing vector — someone could submit orders
+they know will fail and drain the relay's gas buffer. Not addressed in this POC; flagged in
+`agents.md` §9.

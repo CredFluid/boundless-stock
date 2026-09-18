@@ -37,6 +37,12 @@ const ENDPOINT_ABI = parseAbi([
 
 const MESSAGE_LIB_ABI = parseAbi(["function validatePacket(bytes _packetBytes)"]);
 
+/**
+ * Gas the endpoint itself consumes around the call, on top of what the OApp's options request.
+ * A real Executor budgets similarly; the requested figure covers the OApp's own execution.
+ */
+const EXECUTOR_OVERHEAD = 120_000n;
+
 // --------------------------------------------------------------------------- packet codec
 
 export interface DecodedPacket {
@@ -135,6 +141,8 @@ export interface RelayStats {
 export class Relayer {
   private endpoints = new Map<number, Endpoint>();
   private seen = new Set<string>();
+  /** Composes whose execution reverted. Kept so an operator can retry them with more gas. */
+  private failedComposes: { eid: number; from: Address; to: Address; guid: Hex; index: number; message: Hex; value: bigint }[] = [];
   readonly stats: RelayStats = { delivered: 0, composed: 0, failed: 0 };
   verbose = true;
 
@@ -156,6 +164,43 @@ export class Relayer {
         cursor: 0n,
       });
     }
+  }
+
+
+  /** Composes that were delivered but reverted, still sitting in the endpoint's queue. */
+  get stuckComposes(): number {
+    return this.failedComposes.length;
+  }
+
+  /**
+   * Retries every compose that previously reverted, granting a caller-chosen gas limit.
+   *
+   * This is what an operator (or a keeper) would have to run to unstick a delivery that was
+   * under-provisioned by the sender's options. LayerZero keeps the compose in its queue with
+   * the payload hash intact, so the retry is permissionless — but nothing performs it
+   * automatically. See validation scenario 4.
+   */
+  async retryFailedComposes(gas = 3_000_000n): Promise<{ retried: number; succeeded: number }> {
+    const queue = this.failedComposes.splice(0);
+    let succeeded = 0;
+
+    for (const c of queue) {
+      const ep = this.endpoints.get(c.eid)!;
+      const receipt = await ep.chain.sendRaw(
+        ep.endpoint,
+        ENDPOINT_ABI,
+        "lzCompose",
+        [c.from, c.to, c.guid, c.index, c.message, "0x"],
+        { value: c.value, gas }
+      );
+      if (receipt.status === "success") {
+        succeeded++;
+        this.stats.composed++;
+      } else {
+        this.failedComposes.push(c);
+      }
+    }
+    return { retried: queue.length, succeeded };
   }
 
   /** Starts from the current head, ignoring anything already on chain. */
@@ -246,8 +291,9 @@ export class Relayer {
     // Step 1 — verification. In production this is the DVN attesting to the packet.
     await dst.chain.write(dst.messageLib, MESSAGE_LIB_ABI, "validatePacket", [encodedPacket]);
 
-    // Step 2 — execution. In production this is the Executor calling lzReceive.
-    const receipt = await dst.chain.write(
+    // Step 2 — execution. In production this is the Executor calling lzReceive with exactly
+    // the gas the sender's options requested, so that is what is granted here too.
+    const receipt = await dst.chain.sendRaw(
       dst.endpoint,
       ENDPOINT_ABI,
       "lzReceive",
@@ -258,8 +304,20 @@ export class Relayer {
         packet.message,
         "0x",
       ],
-      req.lzReceiveValue + req.nativeDrop
+      {
+        value: req.lzReceiveValue + req.nativeDrop,
+        gas: req.lzReceiveGas > 0n ? req.lzReceiveGas + EXECUTOR_OVERHEAD : undefined,
+      }
     );
+
+    if (receipt.status !== "success") {
+      this.stats.failed++;
+      log.warn(
+        `lzReceive FAILED ${packet.srcEid}→${packet.dstEid} nonce ${packet.nonce} to ${receiver} ` +
+          `(gas granted ${req.lzReceiveGas}, used ${receipt.gasUsed}). Packet stays verified and retryable.`
+      );
+      return;
+    }
     this.stats.delivered++;
     if (this.verbose) {
       log.dim(
@@ -287,13 +345,38 @@ export class Relayer {
       this.seen.add(id);
 
       const value = req.composeValue.get(a.index) ?? 0n;
-      const receipt = await dst.chain.write(
+      const grantedGas = req.composeGas.get(a.index) ?? 0n;
+
+      const receipt = await dst.chain.sendRaw(
         dst.endpoint,
         ENDPOINT_ABI,
         "lzCompose",
         [a.from, a.to, a.guid, a.index, a.message, "0x"],
-        value
+        { value, gas: grantedGas > 0n ? grantedGas + EXECUTOR_OVERHEAD : undefined }
       );
+
+      if (receipt.status !== "success") {
+        this.stats.failed++;
+        // The compose stays in the endpoint's queue with its hash intact, so anyone can retry
+        // it later with more gas. Nothing is lost, but nothing self-heals either — see
+        // validation scenario 4.
+        log.warn(
+          `lzCompose FAILED on ${a.to} index ${a.index} (gas granted ${grantedGas}, used ` +
+            `${receipt.gasUsed}). Compose remains queued and retryable.`
+        );
+        this.failedComposes.push({
+          eid: dst.eid,
+          from: a.from,
+          to: a.to,
+          guid: a.guid,
+          index: a.index,
+          message: a.message,
+          value,
+        });
+        this.seen.delete(id);
+        continue;
+      }
+
       this.stats.composed++;
       if (this.verbose) {
         log.dim(`compose index ${a.index} executed on ${a.to} (gas ${receipt.gasUsed}, value ${value})`);
