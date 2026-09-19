@@ -1111,3 +1111,35 @@ about the failure points at the build step. Build with
 
 Three programs are now live on the local validator: LayerZero's EndpointV2 (cloned from
 devnet), LayerZero's OFT (built from vendored source), and CrossStock's `swap_request`.
+
+---
+
+### [2026-09-19] Solana OFTs initialised; peers are accounts, not a mapping
+**Milestone:** M19 — init_oft and peer wiring
+
+**What happened / what to know:** `npm run solana:oft` creates an SPL mint per asset, runs
+`init_oft`, hands the mint authority to the OFT store PDA, and wires the peer to the home
+chain — with a read-back check, exactly as the EVM peer-wiring module does.
+
+Three things that are genuinely different from the EVM equivalent:
+
+1. **Peers are accounts.** An EVM OFT keeps them in `mapping(uint32 => bytes32)` and `setPeer`
+   writes a slot. Solana derives a `PeerConfig` PDA per remote eid —
+   `[b"Peer", oft_store, remote_eid_be]` — so wiring *is* account creation, and reading a peer
+   back means fetching that account and comparing its first 32 bytes. The verification matters
+   for the same reason it does on EVM: an unverified peer produces a deployment that looks
+   complete and drops messages at runtime.
+
+2. **The mint authority has to be transferred to the OFT store.** A native OFT mints on
+   inbound delivery, so if the authority stays with the deployer, setup looks entirely
+   successful and the *first inbound bridge* fails at the mint — a long way from the cause.
+
+3. **Anchor's `#[account(init, ...)]` allocates the account itself.** The token escrow is
+   declared `init` with no seeds, so it is a fresh keypair rather than a PDA. The instinct is
+   to create it first with `SystemProgram.createAccount`; doing so makes the program's own
+   allocate fail with `Allocate: account already in use`. The escrow only has to **sign**, not
+   exist.
+
+`OFTType::Native` is used rather than `Adapter`, matching the EVM side's launch mode. Solana's
+OFT has an `Adapter` variant too, which is the counterpart of the `OmniTokenAdapter` work in
+M13 — so bring-your-own-token has a direct Solana equivalent when it is needed.

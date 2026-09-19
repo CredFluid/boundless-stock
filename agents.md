@@ -447,6 +447,7 @@ npm run solana:up       # validator + real EndpointV2 cloned from devnet
 npm run solana:build    # -> solana/target/deploy/swap_request.so (361 KB)
 npm run solana:deploy   # deploys BOTH LayerZero's OFT and swap_request
 npm run solana:init     # init_store: creates the store PDA and registers the OApp
+npm run solana:oft      # init_oft per asset, mint authority, peer wiring (read-back verified)
 npm run solana:test     # wire-format codec tests
 ```
 
@@ -499,14 +500,15 @@ everything around it — deployment, addressing, and what a "pool" is.
 **Solana as a mirror chain** (the smaller half):
 
 1. ~~Anchor workspace~~ **done.** Builds against `anchor-latest/libs/oapp`.
-2. ~~Deploy LayerZero's OFT program~~ **done** — vendored from their devtools repo and
-   deployed. `init_oft` for each asset is the next step; until then the store records
-   placeholder OFT ids.
+2. ~~Deploy LayerZero's OFT program and initialise the mint + its PDAs~~ **done.** Vendored,
+   deployed, `init_oft` run per asset, mint authority handed to the OFT store, and peers wired
+   with read-back verification.
 3. ~~A `swap_request` Anchor program~~ **done.** Store and request PDAs, SPL escrow,
    `lz_compose_types_v2` and `lz_compose`, and an OFT `send` CPI. Registered as an OApp.
 4. ~~A `SolanaChain` backend~~ **done for deployment and reads.** Peer configuration still to
    come — Solana peers are PDAs on the OFT, not a `setPeer` mapping.
-5. Relayer support for the SVM delivery path.
+5. Relayer support for the SVM delivery path. **This is the next step** — without it a packet
+   sent from Solana has nothing to deliver it locally.
 
 **Solana as the base chain** (the larger half, and what makes trades *happen* on Solana):
 

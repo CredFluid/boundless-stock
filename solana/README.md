@@ -26,6 +26,7 @@ npm run solana:up        # validator + LayerZero EndpointV2 cloned from devnet
 npm run solana:build     # swap_request.so
 npm run solana:deploy    # deploys BOTH the OFT and swap_request
 npm run solana:init      # init_store: store PDA + OApp registration
+npm run solana:oft       # init_oft per asset, mint authority, peer wiring
 ```
 
 After that, three programs are live on the validator: LayerZero's endpoint (cloned), LayerZero's
@@ -96,9 +97,17 @@ keypair file, because LayerZero expects every project to deploy its own OFT inst
 with `OFT_ID=$(solana-keygen pubkey keys/oft-keypair.json)` or the deployed program will carry
 the wrong id and every PDA derived against it will be wrong.
 
+## Peers are accounts, not a mapping
+
+An EVM OFT keeps peers in `mapping(uint32 => bytes32)` and `setPeer` writes a slot. Solana
+derives a `PeerConfig` **PDA per remote eid** — `[b"Peer", oft_store, remote_eid_be]` — so
+wiring is account creation and "reading the peer back" means fetching that account and
+comparing its first 32 bytes. `init-oft.ts` does exactly that, for the same reason the EVM
+module does: a peer that silently failed to land gives a deployment that looks complete and
+drops messages at runtime.
+
 ## Not built yet
 
-- `init_oft` for each asset, and peer wiring (Solana peers are PDAs on the OFT, not a mapping).
 - Relayer support for the SVM delivery path.
 - **Solana as the base chain**, which needs a `swap_relay` program CPI-ing into Orca Whirlpools
   or Raydium CLMM. Uniswap V3 has no Solana deployment, so that is a new venue integration
