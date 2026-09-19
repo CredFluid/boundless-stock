@@ -3,6 +3,7 @@ pragma solidity ^0.8.22;
 
 import { Test } from "forge-std/Test.sol";
 import { OmniFixture } from "../helpers/OmniFixture.sol";
+import { OmniToken } from "../../src/core/OmniToken.sol";
 
 /**
  * @title SupplyNegativeControl
@@ -12,10 +13,11 @@ import { OmniFixture } from "../helpers/OmniFixture.sol";
  *      deliberately inflates supply and confirms the assertion catches it. Without this, a
  *      typo in the property would look exactly like a clean run.
  *
- *      It also pins down a real finding: `OmniToken.mint()` is `onlyOwner` and unbounded, so the
- *      owner key can break the supply invariant at will on any chain. That is acceptable for a
- *      testnet faucet and is a supply-integrity hole in production — recorded here as an
- *      executable statement rather than a comment in a report.
+ *      The minting used here comes from `MintableOmniToken`, a **test-only** subclass.
+ *      Production `OmniToken` has no mint function: supply is fixed at deployment and can only
+ *      move between chains. An owner-callable mint used to live on the asset itself, which made
+ *      the whole omnichain supply invariant contingent on one private key; it was removed, and
+ *      `test_productionTokenCannotMint` below is what keeps it removed.
  */
 contract SupplyNegativeControl is OmniFixture {
     uint256 internal constant SUPPLY = 1_000_000e18;
@@ -58,5 +60,20 @@ contract SupplyNegativeControl is OmniFixture {
         vm.prank(notOwner);
         vm.expectRevert();
         tokens[1].mint(notOwner, 1e18);
+    }
+
+    /**
+     * @notice The production asset has no mint function at all.
+     * @dev Enforced by the type system rather than by a runtime check: `OmniToken` exposes no
+     *      `mint`, so this only compiles because the fixture uses the test-only subclass. If
+     *      someone re-adds minting to the asset, the cast below starts succeeding and the
+     *      assertion fires — which is the point.
+     */
+    function test_productionTokenCannotMint() public view {
+        OmniToken production = OmniToken(address(tokens[0]));
+        (bool ok, ) = address(production).staticcall(
+            abi.encodeWithSignature("mint(address,uint256)", address(this), uint256(1))
+        );
+        assertFalse(ok, "production OmniToken must expose no mint function");
     }
 }

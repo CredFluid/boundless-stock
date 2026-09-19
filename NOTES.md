@@ -1143,3 +1143,64 @@ Three things that are genuinely different from the EVM equivalent:
 `OFTType::Native` is used rather than `Adapter`, matching the EVM side's launch mode. Solana's
 OFT has an `Adapter` variant too, which is the counterpart of the `OmniTokenAdapter` work in
 M13 — so bring-your-own-token has a direct Solana equivalent when it is needed.
+
+---
+
+### [2026-09-19] The three standing findings, fixed
+**Milestone:** M22 — stranded recovery, supply integrity, on-chain in-flight
+
+**What happened / what to know:** The three issues that had been carried as known-but-unfixed
+are now closed, each with tests that would catch a regression.
+
+**1. `OmniToken` has no mint function.** It used to carry an owner-callable faucet, which made
+the entire omnichain supply invariant contingent on a single private key — precisely the
+property an asset like this should not have. Removed. Supply is fixed at deployment and can
+afterwards only move between chains. Test-only minting lives in `MintableOmniToken`, and
+`test_productionTokenCannotMint` does a `staticcall` for the selector and asserts it fails, so
+re-adding it to the asset breaks the suite.
+
+**2. In-flight amount is now tracked on chain.** Each token counts `bridgedOut` (burned to
+leave) and `bridgedIn` (minted on arrival). The difference across the chain set is exactly what
+is mid-flight, so the real invariant becomes checkable by reading contracts:
+
+```
+Σ totalSupply + Σ bridgedOut − Σ bridgedIn == minted at genesis
+```
+
+No cross-chain acknowledgement is needed — each chain counts only its own side. This was the
+gap that made the property *unmonitorable*: a monitor comparing `Σ totalSupply` against genesis
+fires on every in-flight message, so a genuine discrepancy could hide in that noise.
+`invariant_onChainAccountingIsSelfSufficient` holds it over 7,680 fuzzed calls, and
+`invariant_onChainInFlightMatchesGhost` cross-checks the counters against the handler's
+independent bookkeeping — two different ways of counting the same thing, which is worth having
+before trusting either.
+
+**3. Stranded funds are claimable.** The standing blocker. Previously value could sit in
+`SwapRelay` with no on-chain record of whose it was, while the mirror request stayed `PENDING`
+forever. Now:
+
+- a stranded amount records its **beneficiary**, taken from the order's `recipient`;
+- `claimStranded` is **permissionless** and pays that beneficiary **on the home chain** — the
+  only honest destination, because a stranded amount is by definition one that cannot cross;
+- a `STRANDED` settlement notifies the mirror so the request becomes terminal;
+- `SwapRequest` pays *late-arriving* settlements to the recorded user rather than keeping the
+  tokens, which closes the "tokens accumulate with only an owner sweep" hole.
+
+**Why it matters / what breaks if ignored:** Two things about the tests are worth carrying.
+
+Reproducing a strand turned out to need more than draining the relay's balance: **the executor
+forwards native value with every `lzCompose`, which tops the relay back up before it reaches
+the return leg.** The fixture gained a settable `composeValue` so a test can withhold it, which
+is what actually reproduces the out-of-gas-mid-settlement condition a live chain hits when fees
+move.
+
+And the non-EVM beneficiary test was initially written by poking a guessed storage slot, with a
+fallback that passed when the probe missed — the exact vacuous-test trap this suite exists to
+avoid. Rewritten to call `lzCompose` directly, pranked as the endpoint, with a hand-built order
+carrying a Solana-shaped recipient. It now genuinely proves the claim refuses rather than
+truncating a 32-byte pubkey into the wrong `address`.
+
+**What remains open:** a packet that is never delivered at all. LayerZero V2 has no message
+expiry, so those funds stay in flight indefinitely, and nothing at the application layer can
+reclaim them without risking a double-spend if the message later lands. That is a property of
+the bridge, not of this design — and it is now at least *visible*, via `bridgedOut − bridgedIn`.

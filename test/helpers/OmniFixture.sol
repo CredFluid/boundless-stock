@@ -3,6 +3,7 @@ pragma solidity ^0.8.22;
 
 import { TestHelperOz5 } from "@layerzerolabs/test-devtools-evm-foundry/contracts/TestHelperOz5.sol";
 import { OmniToken } from "../../src/core/OmniToken.sol";
+import { MintableOmniToken } from "./MintableOmniToken.sol";
 import { SendParam, MessagingFee } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 
@@ -21,7 +22,7 @@ abstract contract OmniFixture is TestHelperOz5 {
     uint8 internal constant CHAIN_COUNT = 3;
 
     uint32[] internal eids;
-    OmniToken[] internal tokens;
+    MintableOmniToken[] internal tokens;
 
     /// @notice Total minted at genesis. The invariant everything is measured against.
     uint256 internal MINTED;
@@ -35,7 +36,7 @@ abstract contract OmniFixture is TestHelperOz5 {
             eids.push(eid);
             // Full supply on the first chain (the "home" chain); every other chain starts empty.
             tokens.push(
-                new OmniToken(
+                new MintableOmniToken(
                     "Omni",
                     "OMNI",
                     tokenDecimals,
@@ -60,6 +61,26 @@ abstract contract OmniFixture is TestHelperOz5 {
         for (uint256 i = 0; i < tokens.length; i++) {
             total += tokens[i].totalSupply();
         }
+    }
+
+    /**
+     * @notice Amount currently in flight, computed **purely from chain state**.
+     *
+     * @dev `Σ bridgedOut − Σ bridgedIn`. Every token burned to leave a chain is counted once on
+     *      the way out and once on the way in, so the difference is exactly what has been burned
+     *      somewhere and not yet minted anywhere. No cross-chain acknowledgement and no
+     *      off-chain bookkeeping — which is the whole point: a production monitor can evaluate
+     *      the supply invariant by reading contracts, rather than needing a feed of pending
+     *      messages to explain away the gap.
+     */
+    function onChainInFlight() public view returns (uint256) {
+        uint256 out;
+        uint256 inbound;
+        for (uint256 i = 0; i < tokens.length; i++) {
+            out += tokens[i].bridgedOut();
+            inbound += tokens[i].bridgedIn();
+        }
+        return out - inbound;
     }
 
     /// @notice Deliver any packets queued for a chain's token. Stands in for the executor.

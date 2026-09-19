@@ -349,13 +349,17 @@ deliberately uses the real chain ids and eids.
 
 Ordered by severity. Full discussion in [`REPORT.md`](REPORT.md) §6.
 
-1. **No timeout or refund for a stalled message. THIS IS THE BLOCKER.** Validation scenario 4
-   established that funds are never destroyed — every stall is recoverable — but recovery is
-   **never automatic**. LayerZero V2 has no message expiry: an undelivered packet stays
-   deliverable indefinitely, a reverting composed call stays retryable indefinitely, and in both
-   cases the user's input is unusable until somebody acts. In the "delivered but compose
-   reverted" case the tokens sit in `SwapRelay` on the home chain where the user cannot reach
-   them at all. A production version needs a claim path with a deadline.
+1. **~~No recovery for a stalled message~~ — LARGELY RESOLVED.** Stranded value now records its
+   **beneficiary**, `SwapRelay.claimStranded` is **permissionless** and pays that beneficiary on
+   the home chain, and a `STRANDED` settlement tells the mirror chain so the request reaches a
+   terminal state instead of sitting `PENDING` forever. `SwapRequest` also pays out
+   late-arriving settlements to the recorded user rather than keeping them.
+
+   **What is still open:** an *undelivered* packet — burned on the source, never delivered
+   anywhere. LayerZero V2 has no message expiry, so the funds remain in flight indefinitely and
+   nothing at the application layer can reclaim them without risking a double-spend if the
+   message later lands. That case is a property of the bridge, not of this design, and is
+   visible in the supply accounting via `bridgedOut − bridgedIn`.
 2. **A failed swap costs the protocol, not the user.** The refund is a second LayerZero message
    paid from `SwapRelay`'s balance. At scale, deliberately-failing orders could drain the relay's
    gas buffer.
@@ -373,11 +377,14 @@ Ordered by severity. Full discussion in [`REPORT.md`](REPORT.md) §6.
    A Solana mirror needs an explicit recipient mapping.
 6. **No fee-bump retry.** The gas *limit* problem is fixed; a live transaction can still fail on
    *price* if the base fee moves between estimation and inclusion.
-7. **Single owner key across all chains.** Every contract is owned by the deployer EOA.
-8. **Sub-quantum stranded value has no claim path.** When a swap's output is smaller than one
-   bridgeable unit it is recorded in `SwapRelay.stranded`, but `retryReturn` can never deliver
-   it — it will never become bridgeable. Same shape as (1): the value is recorded, not lost, but
-   nothing recovers it. Needs the same home-chain claim path.
+7. **Single owner key across all chains.** Every contract is owned by the deployer EOA. Note
+   the asset itself is no longer exposed: `OmniToken` has **no mint function**, so supply is
+   fixed at deployment and cannot be inflated by a compromised key. Peer configuration remains
+   owner-controlled, which is the residual inflation vector.
+8. **~~Sub-quantum stranded value has no claim path~~ — RESOLVED** by `claimStranded`, which
+   pays on the home chain precisely because such an amount can never cross the bridge. A
+   non-EVM beneficiary still cannot be paid this way and reverts rather than truncating a
+   32-byte pubkey into the wrong `address`; that needs an explicit recipient mapping.
 9. **Incremental runs scale with the existing set**, not with the number of chains being added:
    every peer link is re-checked and `setReturnGas` rewritten for every mirror. Harmless at four
    chains; make it delta-only before running against a large set.

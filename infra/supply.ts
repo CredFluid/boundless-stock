@@ -32,6 +32,27 @@ async function main(): Promise<void> {
 
   const chains = buildChains(allChains(cfg));
   const abi = forgeArtifact("OmniToken").abi;
+  const resolved = manifest;
+
+  /**
+   * In-flight amount, read straight off the tokens.
+   *
+   * `Σ bridgedOut − Σ bridgedIn`. This is what makes the supply invariant checkable without a
+   * feed of pending LayerZero messages: a token burned to leave a chain is counted on the way
+   * out and again on the way in, so the difference is exactly what is mid-flight.
+   */
+  async function inFlight(contract: string): Promise<bigint> {
+    let out = 0n;
+    let inbound = 0n;
+    for (const cd of Object.values(resolved.chains)) {
+      const chain = chains.get(cd.key);
+      const addr = cd.contracts[`${contract}Oft`] ?? cd.contracts[contract];
+      if (!chain || !addr) continue;
+      out += await chain.read<bigint>(addr as Address, abi, "bridgedOut");
+      inbound += await chain.read<bigint>(addr as Address, abi, "bridgedIn");
+    }
+    return out - inbound;
+  }
 
   log.banner(`Supply report — ${manifest.name}`);
 
@@ -89,13 +110,19 @@ async function main(): Promise<void> {
       if (r.note) log.dim(`      ${r.note}`);
     }
 
-    log.kv("ACROSS ALL CHAINS", `${formatUnits(total, meta.decimals)} ${meta.symbol}`);
+    const pending = await inFlight(contract);
+    if (pending > 0n) {
+      log.kv("in flight", `${formatUnits(pending, meta.decimals)} ${meta.symbol} (burned, not yet minted)`);
+    }
+    log.kv("ACROSS ALL CHAINS", `${formatUnits(total + pending, meta.decimals)} ${meta.symbol}`);
+
     if (adapted) {
       log.dim("ADAPTED asset: the home figure excludes what is locked in the adapter, because that");
       log.dim("backing already appears as representations on the other chains. Summing raw");
       log.dim("totalSupply would double-count it.");
     } else {
-      log.dim("this sum is the invariant — individual chains rise and fall as users bridge");
+      log.dim("this sum is the invariant, and both halves come from chain state: no feed of");
+      log.dim("pending messages is needed to explain away the in-flight gap");
     }
   }
 }

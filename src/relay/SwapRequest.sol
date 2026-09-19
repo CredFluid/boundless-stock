@@ -102,6 +102,10 @@ contract SwapRequest is OApp, IOAppComposer {
     event SwapFilled(uint64 indexed requestId, address indexed user, address tokenOut, uint256 amountOut);
     event SwapRefunded(uint64 indexed requestId, address indexed user, address token, uint256 amount, uint8 reason);
     event DustReturned(uint64 indexed requestId, address indexed user, uint256 amount);
+    /// @notice The result exists on the home chain but cannot be bridged back; claim it there.
+    event SwapStranded(uint64 indexed requestId, address indexed user, uint256 amount);
+    /// @notice Tokens arrived for an already-settled request and were paid to its owner anyway.
+    event LateSettlementPaid(uint64 indexed requestId, address indexed user, address token, uint256 amount);
 
     error UnexpectedComposeSource(address from);
     error UnexpectedOrigin(uint32 srcEid, bytes32 sender);
@@ -302,9 +306,20 @@ contract SwapRequest is OApp, IOAppComposer {
         SwapTypes.Settlement memory s = SwapTypes.decodeSettlement(_message.composeMsg());
 
         Request storage r = requests[s.requestId];
-        // Already settled, or unknown: keep the funds retrievable via sweep rather than
-        // reverting, which would strand the compose in a permanently failing state.
-        if (r.status != SwapTypes.Status.PENDING) return;
+
+        // A settlement for a request that is no longer pending — a retry that raced a first
+        // delivery, or one arriving after a stranded notice. Reverting would leave the compose
+        // permanently failing, and simply returning would keep the tokens here with only an
+        // owner sweep to release them. Pay the recorded user instead: whatever the sequencing,
+        // these tokens are theirs. Only a genuinely unknown request falls through to sweep,
+        // because then there is nobody to pay.
+        if (r.status != SwapTypes.Status.PENDING) {
+            if (r.user != address(0) && amountReceived > 0) {
+                delivered.safeTransfer(r.user, amountReceived);
+                emit LateSettlementPaid(s.requestId, r.user, address(delivered), amountReceived);
+            }
+            return;
+        }
 
         r.settledAt = uint64(block.timestamp);
 
@@ -321,8 +336,37 @@ contract SwapRequest is OApp, IOAppComposer {
         }
     }
 
-    /// @dev No plain OApp messages are expected; results arrive with their tokens.
-    function _lzReceive(Origin calldata, bytes32, bytes calldata, address, bytes calldata) internal override {}
+    /**
+     * @notice A settlement that carries no tokens — currently only STRANDED.
+     *
+     * @dev Results normally arrive with their tokens via `lzCompose`. A stranded amount is the
+     *      exception: it cannot cross the bridge at all, so there is nothing to attach. The
+     *      notice exists so the request reaches a terminal state and tells the user where the
+     *      money actually is, instead of sitting PENDING indefinitely while funds sit claimable
+     *      on the home chain and nobody knows.
+     *
+     *      OApp has already verified the sender is this chain's registered peer.
+     */
+    function _lzReceive(
+        Origin calldata _origin,
+        bytes32,
+        bytes calldata _message,
+        address,
+        bytes calldata
+    ) internal override {
+        if (_origin.srcEid != homeEid) revert UnexpectedOrigin(_origin.srcEid, _origin.sender);
+
+        SwapTypes.Settlement memory s = SwapTypes.decodeSettlement(_message);
+        if (s.status != uint8(SwapTypes.Status.STRANDED)) return;
+
+        Request storage r = requests[s.requestId];
+        if (r.status != SwapTypes.Status.PENDING) return;
+
+        r.status = SwapTypes.Status.STRANDED;
+        r.failureReason = s.reason;
+        r.settledAt = uint64(block.timestamp);
+        emit SwapStranded(s.requestId, r.user, s.amountIn);
+    }
 
     // ------------------------------------------------------------------ views
 

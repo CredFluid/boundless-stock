@@ -25,9 +25,33 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
  *      NOTE ON PRECISION: `sharedDecimals()` is 6, so a 6-decimal token bridges with a
  *      conversion rate of exactly 1 and loses nothing. An 18-decimal token quantises away its
  *      bottom 12 decimal places on every hop — see NOTES.md.
+ *
+ *      NO MINT FUNCTION, DELIBERATELY. Supply is fixed at deployment and can afterwards only
+ *      move between chains, never grow. An owner-callable `mint` existed here as a testnet
+ *      faucet and was removed: it made the entire omnichain supply invariant contingent on a
+ *      single private key, which is precisely the property this asset should not have. Tests
+ *      that need to conjure supply use `MintableOmniToken` in `test/helpers/`.
  */
 contract OmniToken is OFTCore, ERC20 {
     uint8 private immutable _decimals;
+
+    /**
+     * @notice Cumulative amount this chain has ever burned to send elsewhere.
+     * @dev Together with {bridgedIn}, this is what makes the omnichain supply invariant
+     *      *monitorable*. A bridge burns here and mints there, so a token is briefly on no
+     *      chain at all, and a monitor comparing `Σ totalSupply` against the amount minted at
+     *      genesis fires on every in-flight message. With these counters the real invariant is
+     *      checkable from chain state alone:
+     *
+     *          Σ totalSupply + Σ bridgedOut − Σ bridgedIn == minted at genesis
+     *
+     *      because `Σ bridgedOut − Σ bridgedIn` is exactly what is in flight. No cross-chain
+     *      acknowledgement is needed: each chain counts only its own side.
+     */
+    uint256 public bridgedOut;
+
+    /// @notice Cumulative amount this chain has ever minted from an inbound bridge message.
+    uint256 public bridgedIn;
 
     /// @param _initialSupply Full supply on the home chain; 0 on every mirror chain.
     constructor(
@@ -57,11 +81,6 @@ contract OmniToken is OFTCore, ERC20 {
         return false;
     }
 
-    /// @notice Test-faucet mint. Owner-only; this is a testnet stand-in, not a real asset.
-    function mint(address _to, uint256 _amount) external onlyOwner {
-        _mint(_to, _amount);
-    }
-
     function _debit(
         address _from,
         uint256 _amountLD,
@@ -70,6 +89,7 @@ contract OmniToken is OFTCore, ERC20 {
     ) internal virtual override returns (uint256 amountSentLD, uint256 amountReceivedLD) {
         (amountSentLD, amountReceivedLD) = _debitView(_amountLD, _minAmountLD, _dstEid);
         _burn(_from, amountSentLD);
+        bridgedOut += amountSentLD;
     }
 
     function _credit(
@@ -79,6 +99,7 @@ contract OmniToken is OFTCore, ERC20 {
     ) internal virtual override returns (uint256 amountReceivedLD) {
         if (_to == address(0x0)) _to = address(0xdead);
         _mint(_to, _amountLD);
+        bridgedIn += _amountLD;
         return _amountLD;
     }
 }

@@ -82,6 +82,34 @@ contract SupplyInvariant is OmniFixture {
     }
 
     /**
+     * @notice The same invariant, computed **entirely from chain state**.
+     *
+     * @dev `invariant_supplyPlusInFlightEqualsMinted` relies on the handler's ghost accounting,
+     *      which a production monitor does not have. This version uses the tokens' own
+     *      `bridgedOut`/`bridgedIn` counters instead, and is the one that matters
+     *      operationally: it proves the property is checkable by reading contracts, with no
+     *      pending-message feed to explain away the in-flight gap.
+     */
+    function invariant_onChainAccountingIsSelfSufficient() public view {
+        assertEq(
+            aggregateSupply() + onChainInFlight(),
+            MINTED,
+            "the on-chain counters must account for every token without off-chain help"
+        );
+    }
+
+    /// @notice The on-chain counters must agree with the handler's independent bookkeeping.
+    /// @dev Two different methods of counting the same thing. A divergence means one of them
+    ///      is wrong, and it is worth knowing which before trusting either.
+    function invariant_onChainInFlightMatchesGhost() public view {
+        assertEq(
+            onChainInFlight(),
+            handler.inFlight(),
+            "on-chain in-flight disagrees with the handler's ghost accounting"
+        );
+    }
+
+    /**
      * @notice Supply may never exceed what was minted. This is the inflation check, and it is
      *         the one that must never break under any interleaving.
      */

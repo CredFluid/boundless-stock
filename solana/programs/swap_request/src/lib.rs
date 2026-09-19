@@ -284,6 +284,18 @@ pub mod swap_request {
                     amount_out: request.amount_out,
                 });
             }
+            s if s == Status::Stranded as u8 => {
+                // No tokens accompany this one: the amount cannot cross the bridge at all.
+                // Recording it terminal is what stops the request sitting Pending forever
+                // while the funds wait claimable on the home chain.
+                request.status = Status::Stranded;
+                request.failure_reason = settlement.reason;
+                emit!(SwapStranded {
+                    request_id: settlement.request_id,
+                    user: request.user,
+                    amount: settlement.amount_in as u64,
+                });
+            }
             s if s == Status::Refunded as u8 => {
                 request.status = Status::Refunded;
                 request.failure_reason = settlement.reason;
@@ -487,6 +499,14 @@ pub struct SwapFilled {
     pub request_id: u64,
     pub user: Pubkey,
     pub amount_out: u64,
+}
+
+/// The result exists on the home chain but cannot be bridged back; claim it there.
+#[event]
+pub struct SwapStranded {
+    pub request_id: u64,
+    pub user: Pubkey,
+    pub amount: u64,
 }
 
 #[event]

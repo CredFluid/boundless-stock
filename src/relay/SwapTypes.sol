@@ -30,7 +30,17 @@ library SwapTypes {
         NONE,
         PENDING, // dispatched to the home chain, awaiting settlement
         FILLED, // executed on the home chain pool; output delivered back here
-        REFUNDED // execution failed; input returned here, in full
+        REFUNDED, // execution failed; input returned here, in full
+        /**
+         * The value exists on the home chain but cannot be bridged back.
+         *
+         * The honest terminal state for the one case that has no good outcome: an amount below
+         * the bridge's precision floor. It can never cross, so pretending it will — by leaving
+         * the request PENDING forever — tells the user nothing and hides funds that are
+         * actually claimable. A STRANDED request means "your money is on the home chain, go and
+         * claim it there", and `SwapRelay.claimStranded` is how.
+         */
+        STRANDED
     }
 
     /// @notice Why a request was refunded rather than filled.

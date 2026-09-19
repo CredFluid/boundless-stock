@@ -17,6 +17,7 @@ interface IComposeExecutor {
 }
 
 import { OmniToken } from "../../src/core/OmniToken.sol";
+import { MintableOmniToken } from "./MintableOmniToken.sol";
 import { SwapRelay } from "../../src/relay/SwapRelay.sol";
 import { SwapRequest } from "../../src/relay/SwapRequest.sol";
 import { MockSwapRouter } from "./MockSwapRouter.sol";
@@ -40,10 +41,12 @@ abstract contract RelayFixture is TestHelperOz5 {
     uint32 internal constant HOME_EID = 1;
     uint32 internal constant MIRROR_EID = 2;
 
-    OmniToken internal homeStock;
-    OmniToken internal homeQuote;
-    OmniToken internal mirrorStock;
-    OmniToken internal mirrorQuote;
+    // Mintable only so the mock venue's float can be seeded — on a real deployment those
+    // reserves are supplied by the issuer, not minted. Production OmniToken has no mint.
+    MintableOmniToken internal homeStock;
+    MintableOmniToken internal homeQuote;
+    MintableOmniToken internal mirrorStock;
+    MintableOmniToken internal mirrorQuote;
 
     MockSwapRouter internal router;
     SwapRelay internal relay;
@@ -65,10 +68,10 @@ abstract contract RelayFixture is TestHelperOz5 {
     function _setUpRelay(uint256 stockSupply, uint256 quoteSupply, uint256 stockFloat, uint256 quoteFloat) internal {
         setUpEndpoints(2, LibraryType.SimpleMessageLib);
 
-        homeStock = new OmniToken("Stock", "STK", STOCK_DECIMALS, endpoints[HOME_EID], address(this), stockSupply);
-        homeQuote = new OmniToken("USDC", "USDC", QUOTE_DECIMALS, endpoints[HOME_EID], address(this), quoteSupply);
-        mirrorStock = new OmniToken("Stock", "STK", STOCK_DECIMALS, endpoints[MIRROR_EID], address(this), 0);
-        mirrorQuote = new OmniToken("USDC", "USDC", QUOTE_DECIMALS, endpoints[MIRROR_EID], address(this), 0);
+        homeStock = new MintableOmniToken("Stock", "STK", STOCK_DECIMALS, endpoints[HOME_EID], address(this), stockSupply);
+        homeQuote = new MintableOmniToken("USDC", "USDC", QUOTE_DECIMALS, endpoints[HOME_EID], address(this), quoteSupply);
+        mirrorStock = new MintableOmniToken("Stock", "STK", STOCK_DECIMALS, endpoints[MIRROR_EID], address(this), 0);
+        mirrorQuote = new MintableOmniToken("USDC", "USDC", QUOTE_DECIMALS, endpoints[MIRROR_EID], address(this), 0);
 
         _wirePeer(homeStock, MIRROR_EID, address(mirrorStock));
         _wirePeer(mirrorStock, HOME_EID, address(homeStock));
@@ -129,6 +132,20 @@ abstract contract RelayFixture is TestHelperOz5 {
     }
 
     PendingCompose[] internal pendingComposes;
+
+    /**
+     * @notice Native value the executor forwards with each `lzCompose`.
+     *
+     * @dev On a live chain this comes from the sender's executor options and is what funds the
+     *      relay's return leg. Settable here so a test can withhold it — which is the only way
+     *      to reach the "relay is out of gas mid-settlement" branch, since otherwise every
+     *      compose tops the relay back up before it tries to send.
+     */
+    uint256 public composeValue = 0.01 ether;
+
+    function setComposeValue(uint256 _value) public {
+        composeValue = _value;
+    }
 
     function pendingComposeCount() public view returns (uint256) {
         return pendingComposes.length;
@@ -205,7 +222,7 @@ abstract contract RelayFixture is TestHelperOz5 {
         for (uint256 i = 0; i < n; i++) {
             PendingCompose memory c = queue[i];
             try
-                IComposeExecutor(c.endpoint).lzCompose{ value: 0.01 ether, gas: 3_000_000 }(
+                IComposeExecutor(c.endpoint).lzCompose{ value: composeValue, gas: 3_000_000 }(
                     c.from,
                     c.to,
                     c.guid,

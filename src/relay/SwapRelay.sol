@@ -80,6 +80,13 @@ contract SwapRelay is OApp, IOAppComposer {
     mapping(uint32 eid => mapping(uint64 requestId => uint256 amount)) public stranded;
     /// @notice Which token a stranded amount is denominated in.
     mapping(uint32 eid => mapping(uint64 requestId => address token)) public strandedToken;
+    /**
+     * @notice Who the stranded amount belongs to, as LayerZero addresses them.
+     * @dev Taken from the order's `recipient`. Recorded so a stranded amount has a known owner
+     *      rather than becoming anonymous value sitting in this contract, which is what turns
+     *      "recoverable in principle" into "claimable in practice".
+     */
+    mapping(uint32 eid => mapping(uint64 requestId => bytes32 beneficiary)) public strandedBeneficiary;
 
     /// @notice Sub-quantum remainders left behind by OFT dust removal on return sends.
     mapping(address token => uint256 amount) public dustAccrued;
@@ -92,9 +99,13 @@ contract SwapRelay is OApp, IOAppComposer {
     event OrderFailed(uint32 indexed srcEid, uint64 indexed requestId, uint8 reason, uint256 amountIn);
     event ReturnDispatched(uint32 indexed srcEid, uint64 indexed requestId, address token, uint256 amount);
     event FundsStranded(uint32 indexed srcEid, uint64 indexed requestId, address token, uint256 amount, string why);
+    event StrandedClaimed(uint32 indexed srcEid, uint64 indexed requestId, address token, address to, uint256 amount);
     event NativeFunded(address indexed from, uint256 amount);
 
     error UnexpectedComposeSource(address from);
+    error NothingStranded(uint32 srcEid, uint64 requestId);
+    /// @dev The beneficiary is not expressible as an EVM address, so it cannot be paid here.
+    error BeneficiaryNotAddressable(bytes32 beneficiary);
 
     /// @param _baseOft  OFT handle for the stock: the token itself, or its adapter.
     /// @param _quoteOft OFT handle for the quote asset: the token itself, or its adapter.
@@ -159,6 +170,7 @@ contract SwapRelay is OApp, IOAppComposer {
                 order.requestId,
                 tokenIn,
                 amountIn,
+                order.recipient,
                 _settlementFor(order.requestId, false, SwapTypes.FailureReason.UNAUTHORIZED_SOURCE, amountIn, 0)
             );
             return;
@@ -174,6 +186,7 @@ contract SwapRelay is OApp, IOAppComposer {
                 order.requestId,
                 tokenIn,
                 amountIn,
+                order.recipient,
                 _settlementFor(order.requestId, false, SwapTypes.FailureReason.POOL_ERROR, amountIn, 0)
             );
             return;
@@ -220,6 +233,7 @@ contract SwapRelay is OApp, IOAppComposer {
                 _order.requestId,
                 _tokenOut,
                 amountOut,
+                _order.recipient,
                 _settlementFor(_order.requestId, true, SwapTypes.FailureReason.NONE, _amountIn, amountOut)
             );
         } catch {
@@ -232,6 +246,7 @@ contract SwapRelay is OApp, IOAppComposer {
                 _order.requestId,
                 _tokenIn,
                 _amountIn,
+                _order.recipient,
                 _settlementFor(_order.requestId, false, SwapTypes.FailureReason.SLIPPAGE, _amountIn, 0)
             );
         }
@@ -248,6 +263,7 @@ contract SwapRelay is OApp, IOAppComposer {
         uint64 _requestId,
         IERC20 _token,
         uint256 _amount,
+        bytes32 _beneficiary,
         bytes memory _settlement
     ) internal {
         // An amount below the OFT's precision floor bridges as ZERO. Sending it anyway would
@@ -260,7 +276,7 @@ contract SwapRelay is OApp, IOAppComposer {
         // Note this value is NOT recoverable by `retryReturn` — it will never be bridgeable —
         // so it needs a home-chain claim path before production. Tracked in agents.md.
         if (_amount < _bridgeQuantum(address(_token))) {
-            _strand(_dstEid, _requestId, address(_token), _amount, "amount below the bridgeable minimum");
+            _strand(_dstEid, _requestId, address(_token), _amount, _beneficiary, "amount below the bridgeable minimum");
             return;
         }
 
@@ -289,7 +305,7 @@ contract SwapRelay is OApp, IOAppComposer {
 
         try oft.quoteSend(sendParam, false) returns (MessagingFee memory fee) {
             if (address(this).balance < fee.nativeFee) {
-                _strand(_dstEid, _requestId, address(_token), _amount, "insufficient native for return");
+                _strand(_dstEid, _requestId, address(_token), _amount, _beneficiary, "insufficient native for return");
                 return;
             }
             try oft.send{ value: fee.nativeFee }(sendParam, fee, address(this)) returns (
@@ -303,10 +319,10 @@ contract SwapRelay is OApp, IOAppComposer {
                 }
                 emit ReturnDispatched(_dstEid, _requestId, address(_token), oftReceipt.amountSentLD);
             } catch {
-                _strand(_dstEid, _requestId, address(_token), _amount, "return send reverted");
+                _strand(_dstEid, _requestId, address(_token), _amount, _beneficiary, "return send reverted");
             }
         } catch {
-            _strand(_dstEid, _requestId, address(_token), _amount, "return quote reverted");
+            _strand(_dstEid, _requestId, address(_token), _amount, _beneficiary, "return quote reverted");
         }
     }
 
@@ -322,10 +338,84 @@ contract SwapRelay is OApp, IOAppComposer {
         return localDecimals > shared ? 10 ** (localDecimals - shared) : 1;
     }
 
-    function _strand(uint32 _dstEid, uint64 _requestId, address _token, uint256 _amount, string memory _why) internal {
+    function _strand(
+        uint32 _dstEid,
+        uint64 _requestId,
+        address _token,
+        uint256 _amount,
+        bytes32 _beneficiary,
+        string memory _why
+    ) internal {
         stranded[_dstEid][_requestId] += _amount;
         strandedToken[_dstEid][_requestId] = _token;
+        if (_beneficiary != bytes32(0)) strandedBeneficiary[_dstEid][_requestId] = _beneficiary;
         emit FundsStranded(_dstEid, _requestId, _token, _amount, _why);
+
+        // Tell the mirror chain, so the request reaches a terminal state instead of sitting
+        // PENDING forever. Best-effort: the commonest reason to be here is having run out of
+        // native gas, and failing to notify must not undo the strand record itself.
+        _notifyStranded(_dstEid, _requestId, _amount);
+    }
+
+    /// @dev Sends a STRANDED settlement carrying no tokens. Never reverts.
+    function _notifyStranded(uint32 _dstEid, uint64 _requestId, uint256 _amount) internal {
+        bytes memory payload = SwapTypes.encodeSettlement(
+            SwapTypes.Settlement({
+                requestId: _requestId,
+                status: uint8(SwapTypes.Status.STRANDED),
+                reason: uint8(SwapTypes.FailureReason.POOL_ERROR),
+                amountIn: _amount,
+                amountOut: 0
+            })
+        );
+        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(_returnGas(_dstEid), 0);
+
+        try this.quoteStrandedNotice(_dstEid, payload, options) returns (uint256 fee) {
+            if (address(this).balance >= fee) {
+                _lzSend(_dstEid, payload, options, MessagingFee(fee, 0), address(this));
+            }
+        } catch {
+            // No notice. The strand record on this chain is the durable part.
+        }
+    }
+
+    /// @dev External only so the quote can be wrapped in try/catch from inside `_strand`.
+    function quoteStrandedNotice(
+        uint32 _dstEid,
+        bytes calldata _payload,
+        bytes calldata _options
+    ) external view returns (uint256) {
+        require(msg.sender == address(this), "SwapRelay: internal");
+        return _quote(_dstEid, _payload, _options, false).nativeFee;
+    }
+
+    /**
+     * @notice Pay a stranded amount to its owner, here on the home chain.
+     *
+     * @dev Permissionless: anyone may pay the gas to release someone else's funds, and the
+     *      destination is fixed to the recorded beneficiary, so this cannot redirect anything.
+     *
+     *      Delivery is on the HOME chain because a stranded amount is, by definition, one that
+     *      cannot cross the bridge — `retryReturn` will never succeed for it, however many
+     *      times it is called. An EOA has the same address on every EVM chain, so for an EVM
+     *      mirror this reaches the same person. A non-EVM beneficiary (a Solana pubkey) is not
+     *      expressible as an `address` and reverts rather than paying the wrong account; that
+     *      case needs an explicit recipient mapping, which is noted in agents.md §9.
+     */
+    function claimStranded(uint32 _srcEid, uint64 _requestId) external {
+        uint256 amount = stranded[_srcEid][_requestId];
+        if (amount == 0) revert NothingStranded(_srcEid, _requestId);
+
+        bytes32 beneficiary = strandedBeneficiary[_srcEid][_requestId];
+        if (uint256(beneficiary) >> 160 != 0 || beneficiary == bytes32(0)) {
+            revert BeneficiaryNotAddressable(beneficiary);
+        }
+        address to = address(uint160(uint256(beneficiary)));
+        address token = strandedToken[_srcEid][_requestId];
+
+        stranded[_srcEid][_requestId] = 0;
+        IERC20(token).safeTransfer(to, amount);
+        emit StrandedClaimed(_srcEid, _requestId, token, to, amount);
     }
 
     function _settlementFor(
@@ -363,6 +453,7 @@ contract SwapRelay is OApp, IOAppComposer {
             _requestId,
             IERC20(token),
             amount,
+            strandedBeneficiary[_dstEid][_requestId],
             _settlementFor(_requestId, false, SwapTypes.FailureReason.POOL_ERROR, amount, 0)
         );
     }

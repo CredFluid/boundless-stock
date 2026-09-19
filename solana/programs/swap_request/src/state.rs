@@ -9,6 +9,11 @@ pub enum Status {
     Pending = 1,
     Filled = 2,
     Refunded = 3,
+    /// The value exists on the home chain but is below the bridge's precision floor, so it can
+    /// never cross. Terminal, and paired with a claim on the home chain — see
+    /// `SwapRelay.claimStranded`. Numbered to match `SwapTypes.Status` exactly; the two VMs
+    /// read each other's settlements, so a divergence here is a silent misinterpretation.
+    Stranded = 4,
 }
 
 /// Direction, from the mirror-chain user's point of view. Mirrors `SwapTypes.Direction`.

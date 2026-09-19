@@ -300,7 +300,21 @@ Ordered by severity.
 6. **No fee-bump retry.** The gas *limit* problem is fixed, but a live transaction can still
    fail on price if the base fee moves between estimation and inclusion.
 
-7. **Single owner key across all chains.** Every contract is owned by the deployer EOA. Fine for
+7. **~~The asset could be inflated by its owner~~ — RESOLVED.** `OmniToken` now has **no mint
+   function**: supply is fixed at deployment and can afterwards only move between chains. The
+   owner-callable faucet that used to live there made the whole omnichain supply invariant
+   contingent on one private key. Test-only minting moved to `MintableOmniToken`, and
+   `test_productionTokenCannotMint` keeps it out of the asset.
+
+8. **The supply invariant is now monitorable from chain state.** Each token counts
+   `bridgedOut` and `bridgedIn`, so `Σ totalSupply + Σ bridgedOut − Σ bridgedIn == minted`
+   holds continuously — no feed of pending LayerZero messages is needed to explain away the
+   in-flight gap. Previously a monitor could not distinguish "legitimately in flight" from
+   "lost to a bug", which meant a real discrepancy could hide in the noise.
+   `invariant_onChainAccountingIsSelfSufficient` proves it over 7,680 fuzzed calls.
+
+9. **Single owner key across all chains.** Every contract is owned by the deployer EOA. Peer
+   configuration remains the residual inflation vector, now that the asset itself has no mint. Fine for
    a POC, unacceptable for production.
 
 ---
