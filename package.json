@@ -2,7 +2,7 @@
   "name": "crossstock-infra",
   "version": "0.1.0",
   "private": true,
-  "description": "CrossStock \u2014 config-driven omnichain token deployment infrastructure (LayerZero V2)",
+  "description": "CrossStock — config-driven omnichain token deployment infrastructure (LayerZero V2)",
   "type": "module",
   "scripts": {
     "build": "forge build",
@@ -22,6 +22,7 @@
   "dependencies": {
     "@layerzerolabs/lz-evm-messagelib-v2": "^3.0.168",
     "@layerzerolabs/lz-evm-protocol-v2": "^3.0.168",
+    "@layerzerolabs/lz-evm-v1-0.7": "^3.0.168",
     "@layerzerolabs/oapp-evm": "^0.3.3",
     "@layerzerolabs/oft-evm": "^3.2.1",
     "@layerzerolabs/test-devtools-evm-foundry": "^6.0.3",

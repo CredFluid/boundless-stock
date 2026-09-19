@@ -651,3 +651,41 @@ moved.
    trading, which is a *balance on the home chain*, not a share of supply. Reconciled against
    the trades: 100,000 seeded, minus 198.95 bought by the two mirror users, minus ~40 from
    scenario 4's two buys, plus 20 sold back — matching the measured figure.
+
+---
+
+### [2026-09-19] The coverage assertion caught the invariant suite passing vacuously
+**Milestone:** M10 — invariant and fuzz tests
+
+**What happened / what to know:** The first version of `SupplyInvariant` reported six passing
+invariants over 4,096 calls with zero reverts. It was proving nothing. **Not a single bridge
+send had succeeded** — aggregate supply never moved off its genesis value, so
+`aggregateSupply() + inFlight == MINTED` was comparing `1,000,000 + 0` against `1,000,000`
+every time.
+
+Two separate causes, both silent:
+
+1. **`vm.prank` rewrites `msg.sender`, not who pays `{value:}`.** The handler funded the
+   *actor* and then called `token.send{value: fee}` under a prank. The ETH comes from the
+   **handler contract**, which had a zero balance, so every send reverted into the handler's
+   `try/catch` and returned `false`. Fixed by dealing the handler, not the actor.
+2. **The whole supply started on one chain.** With three chains, two thirds of randomly chosen
+   source chains had nothing to send. The fixture now bridges a third of supply onto each
+   mirror through the real mechanism before fuzzing begins.
+
+**Why it matters / what breaks if ignored:** The only reason this was caught is
+`afterInvariant()` asserting that the fuzzer actually reached the state under test:
+
+```solidity
+assertGt(handler.ghostSent(), 0, "fuzzer never bridged anything - invariants passed vacuously");
+assertGt(handler.maxInFlight(), 0, "fuzzer never left a message in flight");
+```
+
+Without it, the suite would have sat in the repo looking like strong evidence and providing
+none. **A passing invariant is only evidence if you can also show the campaign reached the
+interesting state.** Every invariant suite should carry a coverage assertion of this kind, and
+a negative control — `SupplyNegativeControl` deliberately inflates supply and asserts the
+property notices.
+
+Post-fix, every campaign reaches 60,000–82,000 tokens simultaneously in flight, which is the
+window the whole exercise is about.
