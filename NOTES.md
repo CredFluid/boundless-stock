@@ -1069,3 +1069,45 @@ occupies index 0.
 Also: the store PDA is passed as the `oapp` **without** being a transaction signer. It signs
 via `invoke_signed` with its own seeds inside the program, which is why the outer transaction
 only needs the payer's signature.
+
+---
+
+### [2026-09-19] LayerZero has two Solana OFT programs and only one of them builds
+**Milestone:** M18 — OFT deployment
+
+**What happened / what to know:** The obvious OFT to use is the one in the LayerZero-v2
+monorepo, next to the endpoint. **It cannot be compiled with the current toolchain at all.** It
+pins `anchor-lang 0.29` → `solana-program 1.17.31` → `ahash 0.7.8`, and `ahash 0.7.8` uses the
+`stdsimd` feature that newer rustc removed:
+
+```
+error[E0635]: unknown feature `stdsimd`
+```
+
+`ahash` cannot be bumped past it either, because `solana-program 1.17.31` pins that exact
+version. The whole chain is stuck behind an old Solana SDK.
+
+**The maintained one is in a different repository.** `LayerZero-Labs/devtools` at
+`examples/oft-solana` pins `anchor-lang 0.31.1` and `rust-toolchain 1.84.1` — exactly the rustc
+that platform-tools v1.51 ships. It built first time in 1m59s. That is what is vendored, at
+`solana/vendor/oft-solana`, with the devtools commit recorded in `COMMIT`.
+
+Vendored as **source, not as a `.so`**: a binary in git is unauditable and unverifiable, and
+the source is only 228 KB.
+
+**Second trap: the OFT's program id comes from an environment variable, not a keypair.**
+
+```rust
+declare_id!(Pubkey::new_from_array(program_id_from_env!(
+    "OFT_ID", "9UovNrJD8pQyBLheeHNayuG1wJSEAoxkmM14vw5gcsTT"
+)));
+```
+
+LayerZero expects every project to deploy its own OFT instance, so the id is a build-time
+input. Build without setting `OFT_ID` and the program deploys carrying LayerZero's default id
+while living at a different address — every PDA derived against it is then wrong, and nothing
+about the failure points at the build step. Build with
+`OFT_ID=$(solana-keygen pubkey keys/oft-keypair.json)`.
+
+Three programs are now live on the local validator: LayerZero's EndpointV2 (cloned from
+devnet), LayerZero's OFT (built from vendored source), and CrossStock's `swap_request`.

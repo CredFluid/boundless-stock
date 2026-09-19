@@ -14,8 +14,22 @@ cargo test -p swap-request --lib                                   # wire-format
 | | |
 |---|---|
 | `programs/swap_request` | The Solana counterpart to `src/relay/SwapRequest.sol`. Builds to a 361 KB SBF program. |
-| `vendor/layerzero/` | LayerZero's Solana crates, vendored. Provenance in `vendor/layerzero/COMMIT`. |
+| `vendor/layerzero/` | LayerZero's Solana OApp crates, vendored. Provenance in `COMMIT`. |
+| `vendor/oft-solana/` | LayerZero's Solana **OFT program**, vendored from their devtools repo and built from source rather than shipped as a binary, so it stays auditable. Builds to 566 KB. |
+| `keys/` | Program keypairs, so ids are stable and match `declare_id!`. Throwaway localnet keys — see `keys/README.md`. |
 | `Cargo.lock` | **Seeded from LayerZero's own lock.** Load-bearing — see below. |
+
+## Running it
+
+```bash
+npm run solana:up        # validator + LayerZero EndpointV2 cloned from devnet
+npm run solana:build     # swap_request.so
+npm run solana:deploy    # deploys BOTH the OFT and swap_request
+npm run solana:init      # init_store: store PDA + OApp registration
+```
+
+After that, three programs are live on the validator: LayerZero's endpoint (cloned), LayerZero's
+OFT (built from vendored source), and CrossStock's `swap_request`.
 
 ## The two things that are genuinely different from EVM
 
@@ -68,9 +82,23 @@ that is the cause. Pin, do not upgrade.
 stable since SPL Token launched, so `src/spl.rs` encodes it directly. Fewer dependencies and no
 fight with the migration.
 
+## Two build traps worth knowing about
+
+**LayerZero has two Solana OFT programs, and only one of them builds.** The one in
+`LayerZero-v2/packages/.../programs/programs/oft` pins `anchor-lang 0.29` → `solana-program
+1.17` → `ahash 0.7.8`, which uses the `stdsimd` feature that newer rustc removed. It cannot
+compile with the current platform-tools at all. The maintained one is in their **devtools** repo
+at `examples/oft-solana`: `anchor-lang 0.31.1`, `rust-toolchain 1.84.1` — exactly the version
+platform-tools v1.51 ships. That is the one vendored here.
+
+**The OFT's program id comes from an `OFT_ID` environment variable at build time**, not from a
+keypair file, because LayerZero expects every project to deploy its own OFT instance. Build it
+with `OFT_ID=$(solana-keygen pubkey keys/oft-keypair.json)` or the deployed program will carry
+the wrong id and every PDA derived against it will be wrong.
+
 ## Not built yet
 
-- Deployment tooling: a `SolanaChain` backend in `infra/`, alongside the EVM one.
+- `init_oft` for each asset, and peer wiring (Solana peers are PDAs on the OFT, not a mapping).
 - Relayer support for the SVM delivery path.
 - **Solana as the base chain**, which needs a `swap_relay` program CPI-ing into Orca Whirlpools
   or Raydium CLMM. Uniswap V3 has no Solana deployment, so that is a new venue integration

@@ -445,7 +445,7 @@ into the genuine EndpointV2.
 ```bash
 npm run solana:up       # validator + real EndpointV2 cloned from devnet
 npm run solana:build    # -> solana/target/deploy/swap_request.so (361 KB)
-npm run solana:deploy   # deploy, verify executable
+npm run solana:deploy   # deploys BOTH LayerZero's OFT and swap_request
 npm run solana:init     # init_store: creates the store PDA and registers the OApp
 npm run solana:test     # wire-format codec tests
 ```
@@ -454,7 +454,8 @@ Verified on a local validator:
 
 | | |
 |---|---|
-| Program | `6cMiunhoxEcYYT29Cp4PgDT97FjtqsuqZ27ChTbr41vL`, executable, owned by `BPFLoaderUpgradeab1e` |
+| LayerZero OFT | `9xcb9TquFyK9wELi4TpghRVfMxu12NzcgQYMPqG4cFLA`, built from vendored source, executable |
+| `swap_request` | `6cMiunhoxEcYYT29Cp4PgDT97FjtqsuqZ27ChTbr41vL`, executable, owned by `BPFLoaderUpgradeab1e` |
 | Store PDA | 309 bytes, owned by the program |
 | OApp registry PDA | 41 bytes, **owned by LayerZero's EndpointV2** — the endpoint accepted the registration |
 
@@ -498,9 +499,9 @@ everything around it — deployment, addressing, and what a "pool" is.
 **Solana as a mirror chain** (the smaller half):
 
 1. ~~Anchor workspace~~ **done.** Builds against `anchor-latest/libs/oapp`.
-2. Deploy LayerZero's OFT program and initialise the mint + its PDAs. **This is the next step**
-   — until it exists, `open_request` has no OFT to CPI into and the store records placeholder
-   OFT ids.
+2. ~~Deploy LayerZero's OFT program~~ **done** — vendored from their devtools repo and
+   deployed. `init_oft` for each asset is the next step; until then the store records
+   placeholder OFT ids.
 3. ~~A `swap_request` Anchor program~~ **done.** Store and request PDAs, SPL escrow,
    `lz_compose_types_v2` and `lz_compose`, and an OFT `send` CPI. Registered as an OApp.
 4. ~~A `SolanaChain` backend~~ **done for deployment and reads.** Peer configuration still to

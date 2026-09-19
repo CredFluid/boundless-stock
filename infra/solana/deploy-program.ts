@@ -21,8 +21,28 @@ function arg(name: string, fallback?: string): string {
   throw new Error(`Missing required argument --${name}`);
 }
 
-const SWAP_REQUEST_SO = "solana/target/deploy/swap_request.so";
-const SWAP_REQUEST_KEYPAIR = "solana/keys/swap_request-keypair.json";
+/**
+ * The programs a Solana mirror chain needs.
+ *
+ * `oft` is LayerZero's, vendored under `solana/vendor/oft-solana` and built from source rather
+ * than shipped as a binary so it stays auditable. Its program id comes from the `OFT_ID`
+ * environment variable at build time — LayerZero's design, so every project deploys its own
+ * OFT instance rather than sharing one.
+ */
+const PROGRAMS = [
+  {
+    label: "oft (LayerZero)",
+    so: "solana/vendor/oft-solana/target/deploy/oft.so",
+    keypair: "solana/keys/oft-keypair.json",
+    manifestKey: "OftProgram",
+  },
+  {
+    label: "swap_request (CrossStock)",
+    so: "solana/target/deploy/swap_request.so",
+    keypair: "solana/keys/swap_request-keypair.json",
+    manifestKey: "SwapRequestProgram",
+  },
+] as const;
 
 async function main(): Promise<void> {
   const cfg = loadConfig(arg("config", "config/localnet-solana.json"));
@@ -56,18 +76,20 @@ async function main(): Promise<void> {
       await chain.airdrop(100);
     }
 
-    log.step("swap_request program");
-    const programId = await chain.deployProgram(SWAP_REQUEST_SO, SWAP_REQUEST_KEYPAIR);
-    log.ok(`deployed and executable: ${programId}`);
-
-    const info = await chain.accountInfo(programId);
-    log.kv("owner", info!.owner.toBase58());
-    log.kv("executable", String(info!.executable));
+    const deployed: Record<string, string> = {};
+    for (const program of PROGRAMS) {
+      log.step(program.label);
+      const programId = await chain.deployProgram(program.so, program.keypair);
+      const info = await chain.accountInfo(programId);
+      log.ok(`deployed and executable: ${programId}`);
+      log.kv("owner", info!.owner.toBase58());
+      deployed[program.manifestKey] = programId;
+    }
 
     log.banner("Solana programs deployed");
-    log.info("Still required before a trade can round-trip through this chain:");
-    log.info("  - deploy and initialise LayerZero's OFT program for each asset");
-    log.info("  - init_store + set_home_relay on swap_request");
+    for (const [key, id] of Object.entries(deployed)) log.kv(key, id);
+    log.info("\nStill required before a trade can round-trip through this chain:");
+    log.info("  - init_oft for each asset, and init_store on swap_request");
     log.info("  - peer wiring, and relayer support for the SVM delivery path");
     log.info("See agents.md section 12.");
   }
@@ -80,4 +102,4 @@ main().catch((e) => {
   process.exit(1);
 });
 
-export { SWAP_REQUEST_SO, SWAP_REQUEST_KEYPAIR, resolve };
+export { PROGRAMS, resolve };
