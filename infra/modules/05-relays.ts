@@ -39,7 +39,9 @@ export async function deployRelays(
       endpointOf(manifest, home.key),
       home.deployer,
       getContract(manifest, home.key, "TokenizedStock"),
+      getContract(manifest, home.key, "TokenizedStockOft"),
       getContract(manifest, home.key, "QuoteAsset"),
+      getContract(manifest, home.key, "QuoteAssetOft"),
       getContract(manifest, home.key, "SwapRouter"),
       cfg.pool.feeTier,
     ]));
@@ -70,7 +72,9 @@ export async function deployRelays(
         endpointOf(manifest, mc.key),
         chain.deployer,
         getContract(manifest, mc.key, "TokenizedStock"),
+        getContract(manifest, mc.key, "TokenizedStockOft"),
         getContract(manifest, mc.key, "QuoteAsset"),
+        getContract(manifest, mc.key, "QuoteAssetOft"),
         cfg.homeChain.eid,
       ]));
     log.kv("SwapRequest", request);

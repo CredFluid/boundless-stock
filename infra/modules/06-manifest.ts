@@ -32,8 +32,8 @@ export function finalizeManifest(
   const homeKey = manifest.homeChainKey;
 
   const required: Record<string, string[]> = {
-    home: ["TokenizedStock", "QuoteAsset", "Pool", "SwapRouter", "SwapRelay"],
-    mirror: ["TokenizedStock", "SwapRequest"],
+    home: ["TokenizedStock", "TokenizedStockOft", "QuoteAsset", "QuoteAssetOft", "Pool", "SwapRouter", "SwapRelay"],
+    mirror: ["TokenizedStock", "TokenizedStockOft", "QuoteAsset", "QuoteAssetOft", "SwapRequest"],
   };
 
   for (const [key, chain] of Object.entries(manifest.chains)) {

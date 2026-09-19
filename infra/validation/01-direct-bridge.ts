@@ -40,6 +40,14 @@ export async function scenario1(h: Harness, mirrorKey?: string): Promise<Scenari
     log.dim(`mirror already holds ${h.fmtToken(before.mirror)} from an earlier run — asserting deltas only`);
   }
 
+  // Bridge through the OFT HANDLE. For a launched asset that is the token; for an adapted one
+  // it is the adapter, and the token itself has no quoteSend on it at all.
+  const oft = h.oftAddr(home.key, "TokenizedStock");
+  if (h.isAdapted(home.key, "TokenizedStock")) {
+    log.dim(`adapted asset — bridging via adapter ${oft}`);
+    await home.write(h.addr(home.key, "TokenizedStock"), OFT_ABI, "approve", [oft, amount]);
+  }
+
   const options = Options.new().addExecutorLzReceive(200_000n).build();
   const sendParam = {
     dstEid: h.eid(mirror),
@@ -51,7 +59,6 @@ export async function scenario1(h: Harness, mirrorKey?: string): Promise<Scenari
     oftCmd: "0x" as const,
   };
 
-  const oft = h.addr(home.key, "TokenizedStock");
   const fee = await home.read<{ nativeFee: bigint; lzTokenFee: bigint }>(oft, OFT_ABI, "quoteSend", [
     sendParam,
     false,

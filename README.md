@@ -40,6 +40,13 @@ cp .env.example .env    # DEPLOYER_PRIVATE_KEY + RPC URLs
 npm run deploy -- --config config/testnet.json
 ```
 
+Already have a tokenized stock deployed? Point at it and the infra adapts rather than replaces
+it — holders keep their balances, the address never changes:
+
+```bash
+EXISTING_STOCK_ADDRESS=0x... npm run deploy -- --config config/localnet-adapter.json
+```
+
 Adding a chain to an already-launched token is one extra entry in `mirrorChains` and a re-run:
 
 ```bash

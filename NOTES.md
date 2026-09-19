@@ -819,3 +819,54 @@ neither is visible from the config:
    cleanly on a *fresh* deployment, but there is no path that moves an existing pool, its
    liquidity and the relay from one chain to another. Choosing the base chain is a one-way
    decision today.
+
+---
+
+### [2026-09-19] Bring-your-own-token: adapting an existing ERC-20 instead of launching a new one
+**Milestone:** M13 — adapter mode
+
+**What happened / what to know:** The infra could previously only launch a *new* omnichain
+token. An issuer whose tokenized stock already existed had no path in: an OFT **is** the token
+contract and works by burn-and-mint, so an existing ERC-20 cannot become one.
+
+Solved with LayerZero's `OFTAdapter`, wrapped as `OmniTokenAdapter`. Instead of replacing the
+token, the adapter sits beside it, **locks** it on its home chain, and backs representations
+minted on every mirror chain. Holders keep their balances and the token's address never changes.
+
+Turned on with one config field:
+
+```json
+"token": { "name": "...", "symbol": "tAAPL", "decimals": 18, "existingToken": "0x..." }
+```
+
+`config/localnet-adapter.json` differs from `config/localnet.json` by exactly that line.
+
+**Why it matters / what breaks if ignored:** Four things had to change, and only the first is
+obvious:
+
+1. **Module 1 gained an adapt mode.** It verifies there is code at the address and that the
+   on-chain `decimals()` matches config — refusing rather than guessing, since every bridging
+   calculation depends on it.
+2. **Token and OFT handle are now separate everywhere.** `SwapRelay` and `SwapRequest` each
+   take `(token, oft)` pairs. The pool is always traded in the *underlying*; messaging always
+   goes through the *OFT*. `SwapRelay` derives trade direction from which OFT delivered, so
+   that comparison had to move from the token address to the adapter address — it would
+   otherwise reject every adapted delivery as an unexpected source.
+3. **`approvalRequired()` is true for an adapter.** It pulls with `transferFrom` rather than
+   burning, so both relay contracts now approve before `send()`. Without this the return leg
+   reverts, and only on adapted deployments.
+4. **Supply accounting had to be reformulated**, and this is the subtle one. An adapted token's
+   `totalSupply()` on its home chain includes every coin that has never touched this system,
+   while mirrors mint representations against the locked balance. Summing raw supplies
+   double-counts: the first adapter-mode run failed with
+   `aggregate stock supply changed 1000000 → 1000099.605634`, which was the harness being
+   wrong, not the protocol.
+
+   The fix conserves in both modes: **a chain's contribution is its `totalSupply()` minus
+   anything locked in an adapter there.** Moving a token to a mirror locks it at home (home
+   contribution falls) and mints it there (mirror contribution rises) by the same amount. A
+   launched asset has no adapter, so the formula reduces to the plain sum it always was.
+
+Constraints inherited from `OFTAdapter`, all documented on the contract: exactly one adapter
+may ever exist per token (a second lockbox fractures supply), and transfers must be lossless —
+**fee-on-transfer and rebasing tokens are explicitly out of scope** for this POC.

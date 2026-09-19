@@ -52,10 +52,20 @@ contract SwapRelay is OApp, IOAppComposer {
     using OptionsBuilder for bytes;
     using OFTComposeMsgCodec for bytes;
 
-    /// @notice The omnichain stock being traded.
+    /// @notice The stock being traded, as an ERC-20. What the pool actually holds.
     IERC20 public immutable baseToken;
-    /// @notice The omnichain quote asset. Liquid only here, on the home chain.
+    /// @notice The quote asset, as an ERC-20. Liquid only here, on the home chain.
     IERC20 public immutable quoteToken;
+
+    /**
+     * @notice The OFT handle for each asset — the contract that moves it across chains.
+     * @dev Equal to the token itself when the asset is a native {OmniToken}, and a separate
+     *      {OmniTokenAdapter} when the issuer brought a token that already existed. Keeping the
+     *      two handles distinct is what lets one relay serve both cases: the pool is always
+     *      traded in the underlying, while messaging always goes through the OFT.
+     */
+    IOFT public immutable baseOft;
+    IOFT public immutable quoteOft;
     /// @notice Uniswap V3 router used for execution.
     ISwapRouter public immutable router;
     /// @notice Fee tier of the base/quote pool.
@@ -86,16 +96,22 @@ contract SwapRelay is OApp, IOAppComposer {
 
     error UnexpectedComposeSource(address from);
 
+    /// @param _baseOft  OFT handle for the stock: the token itself, or its adapter.
+    /// @param _quoteOft OFT handle for the quote asset: the token itself, or its adapter.
     constructor(
         address _endpoint,
         address _owner,
         address _baseToken,
+        address _baseOft,
         address _quoteToken,
+        address _quoteOft,
         address _router,
         uint24 _poolFee
     ) OApp(_endpoint, _owner) Ownable(_owner) {
         baseToken = IERC20(_baseToken);
         quoteToken = IERC20(_quoteToken);
+        baseOft = IOFT(_baseOft);
+        quoteOft = IOFT(_quoteOft);
         router = ISwapRouter(_router);
         poolFee = _poolFee;
     }
@@ -116,10 +132,12 @@ contract SwapRelay is OApp, IOAppComposer {
     ) external payable override {
         if (msg.sender != address(endpoint)) revert OnlyEndpoint(msg.sender);
 
-        // Direction is derived from the delivering OFT, not from the payload.
+        // Direction is derived from the delivering OFT, not from the payload. With an adapter
+        // the deliverer is the adapter rather than the token, which is why the OFT handles are
+        // tracked separately.
         bool isBuy;
-        if (_from == address(quoteToken)) isBuy = true;
-        else if (_from == address(baseToken)) isBuy = false;
+        if (_from == address(quoteOft)) isBuy = true;
+        else if (_from == address(baseOft)) isBuy = false;
         else revert UnexpectedComposeSource(_from);
 
         uint32 srcEid = _message.srcEid();
@@ -129,7 +147,7 @@ contract SwapRelay is OApp, IOAppComposer {
         SwapTypes.Order memory order = SwapTypes.decodeOrder(_message.composeMsg());
         emit OrderReceived(srcEid, order.requestId, _from, amountIn);
 
-        IERC20 tokenIn = IERC20(_from);
+        IERC20 tokenIn = isBuy ? quoteToken : baseToken;
         IERC20 tokenOut = isBuy ? baseToken : quoteToken;
 
         // Authenticate the originator: the order must come from the SwapRequest registered as
@@ -261,7 +279,13 @@ contract SwapRelay is OApp, IOAppComposer {
             oftCmd: ""
         });
 
-        IOFT oft = IOFT(address(_token));
+        IOFT oft = _oftFor(_token);
+
+        // An adapter pulls with transferFrom rather than burning, so it needs an allowance.
+        // A native OmniToken reports false here and needs none.
+        if (oft.approvalRequired()) {
+            _token.forceApprove(address(oft), _amount);
+        }
 
         try oft.quoteSend(sendParam, false) returns (MessagingFee memory fee) {
             if (address(this).balance < fee.nativeFee) {
@@ -286,10 +310,15 @@ contract SwapRelay is OApp, IOAppComposer {
         }
     }
 
+    /// @dev The OFT that moves `_token` across chains: itself, or its adapter.
+    function _oftFor(IERC20 _token) internal view returns (IOFT) {
+        return address(_token) == address(baseToken) ? baseOft : quoteOft;
+    }
+
     /// @dev Smallest amount of `_token` that can cross the bridge: one shared-decimal unit.
     function _bridgeQuantum(address _token) internal view returns (uint256) {
         uint8 localDecimals = IERC20Metadata(_token).decimals();
-        uint8 shared = IOFT(_token).sharedDecimals();
+        uint8 shared = _oftFor(IERC20(_token)).sharedDecimals();
         return localDecimals > shared ? 10 ** (localDecimals - shared) : 1;
     }
 

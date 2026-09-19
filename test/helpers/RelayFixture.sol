@@ -76,10 +76,13 @@ abstract contract RelayFixture is TestHelperOz5 {
         _wirePeer(mirrorQuote, HOME_EID, address(homeQuote));
 
         router = new MockSwapRouter(address(homeStock), address(homeQuote), STOCK_DECIMALS, 150e6);
+        // Native OmniTokens: the token IS its own OFT handle.
         relay = new SwapRelay(
             endpoints[HOME_EID],
             address(this),
             address(homeStock),
+            address(homeStock),
+            address(homeQuote),
             address(homeQuote),
             address(router),
             POOL_FEE
@@ -88,6 +91,8 @@ abstract contract RelayFixture is TestHelperOz5 {
             endpoints[MIRROR_EID],
             address(this),
             address(mirrorStock),
+            address(mirrorStock),
+            address(mirrorQuote),
             address(mirrorQuote),
             HOME_EID
         );

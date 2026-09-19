@@ -37,6 +37,7 @@ export const OFT_ABI = parseAbi([
   "function decimals() view returns (uint8)",
   "function sharedDecimals() view returns (uint8)",
   "function peers(uint32) view returns (bytes32)",
+  "function approvalRequired() view returns (bool)",
 ]);
 
 export enum Direction {
@@ -111,6 +112,56 @@ export class Harness {
     const a = this.manifest.chains[chainKey]?.contracts[contract];
     if (!a) throw new Error(`No "${contract}" on chain "${chainKey}".`);
     return a as Address;
+  }
+
+  /**
+   * The contract that moves an asset across chains: the token itself for a launched asset,
+   * or its adapter for one that already existed.
+   *
+   * Anything that bridges must go through this rather than the token address — an adapted
+   * asset is a plain ERC-20 with no `quoteSend` on it at all.
+   */
+  oftAddr(chainKey: string, contract: "TokenizedStock" | "QuoteAsset"): Address {
+    return (this.manifest.chains[chainKey]?.contracts[`${contract}Oft`] ?? this.addr(chainKey, contract)) as Address;
+  }
+
+  /** True when the asset is adapted rather than launched on this chain. */
+  isAdapted(chainKey: string, contract: "TokenizedStock" | "QuoteAsset"): boolean {
+    return this.oftAddr(chainKey, contract).toLowerCase() !== this.addr(chainKey, contract).toLowerCase();
+  }
+
+  /**
+   * Bridge an asset from the home chain to a mirror chain, handling both deployment modes.
+   * @dev An adapter pulls with `transferFrom`, so it needs an allowance first; a launched
+   *      OmniToken burns from the caller and needs none.
+   */
+  async bridgeFromHome(
+    mirrorKey: string,
+    contract: "TokenizedStock" | "QuoteAsset",
+    to: Address,
+    amount: bigint
+  ): Promise<void> {
+    const homeKey = this.manifest.homeChainKey;
+    const oft = this.oftAddr(homeKey, contract);
+
+    if (this.isAdapted(homeKey, contract)) {
+      await this.home.write(this.addr(homeKey, contract), OFT_ABI, "approve", [oft, amount]);
+    }
+
+    const sendParam = {
+      dstEid: this.eid(mirrorKey),
+      to: toBytes32(to),
+      amountLD: amount,
+      minAmountLD: 0n,
+      extraOptions: Options.new().addExecutorLzReceive(200_000n).build(),
+      composeMsg: "0x" as const,
+      oftCmd: "0x" as const,
+    };
+    const fee = await this.home.read<{ nativeFee: bigint; lzTokenFee: bigint }>(oft, OFT_ABI, "quoteSend", [
+      sendParam,
+      false,
+    ]);
+    await this.home.write(oft, OFT_ABI, "send", [sendParam, fee, this.home.deployer], fee.nativeFee);
   }
   eid(chainKey: string): number {
     return this.manifest.chains[chainKey].eid;
@@ -236,22 +287,7 @@ export class Harness {
     const held = await balanceOf();
     if (held >= amount) return;
 
-    const need = amount - held;
-    const oft = this.addr(this.manifest.homeChainKey, contract);
-    const sendParam = {
-      dstEid: this.eid(mirrorKey),
-      to: toBytes32(this.userAddress),
-      amountLD: need,
-      minAmountLD: 0n,
-      extraOptions: Options.new().addExecutorLzReceive(200_000n).build(),
-      composeMsg: "0x" as const,
-      oftCmd: "0x" as const,
-    };
-    const fee = await this.home.read<{ nativeFee: bigint; lzTokenFee: bigint }>(oft, OFT_ABI, "quoteSend", [
-      sendParam,
-      false,
-    ]);
-    await this.home.write(oft, OFT_ABI, "send", [sendParam, fee, this.home.deployer], fee.nativeFee);
+    await this.bridgeFromHome(mirrorKey, contract, this.userAddress, amount - held);
     await this.waitFor("user funding to arrive", async () => (await balanceOf()) >= amount);
   }
 
@@ -275,16 +311,42 @@ export class Harness {
     return this.chain(chainKey).read<bigint>(this.addr(chainKey, "QuoteAsset"), OFT_ABI, "balanceOf", [holder]);
   }
 
-  /** Aggregate supply of an omnichain asset across every chain in the set. */
+  /**
+   * The conserved quantity for an omnichain asset, in either deployment mode.
+   *
+   * LAUNCHED asset (a native OmniToken): every chain's `totalSupply()` is a genuine slice of
+   * one omnichain supply, so the figure is simply their sum.
+   *
+   * ADAPTED asset (a pre-existing ERC-20 behind an OmniTokenAdapter): the home token's
+   * `totalSupply()` includes every coin that has never touched this system, and the mirror
+   * chains mint representations *backed by* the adapter's locked balance. Summing raw supplies
+   * therefore double-counts everything in flight through the lockbox. Subtracting the locked
+   * amount from the home contribution restores conservation: a token moving to a mirror is
+   * locked here (home contribution falls) and minted there (mirror contribution rises) by the
+   * same amount.
+   *
+   * Reduces to the same arithmetic in both modes, since a launched asset has no adapter and
+   * therefore nothing locked.
+   */
   async totalSupplyAcrossChains(
     contract: "TokenizedStock" | "QuoteAsset" = "TokenizedStock"
   ): Promise<{ perChain: Record<string, bigint>; total: bigint }> {
     const perChain: Record<string, bigint> = {};
     let total = 0n;
+
     for (const key of Object.keys(this.manifest.chains)) {
-      const s = await this.chain(key).read<bigint>(this.addr(key, contract), OFT_ABI, "totalSupply");
-      perChain[key] = s;
-      total += s;
+      const token = this.addr(key, contract);
+      const oft = this.manifest.chains[key].contracts[`${contract}Oft`] as Address | undefined;
+
+      let counted = await this.chain(key).read<bigint>(token, OFT_ABI, "totalSupply");
+
+      if (oft && oft.toLowerCase() !== token.toLowerCase()) {
+        const locked = await this.chain(key).read<bigint>(token, OFT_ABI, "balanceOf", [oft]);
+        counted -= locked; // backing for representations that live on other chains
+      }
+
+      perChain[key] = counted;
+      total += counted;
     }
     return { perChain, total };
   }

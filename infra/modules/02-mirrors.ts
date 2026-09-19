@@ -81,6 +81,10 @@ export async function deployMirrorTokens(
 
     setContract(manifest, mc.key, "TokenizedStock", base);
     setContract(manifest, mc.key, "QuoteAsset", quote);
+    // A mirror always receives a fresh OmniToken, so each token is its own OFT handle. The
+    // keys are still written so downstream code never has to special-case home vs mirror.
+    setContract(manifest, mc.key, "TokenizedStockOft", base);
+    setContract(manifest, mc.key, "QuoteAssetOft", quote);
     deployed[mc.key] = { base, quote };
 
     log.groupEnd();

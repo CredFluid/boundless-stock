@@ -76,9 +76,11 @@ async function main(): Promise<void> {
   let totalLinks = 0;
   let totalVerified = 0;
 
+  // Peers are wired between OFT HANDLES. For a launched asset that is the token itself; for
+  // an adapted one it is the adapter, since the adapter is what speaks LayerZero.
   for (const [assetLabel, contractName] of [
-    [cfg.token.symbol, "TokenizedStock"],
-    [cfg.quoteAsset.symbol, "QuoteAsset"],
+    [cfg.token.symbol, "TokenizedStockOft"],
+    [cfg.quoteAsset.symbol, "QuoteAssetOft"],
   ] as const) {
     log.group(`${assetLabel} mesh`);
     const nodes: PeerNode[] = allChains(cfg).map((c) => ({

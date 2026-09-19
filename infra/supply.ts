@@ -42,16 +42,33 @@ async function main(): Promise<void> {
     log.step(`${meta.name} (${meta.symbol}) — minted ${meta.initialSupply} at launch`);
 
     let total = 0n;
-    const rows: { name: string; role: string; supply: bigint; pool?: bigint }[] = [];
+    let adapted = false;
+    const rows: { name: string; role: string; supply: bigint; pool?: bigint; note?: string }[] = [];
 
     for (const cd of Object.values(manifest.chains)) {
       const chain = chains.get(cd.key);
       if (!chain) continue;
       const addr = cd.contracts[contract] as Address | undefined;
+      const oftAddr = cd.contracts[`${contract}Oft`] as Address | undefined;
       if (!addr) continue;
 
-      const supply = await chain.read<bigint>(addr, abi, "totalSupply");
-      total += supply;
+      // ADAPTED ASSET. The token's own totalSupply on this chain includes every coin that has
+      // never been near this system, so it is NOT the omnichain figure. What backs the mirror
+      // chains is the amount locked in the adapter.
+      const isAdapter = !!oftAddr && oftAddr.toLowerCase() !== addr.toLowerCase();
+      let counted: bigint;
+      let note: string | undefined;
+
+      counted = await chain.read<bigint>(addr, abi, "totalSupply");
+      if (isAdapter) {
+        adapted = true;
+        const locked = await chain.read<bigint>(addr, abi, "balanceOf", [oftAddr!]);
+        counted -= locked; // backing representations that live on other chains
+        note =
+          `${formatUnits(locked, meta.decimals)} locked in the adapter, backing the ` +
+          `representations on other chains`;
+      }
+      total += counted;
 
       const poolAddr = manifest.pool?.address as Address | undefined;
       const inPool =
@@ -59,7 +76,7 @@ async function main(): Promise<void> {
           ? await chain.read<bigint>(addr, abi, "balanceOf", [poolAddr])
           : undefined;
 
-      rows.push({ name: cd.name, role: cd.role, supply, pool: inPool });
+      rows.push({ name: cd.name, role: cd.role, supply: counted, pool: inPool, note });
     }
 
     for (const r of rows) {
@@ -69,10 +86,17 @@ async function main(): Promise<void> {
         `${formatUnits(r.supply, meta.decimals).padStart(22)} ${meta.symbol}  ${pct.toFixed(2).padStart(6)}%` +
           (r.pool !== undefined ? `   [pool holds ${formatUnits(r.pool, meta.decimals)}]` : "")
       );
+      if (r.note) log.dim(`      ${r.note}`);
     }
 
     log.kv("ACROSS ALL CHAINS", `${formatUnits(total, meta.decimals)} ${meta.symbol}`);
-    log.dim("this sum is the invariant — individual chains rise and fall as users bridge");
+    if (adapted) {
+      log.dim("ADAPTED asset: the home figure excludes what is locked in the adapter, because that");
+      log.dim("backing already appears as representations on the other chains. Summing raw");
+      log.dim("totalSupply would double-count it.");
+    } else {
+      log.dim("this sum is the invariant — individual chains rise and fall as users bridge");
+    }
   }
 }
 

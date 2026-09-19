@@ -39,8 +39,19 @@ export interface TokenConfig {
   name: string;
   symbol: string;
   decimals: number;
-  /** Human-readable units, e.g. "1000000". Minted on the home chain only. */
+  /** Human-readable units, e.g. "1000000". Minted on the home chain only. Ignored when adapting. */
   initialSupply: string;
+  /**
+   * Address of an ERC-20 that ALREADY EXISTS on the home chain.
+   *
+   * When set, the infra does not mint a new token. It deploys an {OmniTokenAdapter} beside the
+   * existing one, which locks it and backs representations on every mirror chain. This is how
+   * an issuer brings a token they already have: holders keep their balances and the contract
+   * address never changes.
+   *
+   * Only meaningful for the home chain. Mirror chains always receive fresh OmniTokens.
+   */
+  existingToken?: string;
 }
 
 export interface PoolConfig {

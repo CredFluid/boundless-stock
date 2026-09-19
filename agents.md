@@ -96,6 +96,7 @@ Fees are paid in the **native testnet gas token**. There is no separate fee-toke
 |---|---|---|
 | `OmniToken` | — | Base implementation: a LayerZero V2 OFT with caller-specified decimals. Exists because LayerZero's own `OFT` only really supports 18-decimal tokens (see `NOTES.md`). |
 | `TokenizedStock` | home + every mirror | The stock. A named `OmniToken`. Full supply minted on home at deploy; mirrors start empty and can only be credited by inbound bridge messages. |
+| `OmniTokenAdapter` | home only, **adapt mode** | Alternative to minting: locks a **pre-existing** ERC-20 and backs representations on the mirrors. Lets an issuer bring a token they already have — holders keep their balances, the address never changes. |
 | `USDC` | home + every mirror | The quote asset, also an OFT. Omnichain **so that a mirror-chain user has something to pay with** — without this, they could only ever sell. Its liquidity still exists only on the home chain. |
 | `SwapRelay` | home only | LayerZero OApp. Receives cross-chain orders, executes them against the Uniswap V3 pool, and sends the result back as tokens. |
 | `SwapRequest` | every mirror | User-facing entrypoint: `buy()` and `sell()`. Takes the user's input, dispatches it to the home chain, and pays out whatever comes back. |
@@ -188,6 +189,21 @@ npm run deploy -- --config config/testnet.json
 
 **No code changes are required between those two runs.** That is the whole point of the
 config-driven design — see §8 for the honest accounting of what is and isn't config-driven.
+
+### Bringing a token that already exists
+
+Set `token.existingToken` to its address and the infra **adapts** instead of launching: it
+deploys an `OmniTokenAdapter` that locks the existing ERC-20 and backs representations on every
+mirror chain. Holders keep their balances and the token's address never changes.
+
+```bash
+npm run deploy:legacy    # only for the demo: deploys a stand-in "pre-existing" token
+EXISTING_STOCK_ADDRESS=0x... npm run deploy -- --config config/localnet-adapter.json
+```
+
+`config/localnet-adapter.json` differs from `config/localnet.json` by exactly one line. Both
+modes pass the same 6/6 validation suite. Constraints: exactly one adapter may ever exist per
+token, and **fee-on-transfer and rebasing tokens are out of scope**.
 
 ### Adding a chain to an already-launched token
 

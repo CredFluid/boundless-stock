@@ -59,10 +59,20 @@ contract SwapRequest is OApp, IOAppComposer {
         uint8 failureReason;
     }
 
-    /// @notice The omnichain stock, on this mirror chain.
+    /// @notice The stock, as an ERC-20, on this chain.
     IERC20 public immutable baseToken;
-    /// @notice The omnichain quote asset, on this mirror chain. Liquid only on the home chain.
+    /// @notice The quote asset, as an ERC-20, on this chain. Liquid only on the home chain.
     IERC20 public immutable quoteToken;
+
+    /**
+     * @notice The OFT handle for each asset — the contract that moves it across chains.
+     * @dev Equal to the token itself for a native {OmniToken}, and a separate
+     *      {OmniTokenAdapter} where the asset already existed on this chain. Mirror chains
+     *      normally hold native OmniTokens, but keeping the handles distinct means this
+     *      contract also works on a chain where the asset predates the deployment.
+     */
+    IOFT public immutable baseOft;
+    IOFT public immutable quoteOft;
     /// @notice LayerZero eid of the home chain, where the market lives.
     uint32 public immutable homeEid;
 
@@ -105,11 +115,15 @@ contract SwapRequest is OApp, IOAppComposer {
         address _endpoint,
         address _owner,
         address _baseToken,
+        address _baseOft,
         address _quoteToken,
+        address _quoteOft,
         uint32 _homeEid
     ) OApp(_endpoint, _owner) Ownable(_owner) {
         baseToken = IERC20(_baseToken);
         quoteToken = IERC20(_quoteToken);
+        baseOft = IOFT(_baseOft);
+        quoteOft = IOFT(_quoteOft);
         homeEid = _homeEid;
     }
 
@@ -150,7 +164,14 @@ contract SwapRequest is OApp, IOAppComposer {
 
         SendParam memory sendParam = _buildSendParam(requestId, _direction, _amountIn, _minAmountOut, msg.sender);
 
-        IOFT oft = IOFT(address(tokenIn));
+        IOFT oft = _oftFor(tokenIn);
+
+        // An adapter pulls with transferFrom rather than burning, so it needs an allowance.
+        // A native OmniToken reports false and needs none.
+        if (oft.approvalRequired()) {
+            tokenIn.forceApprove(address(oft), _amountIn);
+        }
+
         MessagingFee memory fee = oft.quoteSend(sendParam, false);
         if (msg.value < fee.nativeFee) revert InsufficientFee(fee.nativeFee, msg.value);
 
@@ -205,7 +226,7 @@ contract SwapRequest is OApp, IOAppComposer {
             _minAmountOut,
             msg.sender
         );
-        return IOFT(address(tokenIn)).quoteSend(sendParam, false);
+        return _oftFor(tokenIn).quoteSend(sendParam, false);
     }
 
     function _buildSendParam(
@@ -241,10 +262,15 @@ contract SwapRequest is OApp, IOAppComposer {
             });
     }
 
+    /// @dev The OFT that moves `_token` across chains: itself, or its adapter.
+    function _oftFor(IERC20 _token) internal view returns (IOFT) {
+        return address(_token) == address(baseToken) ? baseOft : quoteOft;
+    }
+
     /// @dev Smallest amount of `_token` that can cross the bridge: one shared-decimal unit.
     function _bridgeQuantum(IERC20 _token) internal view returns (uint256) {
         uint8 localDecimals = IERC20Metadata(address(_token)).decimals();
-        uint8 sharedDecimals = IOFT(address(_token)).sharedDecimals();
+        uint8 sharedDecimals = _oftFor(_token).sharedDecimals();
         return localDecimals > sharedDecimals ? 10 ** (localDecimals - sharedDecimals) : 1;
     }
 
@@ -263,7 +289,9 @@ contract SwapRequest is OApp, IOAppComposer {
         bytes calldata
     ) external payable override {
         if (msg.sender != address(endpoint)) revert OnlyEndpoint(msg.sender);
-        if (_from != address(baseToken) && _from != address(quoteToken)) revert UnexpectedComposeSource(_from);
+        // The deliverer is the OFT, which is the adapter when the asset predates the deployment.
+        if (_from != address(baseOft) && _from != address(quoteOft)) revert UnexpectedComposeSource(_from);
+        IERC20 delivered = _from == address(baseOft) ? baseToken : quoteToken;
 
         uint32 srcEid = _message.srcEid();
         bytes32 composeFrom = _message.composeFrom();
@@ -282,13 +310,13 @@ contract SwapRequest is OApp, IOAppComposer {
         if (s.status == uint8(SwapTypes.Status.FILLED)) {
             r.status = SwapTypes.Status.FILLED;
             r.amountOut = amountReceived;
-            IERC20(_from).safeTransfer(r.user, amountReceived);
-            emit SwapFilled(s.requestId, r.user, _from, amountReceived);
+            delivered.safeTransfer(r.user, amountReceived);
+            emit SwapFilled(s.requestId, r.user, address(delivered), amountReceived);
         } else {
             r.status = SwapTypes.Status.REFUNDED;
             r.failureReason = s.reason;
-            IERC20(_from).safeTransfer(r.user, amountReceived);
-            emit SwapRefunded(s.requestId, r.user, _from, amountReceived, s.reason);
+            delivered.safeTransfer(r.user, amountReceived);
+            emit SwapRefunded(s.requestId, r.user, address(delivered), amountReceived, s.reason);
         }
     }
 

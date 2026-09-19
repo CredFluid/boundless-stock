@@ -14,7 +14,8 @@
     "validate": "tsx infra/validate.ts",
     "supply": "tsx infra/supply.ts",
     "test:invariant": "forge test --match-path 'test/invariant/*'",
-    "test:fuzz": "forge test --match-path 'test/fuzz/*'"
+    "test:fuzz": "forge test --match-path 'test/fuzz/*'",
+    "deploy:legacy": "tsx infra/deploy-legacy-token.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
