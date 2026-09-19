@@ -437,8 +437,26 @@ zero-output swaps and whether delivery completes:
 
 ## 12. Solana support — status and what remains
 
-**Status: foundation in place, SVM backend not implemented.** Solana chains can be *configured*
-and the pipeline routes them explicitly; they cannot yet be deployed to or traded on.
+**Status: the mirror-chain program is live on a local validator and registered with LayerZero
+as an OApp.** Trades cannot round-trip yet — the OFT still has to be deployed and peer wiring
+and relayer support are missing — but the program itself builds, deploys, executes, and CPIs
+into the genuine EndpointV2.
+
+```bash
+npm run solana:up       # validator + real EndpointV2 cloned from devnet
+npm run solana:build    # -> solana/target/deploy/swap_request.so (361 KB)
+npm run solana:deploy   # deploy, verify executable
+npm run solana:init     # init_store: creates the store PDA and registers the OApp
+npm run solana:test     # wire-format codec tests
+```
+
+Verified on a local validator:
+
+| | |
+|---|---|
+| Program | `6cMiunhoxEcYYT29Cp4PgDT97FjtqsuqZ27ChTbr41vL`, executable, owned by `BPFLoaderUpgradeab1e` |
+| Store PDA | 309 bytes, owned by the program |
+| OApp registry PDA | 41 bytes, **owned by LayerZero's EndpointV2** — the endpoint accepted the registration |
 
 ### What is built and verified
 
@@ -448,6 +466,8 @@ and the pipeline routes them explicitly; they cannot yet be deployed to or trade
 | VM routing in the pipeline | An SVM chain is detected before anything is deployed and reported clearly, rather than failing several layers down inside viem. |
 | Local Solana validator | `npm run solana:up` starts a validator with LayerZero's **real** EndpointV2 cloned from devnet — 1,639,888 bytes, executable under BPFLoaderUpgradeab1e. Verified working. |
 | Manifest records the VM | So downstream tooling never has to infer it. |
+| `swap_request` program | Builds against LayerZero's real `oapp` crate; deploys; `init_store` executes and registers the OApp. |
+| `SolanaChain` backend | Deployment, account reads, PDA derivation, and a preflight that checks the endpoint is *executable* rather than merely present. |
 
 Why `eid` needs no special-casing: LayerZero addresses every chain as a `bytes32` and routes on
 `eid` regardless of VM, so the *messaging* layer is already VM-agnostic. What differs is
@@ -477,15 +497,14 @@ everything around it — deployment, addressing, and what a "pool" is.
 
 **Solana as a mirror chain** (the smaller half):
 
-1. Anchor workspace referencing `anchor-latest/libs/oapp`. Verified to build; no version
-   reconciliation needed.
-2. Deploy LayerZero's OFT program and initialise the mint + its PDAs.
-3. A `swap_request` Anchor program: the `SwapRequest.sol` equivalent. Needs a PDA-based request
-   store, an SPL token escrow, and the LayerZero OApp instruction surface. **Two things here
-   are restructures rather than ports** — see "The real difficulties" below.
-4. A `SolanaChain` backend in `infra/` alongside the EVM `Chain`, using `@solana/web3.js` and
-   `@layerzerolabs/lz-solana-sdk-v2` for deployment and peer configuration (Solana peers are
-   PDAs, not a `setPeer` mapping).
+1. ~~Anchor workspace~~ **done.** Builds against `anchor-latest/libs/oapp`.
+2. Deploy LayerZero's OFT program and initialise the mint + its PDAs. **This is the next step**
+   — until it exists, `open_request` has no OFT to CPI into and the store records placeholder
+   OFT ids.
+3. ~~A `swap_request` Anchor program~~ **done.** Store and request PDAs, SPL escrow,
+   `lz_compose_types_v2` and `lz_compose`, and an OFT `send` CPI. Registered as an OApp.
+4. ~~A `SolanaChain` backend~~ **done for deployment and reads.** Peer configuration still to
+   come — Solana peers are PDAs on the OFT, not a `setPeer` mapping.
 5. Relayer support for the SVM delivery path.
 
 **Solana as the base chain** (the larger half, and what makes trades *happen* on Solana):

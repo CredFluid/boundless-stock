@@ -1028,3 +1028,44 @@ The program keypair is committed under `solana/keys/` so the id is stable and ma
 `declare_id!`, which is the normal Anchor convention — with a README making clear these are
 throwaway localnet/devnet keys and that a real deployment generates its own and sets a separate
 upgrade authority.
+
+---
+
+### [2026-09-19] The Solana program executes and LayerZero accepted its OApp registration
+**Milestone:** M17 — init_store
+
+**What happened / what to know:** `npm run solana:init` runs `init_store` against the deployed
+program on a local validator. It succeeded, which exercises the whole stack in one call: Anchor
+instruction dispatch, PDA derivation, account creation, and a CPI into the **genuine**
+EndpointV2 cloned from devnet.
+
+| Account | Result |
+|---|---|
+| Store PDA | 309 bytes, owned by `6cMiunhox…41vL` (our program) |
+| `LzComposeTypes` PDA | created |
+| OApp registry PDA | 41 bytes, **owned by `76y77prs…jEn6`** — LayerZero's endpoint |
+
+The registry account being owned by the endpoint is the part that matters: the endpoint created
+it, which means it accepted the registration. The program is now something LayerZero will
+deliver to.
+
+**The account ordering for an endpoint CPI is not obvious and is worth writing down.**
+LayerZero's `cpi-helper` generates a `construct_context` that expects the **target program at
+index 0**, then the instruction's declared accounts in order, then the two accounts
+`#[event_cpi]` appends. So `register_oapp` wants:
+
+```
+[0] endpoint program        [4] system program
+[1] payer (signer, mut)     [5] event_authority PDA  ["__event_authority"]
+[2] oapp = store PDA        [6] endpoint program (again)
+[3] oapp_registry PDA       ["OApp", store]
+```
+
+Getting this wrong produces `InvalidProgramId` or a seeds-constraint failure several frames
+down, with nothing pointing at the ordering as the cause. The check inside
+`endpoint_cpi::register_oapp` — `if oapp != accounts[2].key()` — is the clue that the program
+occupies index 0.
+
+Also: the store PDA is passed as the `oapp` **without** being a transaction signer. It signs
+via `invoke_signed` with its own seeds inside the program, which is why the outer transaction
+only needs the payer's signature.

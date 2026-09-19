@@ -20,7 +20,8 @@
     "solana:down": "tsx infra/solana/localnet.ts down",
     "solana:build": "cd solana && cargo build-sbf --manifest-path programs/swap_request/Cargo.toml",
     "solana:test": "cd solana && cargo test -p swap-request --lib",
-    "solana:deploy": "tsx infra/solana/deploy-program.ts"
+    "solana:deploy": "tsx infra/solana/deploy-program.ts",
+    "solana:init": "tsx infra/solana/init-store.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
