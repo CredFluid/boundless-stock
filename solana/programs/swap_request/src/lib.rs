@@ -48,7 +48,7 @@ use abi::{Order, Settlement};
 use error::SwapRequestError;
 use state::{Direction, LzComposeTypesAccounts, Request, Status, Store};
 
-declare_id!("CSoReq1111111111111111111111111111111111111");
+declare_id!("6cMiunhoxEcYYT29Cp4PgDT97FjtqsuqZ27ChTbr41vL");
 
 #[program]
 pub mod swap_request {

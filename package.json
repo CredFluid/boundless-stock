@@ -17,7 +17,10 @@
     "test:fuzz": "forge test --match-path 'test/fuzz/*'",
     "deploy:legacy": "tsx infra/deploy-legacy-token.ts",
     "solana:up": "tsx infra/solana/localnet.ts up",
-    "solana:down": "tsx infra/solana/localnet.ts down"
+    "solana:down": "tsx infra/solana/localnet.ts down",
+    "solana:build": "cd solana && cargo build-sbf --manifest-path programs/swap_request/Cargo.toml",
+    "solana:test": "cd solana && cargo test -p swap-request --lib",
+    "solana:deploy": "tsx infra/solana/deploy-program.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
@@ -33,6 +36,7 @@
     "@layerzerolabs/test-devtools-evm-foundry": "^6.0.3",
     "@openzeppelin/contracts": "^5.6.1",
     "@openzeppelin/contracts-upgradeable": "^5.6.1",
+    "@solana/web3.js": "^1.99.0",
     "@uniswap/v3-core": "^1.0.1",
     "@uniswap/v3-periphery": "^1.4.4",
     "solidity-bytes-utils": "^0.8.4",

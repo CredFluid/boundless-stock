@@ -993,3 +993,38 @@ pipeline still 6/6.
 - A request is its own PDA keyed by request id, not an entry in a map, because
   `lz_compose_types_v2` must name every account a delivery will touch *before* delivery — so the
   account has to be derivable from the payload with no chain reads.
+
+---
+
+### [2026-09-19] Solana program deployed to a local validator alongside the real endpoint
+**Milestone:** M16 — SVM deployment backend
+
+**What happened / what to know:** `npm run solana:deploy` deploys `swap_request.so` to a local
+validator and confirms it is executable, owned by `BPFLoaderUpgradeab1e`, sitting next to
+LayerZero's genuine EndpointV2 cloned from devnet. Program id
+`6cMiunhoxEcYYT29Cp4PgDT97FjtqsuqZ27ChTbr41vL`.
+
+Three decisions worth recording:
+
+1. **`SolanaChain` is not a subclass of, or a shared interface with, the EVM `Chain`.** The two
+   VMs disagree about nearly everything a deployment touches: an EVM contract is bytecode at an
+   address derived from a nonce, a Solana program is an account owned by a loader whose state
+   lives in separate PDAs; addresses are 20 bytes versus 32. A single interface over both would
+   have a VM-shaped hole in every method. The pipeline routes on `ChainConfig.vm` and each
+   backend stays honest about its own model. What the two genuinely share is `eid` — LayerZero
+   routes on it regardless of VM, which is why the messaging layer needs no abstraction at all.
+
+2. **Deployment shells out to `solana program deploy`.** Deploying is not one transaction: the
+   binary is chunked into a buffer account across many transactions, then finalised, with
+   retry and recovery for partial writes. The CLI is the reference implementation; a TypeScript
+   rewrite would be a lot of code whose only distinction is being less well tested.
+
+3. **`preflight()` checks the endpoint is `executable`, not merely present.** The Solana
+   equivalent of the EVM backend's chain-id assertion. `solana-test-validator --clone` (without
+   `--clone-upgradeable-program`) copies the account and leaves the programdata behind, giving
+   a program that looks correct in an explorer and fails at the first CPI.
+
+The program keypair is committed under `solana/keys/` so the id is stable and matches
+`declare_id!`, which is the normal Anchor convention — with a README making clear these are
+throwaway localnet/devnet keys and that a real deployment generates its own and sets a separate
+upgrade authority.
