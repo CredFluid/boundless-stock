@@ -78,7 +78,7 @@ export function getContract(m: Manifest, chainKey: string, name: string): string
 /** Replaces any existing record for the same (kind, fromChain, toEid) triple. */
 export function upsertPeer(m: Manifest, record: PeerRecord): void {
   const i = m.peers.findIndex(
-    (p) => p.kind === record.kind && p.fromChain === record.fromChain && p.toEid === record.toEid
+    (p) => p.label === record.label && p.fromChain === record.fromChain && p.toEid === record.toEid
   );
   if (i >= 0) m.peers[i] = record;
   else m.peers.push(record);

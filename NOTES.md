@@ -548,3 +548,69 @@ deployment infrastructure works across a chain set.
 Consequence for anyone adding tests: `forge test` will find nothing. Add contract-level unit
 tests under `test/` with `forge-std` reinstalled if you want them, but keep cross-chain
 behaviour in `infra/validation/`, where it exercises the real deployment.
+
+---
+
+### [2026-09-19] DIRECTION CORRECTION: the POC was proving the wrong flow
+**Milestone:** M8 — symmetric buy/sell
+
+**What happened / what to know:** Everything up to this point proved the **sell** direction: a
+user holding the stock on a mirror chain sells it, and the USDC proceeds land on the *home*
+chain. The intended flow is the opposite and considerably more useful — a user holding **USDC
+on a mirror chain buys the stock and receives it there**.
+
+Why it went wrong is worth recording, because the mistake was structural rather than careless.
+The brief specified USDC as a plain ERC-20 on the home chain **only** — "the pairing asset that
+lives where the real liquidity pool lives". Taken literally, that forces sell-only: if the quote
+asset cannot exist on a mirror chain, a user there has nothing to pay with, so the only thing
+they can send is the stock. The clarifying question that was asked about the return leg was
+already framed inside that assumption, so answering it could not surface the problem. **The
+lesson: when a clarifying question has a hidden premise, the answer confirms the premise rather
+than testing it.** The premise itself should have been the question.
+
+**Why it matters / what breaks if ignored:** The fix is that the quote asset becomes omnichain
+too. That contradicts one line of the original brief, deliberately, and it changes nothing about
+the core claim — but the claim has to be stated precisely:
+
+- **What a mirror chain still does not have:** a pool, a market maker, reserves, a price, or any
+  way to discover one. `assertNoLocalMarket()` checks this at run time in every scenario.
+- **What it does have:** token contracts, and users holding balances in their own wallets. A
+  wallet balance is not liquidity. Nobody on the mirror chain quotes a price or takes the other
+  side of the trade.
+
+Arguably the claim is now *stronger*: the user buys an asset that has no market whatsoever on
+their chain, and it arrives in their wallet there.
+
+One pleasing consequence: the original spec's phrase "sends result back via OFT `send()`" finally
+makes sense. In the buy direction the output **is** the omnichain stock, so it genuinely bridges
+back as tokens. In the sell direction the output was USDC, which could not travel — which is
+exactly why the earlier build had to return a receipt instead.
+
+Both directions are now supported and symmetric, and scenario 6 exists to check that "symmetric"
+is true of the code and not just of the prose.
+
+---
+
+### [2026-09-19] `OFT` only really supports 18-decimal tokens
+**Milestone:** M8 — symmetric buy/sell
+
+**What happened / what to know:** Making USDC an OFT with its usual 6 decimals does not work
+with LayerZero's `OFT` base contract. `OFT`'s constructor passes `decimals()` into `OFTCore`
+from its *initializer list*, which runs before any derived constructor body. A subclass that
+stores decimals in a variable and overrides `decimals()` therefore returns **0** at that moment,
+and `OFTCore` computes `10 ** (0 - 6)`, which underflows and reverts.
+
+Fixed with `src/core/OmniToken.sol`, which subclasses `OFTCore` directly and passes decimals in
+explicitly. `_debit` / `_credit` are byte-for-byte the same burn-on-source / mint-on-destination
+logic as `OFT`; nothing about the cross-chain semantics changes. `TokenizedStock` is now just a
+named `OmniToken`, so there is one token implementation rather than two.
+
+**Why it matters / what breaks if ignored:** The failure is a constructor revert with no useful
+message, and the obvious workaround — overriding `decimals()` — is exactly the thing that does
+not work. Anyone adding a non-18-decimal omnichain asset will hit this.
+
+A pleasant side effect: `sharedDecimals()` is 6, so a **6-decimal token bridges with a conversion
+rate of exactly 1 and loses nothing to dust**. It is the 18-decimal stock that quantises away its
+bottom 12 decimal places on every hop. So on a buy the money crosses exactly and only the
+delivered stock is subject to dust; on a sell it is the reverse. `SwapRelay` tracks the
+remainder in `dustAccrued` rather than silently absorbing it.

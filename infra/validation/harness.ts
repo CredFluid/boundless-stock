@@ -39,6 +39,11 @@ export const OFT_ABI = parseAbi([
   "function peers(uint32) view returns (bytes32)",
 ]);
 
+export enum Direction {
+  BUY = 0,
+  SELL = 1,
+}
+
 export enum Status {
   NONE = 0,
   PENDING = 1,
@@ -48,7 +53,9 @@ export enum Status {
 
 export interface RequestRecord {
   user: Address;
-  recipientOnHome: Address;
+  direction: number;
+  tokenIn: Address;
+  tokenOut: Address;
   amountIn: bigint;
   minAmountOut: bigint;
   amountOut: bigint;
@@ -216,12 +223,21 @@ export class Harness {
    * it never puts the quote asset or any liquidity on the mirror chain, because that is
    * precisely the thing being claimed absent.
    */
-  async ensureUserFunded(mirrorKey: string, amount: bigint): Promise<void> {
-    const held = await this.tokenBalance(mirrorKey, this.userAddress);
+  async ensureUserFunded(
+    mirrorKey: string,
+    amount: bigint,
+    contract: "TokenizedStock" | "QuoteAsset" = "TokenizedStock"
+  ): Promise<void> {
+    const balanceOf = async () =>
+      contract === "TokenizedStock"
+        ? this.tokenBalance(mirrorKey, this.userAddress)
+        : this.quoteBalance(mirrorKey, this.userAddress);
+
+    const held = await balanceOf();
     if (held >= amount) return;
 
     const need = amount - held;
-    const oft = this.addr(this.manifest.homeChainKey, "TokenizedStock");
+    const oft = this.addr(this.manifest.homeChainKey, contract);
     const sendParam = {
       dstEid: this.eid(mirrorKey),
       to: toBytes32(this.userAddress),
@@ -236,10 +252,7 @@ export class Harness {
       false,
     ]);
     await this.home.write(oft, OFT_ABI, "send", [sendParam, fee, this.home.deployer], fee.nativeFee);
-    await this.waitFor(
-      "user funding to arrive",
-      async () => (await this.tokenBalance(mirrorKey, this.userAddress)) >= amount
-    );
+    await this.waitFor("user funding to arrive", async () => (await balanceOf()) >= amount);
   }
 
   async getRequest(mirrorKey: string, requestId: bigint): Promise<RequestRecord> {
@@ -257,16 +270,19 @@ export class Harness {
     return this.chain(chainKey).read<bigint>(this.addr(chainKey, "TokenizedStock"), OFT_ABI, "balanceOf", [holder]);
   }
 
-  async quoteBalance(holder: Address): Promise<bigint> {
-    return this.home.read<bigint>(this.addr(this.manifest.homeChainKey, "QuoteAsset"), OFT_ABI, "balanceOf", [holder]);
+  /** Quote-asset balance on any chain in the set (it is omnichain). */
+  async quoteBalance(chainKey: string, holder: Address): Promise<bigint> {
+    return this.chain(chainKey).read<bigint>(this.addr(chainKey, "QuoteAsset"), OFT_ABI, "balanceOf", [holder]);
   }
 
-  /** Aggregate TokenizedStock supply across every chain in the set. */
-  async totalSupplyAcrossChains(): Promise<{ perChain: Record<string, bigint>; total: bigint }> {
+  /** Aggregate supply of an omnichain asset across every chain in the set. */
+  async totalSupplyAcrossChains(
+    contract: "TokenizedStock" | "QuoteAsset" = "TokenizedStock"
+  ): Promise<{ perChain: Record<string, bigint>; total: bigint }> {
     const perChain: Record<string, bigint> = {};
     let total = 0n;
     for (const key of Object.keys(this.manifest.chains)) {
-      const s = await this.chain(key).read<bigint>(this.addr(key, "TokenizedStock"), OFT_ABI, "totalSupply");
+      const s = await this.chain(key).read<bigint>(this.addr(key, contract), OFT_ABI, "totalSupply");
       perChain[key] = s;
       total += s;
     }
@@ -274,26 +290,31 @@ export class Harness {
   }
 
   /**
-   * Confirms the premise the whole POC rests on: the mirror chain has no pool, no quote asset,
-   * and no local liquidity of any kind. Re-checked inside the scenarios rather than assumed,
-   * because "zero liquidity" is the claim, not the setup.
+   * Confirms the premise the whole POC rests on: the mirror chain has **no market**.
+   *
+   * Precisely what is checked, because the distinction carries the whole claim. The mirror
+   * chain holds token *contracts*, and users hold *wallet balances* — neither is liquidity.
+   * What must not exist there is anything that could discover a price or take the other side
+   * of a trade: a pool, a router, a factory. Re-checked inside the scenarios rather than
+   * assumed, because "no market on the mirror chain" is the claim, not the setup.
    */
-  async assertNoLocalLiquidity(mirrorKey: string): Promise<string[]> {
+  async assertNoLocalMarket(mirrorKey: string): Promise<string[]> {
     const findings: string[] = [];
-    const chain = this.chain(mirrorKey);
     const contracts = this.manifest.chains[mirrorKey].contracts;
 
-    for (const forbidden of ["QuoteAsset", "Pool", "SwapRouter", "UniswapV3Factory"]) {
-      if (contracts[forbidden]) findings.push(`${mirrorKey} unexpectedly has a ${forbidden} deployed`);
+    for (const forbidden of ["Pool", "SwapRouter", "UniswapV3Factory", "NonfungiblePositionManager"]) {
+      if (contracts[forbidden]) {
+        findings.push(`${mirrorKey} has a ${forbidden} deployed — a mirror chain must have no market`);
+      }
     }
 
+    // The infra must never seed anything here. The only way an asset reaches a mirror chain is
+    // a user bridging it into their own wallet.
     const requestAddr = this.addr(mirrorKey, "SwapRequest");
-    const held = await this.tokenBalance(mirrorKey, requestAddr);
-    if (held !== 0n) findings.push(`${mirrorKey} SwapRequest already holds ${this.fmtToken(held)} before the test`);
-
-    // A pool would have to live somewhere; confirm the token contract knows of no router.
-    const code = await chain.publicClient.getBytecode({ address: this.addr(mirrorKey, "TokenizedStock") });
-    if (!code || code === "0x") findings.push(`${mirrorKey} TokenizedStock has no code`);
+    const stockHeld = await this.tokenBalance(mirrorKey, requestAddr);
+    const quoteHeld = await this.quoteBalance(mirrorKey, requestAddr);
+    if (stockHeld !== 0n) findings.push(`${mirrorKey} SwapRequest holds ${stockHeld} stock before the test`);
+    if (quoteHeld !== 0n) findings.push(`${mirrorKey} SwapRequest holds ${quoteHeld} quote before the test`);
 
     return findings;
   }

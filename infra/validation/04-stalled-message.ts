@@ -1,5 +1,5 @@
 import { parseUnits, formatUnits, type Address } from "viem";
-import { Harness, OFT_ABI, Status, forgeArtifact, type ScenarioResult } from "./harness.js";
+import { Harness, OFT_ABI, Status, Direction, forgeArtifact, type ScenarioResult } from "./harness.js";
 import { log } from "../lib/logger.js";
 
 /**
@@ -38,11 +38,11 @@ export async function scenario4(h: Harness, mirrorKey?: string): Promise<Scenari
   const userAddr = h.userAddress;
   const userOnMirror = h.user(mirror);
   const requestAddr = h.addr(mirror, "SwapRequest");
-  const mirrorToken = h.addr(mirror, "TokenizedStock");
+  const mirrorQuote = h.addr(mirror, "QuoteAsset");
   const requestAbi = forgeArtifact("SwapRequest").abi;
   const relayAddr = h.addr(h.home.key, "SwapRelay");
 
-  const amountIn = parseUnits("25", h.tokenDecimals);
+  const spend = parseUnits("3000", h.quoteDecimals);
   const mirrorChain = h.chain(mirror);
 
   // Capture the gas configuration up front and restore it in a finally block. Phase B
@@ -66,53 +66,53 @@ export async function scenario4(h: Harness, mirrorKey?: string): Promise<Scenari
   }
 
   async function run(): Promise<ScenarioResult> {
-  await h.ensureUserFunded(mirror, parseUnits("100", h.tokenDecimals));
+  await h.ensureUserFunded(mirror, parseUnits("12000", h.quoteDecimals), "QuoteAsset");
   await h.settle();
 
   // ================================================================= PHASE A
 
   log.group("Phase A — packet sent but never delivered");
 
-  const supplyBeforeA = await h.totalSupplyAcrossChains();
-  const userBeforeA = await h.tokenBalance(mirror, userAddr);
+  const supplyBeforeA = await h.totalSupplyAcrossChains("QuoteAsset");
+  const userBeforeA = await h.quoteBalance(mirror, userAddr);
 
-  await userOnMirror.write(mirrorToken, OFT_ABI, "approve", [requestAddr, amountIn]);
+  await userOnMirror.write(mirrorQuote, OFT_ABI, "approve", [requestAddr, spend]);
   const spot = await h.spotPrice();
   const minOut = parseUnits(
-    (Number(formatUnits(amountIn, h.tokenDecimals)) * spot * 0.95).toFixed(h.quoteDecimals),
-    h.quoteDecimals
+    ((Number(formatUnits(spend, h.quoteDecimals)) / spot) * 0.95).toFixed(h.tokenDecimals),
+    h.tokenDecimals
   );
   const feeA = await userOnMirror.read<{ nativeFee: bigint; lzTokenFee: bigint }>(
     requestAddr,
     requestAbi,
-    "quoteSwap",
-    [amountIn, minOut, userAddr]
+    "quoteTrade",
+    [Direction.BUY, spend, minOut]
   );
   const idA = await userOnMirror.read<bigint>(requestAddr, requestAbi, "nextRequestId");
-  await userOnMirror.write(requestAddr, requestAbi, "requestSwap", [amountIn, minOut, userAddr], feeA.nativeFee);
+  await userOnMirror.write(requestAddr, requestAbi, "buy", [spend, minOut], feeA.nativeFee);
 
   // Deliberately do NOT relay. This is the "message in flight, nobody delivering it" state.
-  const supplyDuringA = await h.totalSupplyAcrossChains();
-  const userDuringA = await h.tokenBalance(mirror, userAddr);
+  const supplyDuringA = await h.totalSupplyAcrossChains("QuoteAsset");
+  const userDuringA = await h.quoteBalance(mirror, userAddr);
   const reqDuringA = await h.getRequest(mirror, idA);
   const inFlight = supplyBeforeA.total - supplyDuringA.total;
 
-  log.kv("user debited", h.fmtToken(userBeforeA - userDuringA));
+  log.kv("user debited", h.fmtQuote(userBeforeA - userDuringA));
   log.kv("request status", Status[Number(reqDuringA.status)] ?? String(reqDuringA.status));
-  log.kv("aggregate supply before", h.fmtToken(supplyBeforeA.total));
-  log.kv("aggregate supply in flight", h.fmtToken(supplyDuringA.total));
-  log.kv("tokens in flight (nowhere)", h.fmtToken(inFlight));
+  log.kv("aggregate supply before", h.fmtQuote(supplyBeforeA.total));
+  log.kv("aggregate supply in flight", h.fmtQuote(supplyDuringA.total));
+  log.kv("money in flight (nowhere)", h.fmtQuote(inFlight));
   log.warn("input is burned on the mirror and not yet minted on the home chain:");
   log.warn("for the duration of the stall it exists on NO chain, and nothing times out.");
 
-  metrics.phaseA_inFlight = h.fmtToken(inFlight);
+  metrics.phaseA_inFlight = h.fmtQuote(inFlight);
   metrics.phaseA_status = Status[Number(reqDuringA.status)] ?? String(reqDuringA.status);
 
   if (Number(reqDuringA.status) !== Status.PENDING) {
     findings.push(`undelivered request is ${Status[Number(reqDuringA.status)]}, expected PENDING`);
   }
-  if (inFlight !== amountIn) {
-    findings.push(`expected ${amountIn} in flight, measured ${inFlight}`);
+  if (inFlight !== spend) {
+    findings.push(`expected ${spend} in flight, measured ${inFlight}`);
   }
 
   // Now deliver it and confirm the stall was only ever a delay, not a loss.
@@ -123,10 +123,10 @@ export async function scenario4(h: Harness, mirrorKey?: string): Promise<Scenari
     30_000
   );
   const reqAfterA = await h.getRequest(mirror, idA);
-  const supplyAfterA = await h.totalSupplyAcrossChains();
+  const supplyAfterA = await h.totalSupplyAcrossChains("QuoteAsset");
 
   log.ok(`once delivered, the request settled as ${Status[Number(reqAfterA.status)]}`);
-  log.kv("aggregate supply restored", h.fmtToken(supplyAfterA.total));
+  log.kv("aggregate supply restored", h.fmtQuote(supplyAfterA.total));
   metrics.phaseA_resolvedAs = Status[Number(reqAfterA.status)] ?? String(reqAfterA.status);
 
   if (supplyAfterA.total !== supplyBeforeA.total) {
@@ -147,39 +147,39 @@ export async function scenario4(h: Harness, mirrorKey?: string): Promise<Scenari
   ]);
   log.kv("compose gas set to", "30,000 (far below what the swap needs)");
 
-  const relayBeforeB = await h.tokenBalance(h.home.key, relayAddr);
-  const userBeforeB = await h.tokenBalance(mirror, userAddr);
+  const relayBeforeB = await h.quoteBalance(h.home.key, relayAddr);
+  const userBeforeB = await h.quoteBalance(mirror, userAddr);
 
-  await userOnMirror.write(mirrorToken, OFT_ABI, "approve", [requestAddr, amountIn]);
+  await userOnMirror.write(mirrorQuote, OFT_ABI, "approve", [requestAddr, spend]);
   const feeB = await userOnMirror.read<{ nativeFee: bigint; lzTokenFee: bigint }>(
     requestAddr,
     requestAbi,
-    "quoteSwap",
-    [amountIn, minOut, userAddr]
+    "quoteTrade",
+    [Direction.BUY, spend, minOut]
   );
   const idB = await userOnMirror.read<bigint>(requestAddr, requestAbi, "nextRequestId");
-  await userOnMirror.write(requestAddr, requestAbi, "requestSwap", [amountIn, minOut, userAddr], feeB.nativeFee);
+  await userOnMirror.write(requestAddr, requestAbi, "buy", [spend, minOut], feeB.nativeFee);
 
   await h.settle();
 
-  const relayAfterB = await h.tokenBalance(h.home.key, relayAddr);
-  const userAfterB = await h.tokenBalance(mirror, userAddr);
+  const relayAfterB = await h.quoteBalance(h.home.key, relayAddr);
+  const userAfterB = await h.quoteBalance(mirror, userAddr);
   const reqB = await h.getRequest(mirror, idB);
   const strandedInRelay = relayAfterB - relayBeforeB;
 
-  log.kv("user debited", h.fmtToken(userBeforeB - userAfterB));
-  log.kv("tokens now held by SwapRelay", h.fmtToken(strandedInRelay));
+  log.kv("user debited", h.fmtQuote(userBeforeB - userAfterB));
+  log.kv("money now held by SwapRelay", h.fmtQuote(strandedInRelay));
   log.kv("request status on mirror", Status[Number(reqB.status)] ?? String(reqB.status));
   log.kv("stuck composes", String(relayer.stuckComposes));
   log.fail("FINDING: the input is sitting in SwapRelay on the home chain, the request is still");
   log.fail("PENDING on the mirror chain, and NOTHING refunds it automatically. No timeout exists.");
 
-  metrics.phaseB_strandedInRelay = h.fmtToken(strandedInRelay);
+  metrics.phaseB_strandedInRelay = h.fmtQuote(strandedInRelay);
   metrics.phaseB_status = Status[Number(reqB.status)] ?? String(reqB.status);
   metrics.phaseB_stuckComposes = relayer.stuckComposes;
 
-  if (strandedInRelay !== amountIn) {
-    findings.push(`expected ${amountIn} stranded in SwapRelay, measured ${strandedInRelay}`);
+  if (strandedInRelay !== spend) {
+    findings.push(`expected ${spend} stranded in SwapRelay, measured ${strandedInRelay}`);
   }
   if (Number(reqB.status) !== Status.PENDING) {
     findings.push(`stalled request is ${Status[Number(reqB.status)]}, expected to be stuck PENDING`);
@@ -199,11 +199,11 @@ export async function scenario4(h: Harness, mirrorKey?: string): Promise<Scenari
     30_000
   );
   const reqC = await h.getRequest(mirror, idB);
-  const relayAfterC = await h.tokenBalance(h.home.key, relayAddr);
+  const relayAfterC = await h.quoteBalance(h.home.key, relayAddr);
 
   log.kv("request status now", Status[Number(reqC.status)] ?? String(reqC.status));
-  log.kv("amountOut", h.fmtQuote(reqC.amountOut));
-  log.kv("SwapRelay token balance", h.fmtToken(relayAfterC));
+  log.kv("amountOut", h.fmtToken(reqC.amountOut));
+  log.kv("SwapRelay quote balance", h.fmtQuote(relayAfterC));
   log.kv("recovery latency", `${recoveredC.elapsedMs} ms`);
 
   metrics.phaseC_resolvedAs = Status[Number(reqC.status)] ?? String(reqC.status);
@@ -213,7 +213,7 @@ export async function scenario4(h: Harness, mirrorKey?: string): Promise<Scenari
     findings.push("request still PENDING after a compose retry — stall is not recoverable this way");
   }
   if (relayAfterC !== relayBeforeB) {
-    findings.push(`SwapRelay still holds ${relayAfterC - relayBeforeB} tokens after recovery`);
+    findings.push(`SwapRelay still holds ${relayAfterC - relayBeforeB} quote units after recovery`);
   }
 
   log.groupEnd();

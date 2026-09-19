@@ -7,17 +7,16 @@ proves the resulting deployment actually works.
 ## The claim being proven
 
 > A token deployed and liquid on one chain can be traded from any other chain where only a
-> mirror instance exists, with **zero liquidity required on that other chain**.
+> mirror instance exists, with **no market required on that other chain**.
 
-A user on a mirror chain submits a trade and receives a real result, even though there is no
-pool, no market maker and no local liquidity of any kind where they are. All price discovery
-and execution happen on the home chain's Uniswap V3 pool; the mirror chain handles only
-identity, messaging and delivery of the result.
+A user holds USDC on a chain that has no pool, no market maker and no price for the asset. They
+press buy once. The stock arrives in their wallet **on that same chain**, priced by the home
+chain's Uniswap V3 pool. Selling works the same way in reverse.
 
-**Status: proven.** 100 tAAPL sold from Arbitrum Sepolia (zero local liquidity) returned
-14,940.845155 USDC on Base Sepolia at 0.3944% slippage — which decomposes exactly into the
-0.30% pool fee plus 0.0944% price impact. Reproduced on two further mirror chains, one of them
-added to the token *after* it was already launched.
+**Status: proven.** 15,000 USDC spent on Arbitrum Sepolia — a chain with no market — returned
+**99.605634 tAAPL to the user's wallet on Arbitrum Sepolia**, at 0.3944% total cost, which
+decomposes exactly into the 0.30% pool fee plus 0.0944% price impact. One transaction, one fee,
+84 ms. Reproduced on a second mirror chain and in the sell direction.
 
 ## Quick start
 
@@ -27,7 +26,7 @@ forge build
 
 npm run chains:up                                    # local chain set
 npm run deploy   -- --config config/localnet.json    # full pipeline -> manifest
-npm run validate -- --config config/localnet.json    # 5/5 scenarios
+npm run validate -- --config config/localnet.json    # 6/6 scenarios
 npm run chains:down
 ```
 
@@ -56,8 +55,8 @@ npm run deploy -- --config config/localnet-add-chain.json
 
 ```
 src/            Solidity
-  core/         TokenizedStock (LayerZero OFT), USDCMock
-  relay/        SwapRelay (home), SwapRequest (mirror), shared wire format
+  core/         OmniToken (OFT base), TokenizedStock, USDC
+  relay/        SwapRelay (home), SwapRequest (mirror: buy/sell), wire format
   mocks/        local-only: EndpointV2 wrapper, message library, WETH9
 infra/          TypeScript deployment infrastructure
   modules/      the deployment modules, 0-6, run in order

@@ -1,167 +1,158 @@
 import { parseUnits, formatUnits, type Address } from "viem";
-import { Harness, OFT_ABI, Status, forgeArtifact, type ScenarioResult } from "./harness.js";
-import { Options } from "../lib/options.js";
-import { toBytes32 } from "../lib/address.js";
+import { Harness, OFT_ABI, Status, Direction, forgeArtifact, type ScenarioResult } from "./harness.js";
 import { log } from "../lib/logger.js";
 
 /**
- * SCENARIO 2 — full swap-relay round trip. THIS IS THE CORE PROOF.
+ * SCENARIO 2 — buy from a chain with no market. THIS IS THE CORE PROOF.
  *
- * A user standing on a mirror chain that has no pool, no market maker, no quote asset and no
- * local liquidity of any kind submits a trade and receives a real result. Price discovery and
- * execution happen entirely on the home chain's Uniswap V3 pool.
+ * A user stands on a mirror chain. There is no pool there, no market maker, no reserves and no
+ * price for the asset they want. They hold only the quote asset, in their own wallet. They
+ * press buy once — and the stock lands in their wallet, on that same chain, at the real market
+ * price discovered on the home chain's pool.
  *
- * Everything the scenario asserts is read back from chain state:
- *   - the mirror chain genuinely has no liquidity infrastructure before the trade,
- *   - the user's input actually leaves their wallet on the mirror chain,
- *   - the swap really executes against the pool (pool reserves and spot price both move),
- *   - the proceeds land with the user on the home chain,
- *   - the mirror chain receives an authenticated settlement carrying the exact amount out.
+ * Everything asserted is read back from chain state, and deliberately from sources that would
+ * disagree if the relay were reporting something it had not done:
+ *   - the mirror chain genuinely has no market before the trade,
+ *   - the user starts with zero of the asset they are buying,
+ *   - their quote asset actually leaves their wallet,
+ *   - the swap really executes against the pool (reserves AND spot price both move, upward),
+ *   - the stock arrives in the user's wallet ON THE MIRROR CHAIN,
+ *   - the amount delivered matches what the settlement claims,
+ *   - aggregate supply of both assets is conserved across the whole chain set.
  */
 export async function scenario2(h: Harness, mirrorKey?: string, label = "2"): Promise<ScenarioResult> {
   const mirror = mirrorKey ?? h.mirrorKeys[0];
   const findings: string[] = [];
   const home = h.home;
 
-  log.banner(`Scenario ${label} — swap round trip from ${h.name(mirror)} (ZERO local liquidity)`);
+  log.banner(`Scenario ${label} — BUY from ${h.name(mirror)}, which has NO market`);
 
   const userAddr = h.userAddress;
   const userOnMirror = h.user(mirror);
   const requestAddr = h.addr(mirror, "SwapRequest");
-  const mirrorToken = h.addr(mirror, "TokenizedStock");
+  const mirrorQuote = h.addr(mirror, "QuoteAsset");
+  const requestAbi = forgeArtifact("SwapRequest").abi;
 
-  // ---------------------------------------------------------------- premise check
+  // ---------------------------------------------------------------- premise
 
-  log.group("premise: the mirror chain has no liquidity");
-  const premise = await h.assertNoLocalLiquidity(mirror);
+  log.group("premise: no market on this chain");
+  const premise = await h.assertNoLocalMarket(mirror);
   findings.push(...premise);
-  const mirrorContracts = Object.keys(h.manifest.chains[mirror].contracts);
-  log.kv("contracts on mirror", mirrorContracts.join(", "));
-  log.kv("quote asset there", "none — USDC exists only on the home chain");
+  log.kv("contracts on mirror", Object.keys(h.manifest.chains[mirror].contracts).join(", "));
   log.kv("pool there", "none");
-  if (premise.length === 0) log.ok("mirror chain confirmed free of any local liquidity");
+  log.kv("market maker there", "none");
+  log.kv("price source there", "none — all price discovery is on the home chain");
+  if (premise.length === 0) log.ok("mirror chain confirmed to have no market of any kind");
   else for (const f of premise) log.fail(f);
   log.groupEnd();
 
-  // ---------------------------------------------------------------- fund the user
+  // ---------------------------------------------------------------- the user's wallet
 
-  const userStake = parseUnits("500", h.tokenDecimals);
-  const alreadyHeld = await h.tokenBalance(mirror, userAddr);
+  const budget = parseUnits("15000", h.quoteDecimals);
+  log.group(`setup: the user acquires ${h.quoteSymbol} on ${h.name(mirror)}`);
+  log.dim("bridged into their own wallet — a wallet balance is not liquidity");
+  await h.ensureUserFunded(mirror, budget, "QuoteAsset");
+  log.ok(`user holds ${h.fmtQuote(await h.quoteBalance(mirror, userAddr))} on ${h.name(mirror)}`);
+  log.groupEnd();
 
-  if (alreadyHeld < userStake) {
-    log.group("setup: give the user tAAPL on the mirror chain");
-    await h.ensureUserFunded(mirror, userStake);
-    log.ok(`user funded with ${h.fmtToken(userStake)} on ${h.name(mirror)}`);
-    log.groupEnd();
-  }
-
-  // ---------------------------------------------------------------- pre-trade state
-
-  const amountIn = parseUnits("100", h.tokenDecimals);
+  const spend = parseUnits("15000", h.quoteDecimals);
   const spotBefore = await h.spotPrice();
-  const expectedOut = Number(formatUnits(amountIn, h.tokenDecimals)) * spotBefore;
+  const expectedOut = Number(formatUnits(spend, h.quoteDecimals)) / spotBefore;
   // 5% floor: loose enough to fill, tight enough that a broken swap cannot pass.
-  const minAmountOut = parseUnits((expectedOut * 0.95).toFixed(h.quoteDecimals), h.quoteDecimals);
+  const minAmountOut = parseUnits((expectedOut * 0.95).toFixed(h.tokenDecimals), h.tokenDecimals);
 
   const before = {
-    userMirrorToken: await h.tokenBalance(mirror, userAddr),
-    userHomeQuote: await h.quoteBalance(userAddr),
-    userHomeToken: await h.tokenBalance(home.key, userAddr),
+    userMirrorQuote: await h.quoteBalance(mirror, userAddr),
+    userMirrorStock: await h.tokenBalance(mirror, userAddr),
     poolBase: await h.tokenBalance(home.key, h.manifest.pool!.address as Address),
-    supply: (await h.totalSupplyAcrossChains()).total,
+    poolQuote: await h.quoteBalance(home.key, h.manifest.pool!.address as Address),
+    stockSupply: (await h.totalSupplyAcrossChains("TokenizedStock")).total,
+    quoteSupply: (await h.totalSupplyAcrossChains("QuoteAsset")).total,
   };
 
   log.group("before the trade");
-  log.kv("user tAAPL on mirror", h.fmtToken(before.userMirrorToken));
-  log.kv("user USDC on home", h.fmtQuote(before.userHomeQuote));
+  log.kv(`user ${h.quoteSymbol} on mirror`, h.fmtQuote(before.userMirrorQuote));
+  log.kv(`user ${h.tokenSymbol} on mirror`, h.fmtToken(before.userMirrorStock));
   log.kv("pool spot price", `${spotBefore.toFixed(6)} ${h.quoteSymbol} per ${h.tokenSymbol}`);
-  log.kv("selling", h.fmtToken(amountIn));
-  log.kv("expected out @ spot", `${expectedOut.toFixed(6)} ${h.quoteSymbol}`);
-  log.kv("minAmountOut (5% floor)", h.fmtQuote(minAmountOut));
+  log.kv("spending", h.fmtQuote(spend));
+  log.kv("expected out @ spot", `${expectedOut.toFixed(6)} ${h.tokenSymbol}`);
+  log.kv("minAmountOut (5% floor)", h.fmtToken(minAmountOut));
   log.groupEnd();
 
-  // ---------------------------------------------------------------- submit the trade
+  if (before.userMirrorStock !== 0n) {
+    log.dim(`user already holds ${h.fmtToken(before.userMirrorStock)} from an earlier run — asserting deltas only`);
+  }
 
-  const requestAbi = forgeArtifact("SwapRequest").abi;
-  await userOnMirror.write(mirrorToken, OFT_ABI, "approve", [requestAddr, amountIn]);
+  // ---------------------------------------------------------------- one transaction
+
+  await userOnMirror.write(mirrorQuote, OFT_ABI, "approve", [requestAddr, spend]);
 
   const fee = await userOnMirror.read<{ nativeFee: bigint; lzTokenFee: bigint }>(
     requestAddr,
     requestAbi,
-    "quoteSwap",
-    [amountIn, minAmountOut, userAddr]
+    "quoteTrade",
+    [Direction.BUY, spend, minAmountOut]
   );
-  log.kv("round-trip LZ fee", `${formatUnits(fee.nativeFee, 18)} ETH (paid once, on the mirror chain)`);
+  log.kv("round-trip LZ fee", `${formatUnits(fee.nativeFee, 18)} ETH — paid once, on the mirror chain`);
 
-  const nextId = await userOnMirror.read<bigint>(requestAddr, requestAbi, "nextRequestId");
+  const requestId = await userOnMirror.read<bigint>(requestAddr, requestAbi, "nextRequestId");
 
   const t0 = Date.now();
-  const reqReceipt = await userOnMirror.write(
-    requestAddr,
-    requestAbi,
-    "requestSwap",
-    [amountIn, minAmountOut, userAddr],
-    fee.nativeFee
-  );
-  const requestGas = reqReceipt.gasUsed;
+  const buyReceipt = await userOnMirror.write(requestAddr, requestAbi, "buy", [spend, minAmountOut], fee.nativeFee);
+  const buyGas = buyReceipt.gasUsed;
 
-  // ---------------------------------------------------------------- funds locked?
-
-  const afterSubmit = {
-    userMirrorToken: await h.tokenBalance(mirror, userAddr),
-  };
-  const locked = before.userMirrorToken - afterSubmit.userMirrorToken;
-  log.group("input committed on the mirror chain");
-  log.kv("user tAAPL now", h.fmtToken(afterSubmit.userMirrorToken));
-  log.kv("committed", h.fmtToken(locked));
+  const afterSubmit = await h.quoteBalance(mirror, userAddr);
+  log.group("payment committed on the mirror chain")
+  log.kv(`user ${h.quoteSymbol} now`, h.fmtQuote(afterSubmit));
+  log.kv("committed", h.fmtQuote(before.userMirrorQuote - afterSubmit));
   log.groupEnd();
 
-  if (locked !== amountIn) findings.push(`user was debited ${locked}, expected ${amountIn}`);
-
-  const pending = await h.getRequest(mirror, nextId);
-  if (Number(pending.status) !== Status.PENDING && Number(pending.status) !== Status.FILLED) {
-    findings.push(`request ${nextId} status is ${pending.status}, expected PENDING or FILLED`);
+  if (before.userMirrorQuote - afterSubmit !== spend) {
+    findings.push(`user was debited ${before.userMirrorQuote - afterSubmit}, expected ${spend}`);
   }
 
-  // ---------------------------------------------------------------- wait for settlement
+  // ---------------------------------------------------------------- settlement
 
-  const { ok, elapsedMs } = await h.waitFor(
-    "settlement to reach the mirror chain",
-    async () => Number((await h.getRequest(mirror, nextId)).status) !== Status.PENDING
+  const { ok } = await h.waitFor(
+    "the stock to arrive on the mirror chain",
+    async () => Number((await h.getRequest(mirror, requestId)).status) !== Status.PENDING
   );
   const latencyMs = Date.now() - t0;
 
-  const settled = await h.getRequest(mirror, nextId);
+  const settled = await h.getRequest(mirror, requestId);
   const after = {
-    userHomeQuote: await h.quoteBalance(userAddr),
+    userMirrorStock: await h.tokenBalance(mirror, userAddr),
     poolBase: await h.tokenBalance(home.key, h.manifest.pool!.address as Address),
-    supply: (await h.totalSupplyAcrossChains()).total,
+    poolQuote: await h.quoteBalance(home.key, h.manifest.pool!.address as Address),
+    stockSupply: (await h.totalSupplyAcrossChains("TokenizedStock")).total,
+    quoteSupply: (await h.totalSupplyAcrossChains("QuoteAsset")).total,
   };
   const spotAfter = await h.spotPrice();
 
-  const quoteReceived = after.userHomeQuote - before.userHomeQuote;
+  const stockDelivered = after.userMirrorStock - before.userMirrorStock;
   const poolBaseDelta = after.poolBase - before.poolBase;
+  const poolQuoteDelta = after.poolQuote - before.poolQuote;
 
-  // ---------------------------------------------------------------- results
-
-  log.group("settlement");
+  log.group("settlement — delivered to the user's wallet ON THE MIRROR CHAIN");
   log.kv("status", Status[Number(settled.status)] ?? String(settled.status));
-  log.kv("amountIn (recorded)", h.fmtToken(settled.amountIn));
-  log.kv("amountOut (recorded)", h.fmtQuote(settled.amountOut));
-  log.kv("USDC delivered on home", h.fmtQuote(quoteReceived));
+  log.kv("amountIn (recorded)", h.fmtQuote(settled.amountIn));
+  log.kv("amountOut (recorded)", h.fmtToken(settled.amountOut));
+  log.kv(`${h.tokenSymbol} in user wallet`, h.fmtToken(after.userMirrorStock));
+  log.kv("delivered this trade", h.fmtToken(stockDelivered));
   log.kv("pool base reserve delta", h.fmtToken(poolBaseDelta));
+  log.kv("pool quote reserve delta", h.fmtQuote(poolQuoteDelta));
   log.kv("spot before → after", `${spotBefore.toFixed(6)} → ${spotAfter.toFixed(6)}`);
   log.kv("round-trip latency", `${latencyMs} ms`);
-  log.kv("requestSwap gas", requestGas.toString());
+  log.kv("buy() gas", buyGas.toString());
   log.groupEnd();
 
-  const executed = Number(formatUnits(settled.amountOut, h.quoteDecimals));
-  const effectivePrice = executed / Number(formatUnits(amountIn, h.tokenDecimals));
-  const slippagePct = ((spotBefore - effectivePrice) / spotBefore) * 100;
+  const received = Number(formatUnits(settled.amountOut, h.tokenDecimals));
+  const effectivePrice = Number(formatUnits(spend, h.quoteDecimals)) / received;
+  const slippagePct = ((effectivePrice - spotBefore) / spotBefore) * 100;
 
   log.group("execution quality");
   log.kv("effective price", `${effectivePrice.toFixed(6)} ${h.quoteSymbol} per ${h.tokenSymbol}`);
-  log.kv("vs spot before", `${slippagePct.toFixed(4)}% (fee + price impact)`);
+  log.kv("vs spot before", `+${slippagePct.toFixed(4)}% (fee + price impact)`);
   log.groupEnd();
 
   // ---------------------------------------------------------------- assertions
@@ -173,53 +164,55 @@ export async function scenario2(h: Harness, mirrorKey?: string, label = "2"): Pr
   if (settled.amountOut < minAmountOut) {
     findings.push(`amountOut ${settled.amountOut} is below the minAmountOut floor ${minAmountOut}`);
   }
-  if (quoteReceived !== settled.amountOut) {
+  if (stockDelivered !== settled.amountOut) {
     findings.push(
-      `USDC delivered on home (${quoteReceived}) does not match the amount the mirror was told ` +
+      `stock delivered to the user on the mirror (${stockDelivered}) does not match the settlement ` +
         `(${settled.amountOut}) — the receipt must reflect reality`
     );
   }
-  if (poolBaseDelta !== settled.amountIn) {
+  if (poolQuoteDelta !== settled.amountIn) {
     findings.push(
-      `pool base reserve moved by ${poolBaseDelta} but the request recorded ${settled.amountIn} — ` +
+      `pool quote reserve moved by ${poolQuoteDelta} but the request recorded ${settled.amountIn} — ` +
         `the swap did not execute against the pool as claimed`
     );
   }
-  if (spotAfter >= spotBefore) {
-    findings.push(`spot price did not fall after a sell (${spotBefore} → ${spotAfter}) — no real price impact`);
+  if (poolBaseDelta >= 0n) findings.push(`pool base reserve did not fall on a buy (${poolBaseDelta})`);
+  if (spotAfter <= spotBefore) {
+    findings.push(`spot price did not rise after a buy (${spotBefore} → ${spotAfter}) — no real price impact`);
   }
-  if (after.supply !== before.supply) {
-    findings.push(`aggregate supply changed ${before.supply} → ${after.supply}`);
+  if (after.stockSupply !== before.stockSupply) {
+    findings.push(`aggregate stock supply changed ${before.stockSupply} → ${after.stockSupply}`);
   }
-  const quoteOnMirror = h.manifest.chains[mirror].contracts["QuoteAsset"];
-  if (quoteOnMirror) findings.push("mirror chain has a quote asset deployed — zero-liquidity premise broken");
+  if (after.quoteSupply !== before.quoteSupply) {
+    findings.push(`aggregate quote supply changed ${before.quoteSupply} → ${after.quoteSupply}`);
+  }
 
   const passed = ok && findings.length === 0;
 
   if (passed) {
-    log.ok("CORE PROOF: a trade submitted from a chain with zero liquidity executed on the home");
-    log.ok("chain's pool and returned a real, authenticated result to the originating chain.");
+    log.ok("CORE PROOF: a user on a chain with no market bought the asset in one transaction");
+    log.ok("and received it in their wallet on that chain, priced by the home chain's pool.");
   } else {
     for (const f of findings) log.fail(f);
   }
 
   return {
-    name: `${label}. Full swap-relay round trip (CORE PROOF)`,
+    name: `${label}. Buy from a chain with no market (CORE PROOF)`,
     passed,
     detail: passed
-      ? `${h.fmtToken(amountIn)} sold from ${h.name(mirror)} (no local liquidity) → ` +
-        `${h.fmtQuote(settled.amountOut)} delivered on ${h.name(home.key)} in ${latencyMs}ms`
+      ? `${h.fmtQuote(spend)} spent on ${h.name(mirror)} (no market) → ` +
+        `${h.fmtToken(settled.amountOut)} delivered to the user's wallet there, in ${latencyMs}ms`
       : findings.join("; ") || "timed out waiting for settlement",
     metrics: {
       mirrorChain: h.name(mirror),
-      amountIn: h.fmtToken(amountIn),
-      amountOut: h.fmtQuote(settled.amountOut),
+      spent: h.fmtQuote(spend),
+      received: h.fmtToken(settled.amountOut),
       effectivePrice: effectivePrice.toFixed(6),
       spotBefore: spotBefore.toFixed(6),
       spotAfter: spotAfter.toFixed(6),
-      slippagePct: `${slippagePct.toFixed(4)}%`,
+      slippagePct: `+${slippagePct.toFixed(4)}%`,
       latencyMs,
-      requestGas: requestGas.toString(),
+      buyGas: buyGas.toString(),
       lzFeeEth: formatUnits(fee.nativeFee, 18),
     },
     findings,

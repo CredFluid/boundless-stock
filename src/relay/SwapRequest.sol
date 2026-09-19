@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.22;
 
-import { OApp, Origin, MessagingFee } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
+import { OApp, Origin } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
 import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 import { IOAppComposer } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppComposer.sol";
 import { OFTComposeMsgCodec } from "@layerzerolabs/oft-evm/contracts/libs/OFTComposeMsgCodec.sol";
-import { IOFT, SendParam, MessagingReceipt, OFTReceipt } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
+import { IOFT, SendParam, MessagingFee, OFTReceipt } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -14,23 +14,30 @@ import { SwapTypes } from "./SwapTypes.sol";
 
 /**
  * @title SwapRequest
- * @notice MIRROR CHAIN ONLY. The user-facing entrypoint on a chain with zero liquidity.
+ * @notice MIRROR CHAIN ONLY. The user-facing entrypoint on a chain that has no market.
  *
- * @dev This contract is the near side of the core claim. It holds no pool, quotes no price,
- *      and has no idea what the asset is worth — it cannot, because the quote asset does not
- *      exist on this chain at all. Its entire job is identity, messaging, and recording the
- *      result:
+ * @dev This is the near side of the core claim. There is no pool here, no market maker, no
+ *      reserves and no price. This contract cannot quote the asset and never tries to — it
+ *      only takes the user's input, sends it to the chain where the market actually is, and
+ *      hands back whatever comes home.
  *
- *        1. take the user's input and commit it to a request,
- *        2. dispatch that input plus the order to the home chain in a single OFT packet,
- *        3. record the authenticated outcome when it comes back.
+ *      Both directions work, and they are the same code path with the tokens swapped:
  *
- *      ON "LOCKING": the input is pulled from the user and then *burned* by the OFT as the
- *      bridge's debit leg — it is not sitting in a vault here. Custody during flight is the
- *      OFT's burn/mint invariant: supply is constant across the chain set, and the tokens
- *      exist on the home chain for the duration. A refund mints them back here and releases
- *      them to the user. The distinction matters when reasoning about a stalled message, so
- *      it is stated plainly rather than papered over with the word "escrow".
+ *        BUY   user pays the quote asset (USDC) -> receives the omnichain stock, here
+ *        SELL  user pays the omnichain stock    -> receives the quote asset, here
+ *
+ *      In both cases the result is delivered to the user's wallet **on this chain**. The user
+ *      never touches the home chain and signs exactly one transaction.
+ *
+ *      ON "LOCKING": the input is pulled from the user and then burned by the OFT as the
+ *      bridge's debit leg — it is not sitting in a vault here. Custody in flight is the OFT's
+ *      burn/mint invariant: supply is constant across the chain set and the tokens exist on
+ *      the home chain for the duration. Stated plainly because it matters when reasoning about
+ *      a stalled message.
+ *
+ *      IMPORTANT: the user holding the quote asset here is NOT local liquidity. It is their
+ *      own wallet balance. Nobody on this chain quotes a price or takes the other side of the
+ *      trade; all of that happens on the home chain's pool.
  */
 contract SwapRequest is OApp, IOAppComposer {
     using SafeERC20 for IERC20;
@@ -38,10 +45,12 @@ contract SwapRequest is OApp, IOAppComposer {
     using OFTComposeMsgCodec for bytes;
 
     struct Request {
-        address user; // who submitted it, and who a refund returns to
-        address recipientOnHome; // who receives the quote asset on the home chain
+        address user; // who submitted it, and who the result goes to
+        uint8 direction; // SwapTypes.Direction
+        address tokenIn; // what they paid with, on this chain
+        address tokenOut; // what they expect back, on this chain
         uint256 amountIn; // input actually bridged (post dust removal)
-        uint256 minAmountOut; // slippage floor enforced by the home-chain pool
+        uint256 minAmountOut;
         uint256 amountOut; // filled in on settlement
         uint64 createdAt;
         uint64 settledAt;
@@ -49,41 +58,40 @@ contract SwapRequest is OApp, IOAppComposer {
         uint8 failureReason;
     }
 
-    /// @notice The omnichain asset on this mirror chain. Same address used as ERC-20 and OFT.
-    IERC20 public immutable token;
-    IOFT public immutable oft;
-    /// @notice LayerZero eid of the home chain, where all liquidity lives.
+    /// @notice The omnichain stock, on this mirror chain.
+    IERC20 public immutable baseToken;
+    /// @notice The omnichain quote asset, on this mirror chain. Liquid only on the home chain.
+    IERC20 public immutable quoteToken;
+    /// @notice LayerZero eid of the home chain, where the market lives.
     uint32 public immutable homeEid;
 
     uint64 public nextRequestId = 1;
     mapping(uint64 => Request) public requests;
-    /// @notice Every request id this contract has ever created, for off-chain enumeration.
     uint64[] public requestIds;
 
     /// @notice Gas for the OFT's `lzReceive` on the home chain.
     uint128 public homeLzReceiveGas = 250_000;
-    /// @notice Gas for `SwapRelay.lzCompose` on the home chain (the swap itself).
-    uint128 public homeComposeGas = 600_000;
+    /// @notice Gas for `SwapRelay.lzCompose` on the home chain — the swap plus the return send.
+    uint128 public homeComposeGas = 1_200_000;
     /**
      * @notice Native value forwarded to SwapRelay with the compose call.
-     * @dev This is what pays for the home -> mirror return leg. The user funds it as part of
-     *      `msg.value`, so the round trip is paid for up front in one transaction on one
-     *      chain. Denominated in the HOME chain's native token.
+     * @dev This pre-pays the home -> mirror return leg, which is why the whole round trip costs
+     *      the user one transaction on one chain. Denominated in the HOME chain's native token.
      */
-    uint128 public homeComposeValue = 0.002 ether;
+    uint128 public homeComposeValue = 0.01 ether;
 
     event SwapRequested(
         uint64 indexed requestId,
         address indexed user,
+        uint8 direction,
+        address tokenIn,
         uint256 amountIn,
-        uint256 minAmountOut,
-        address recipientOnHome
+        uint256 minAmountOut
     );
-    event SwapFilled(uint64 indexed requestId, uint256 amountIn, uint256 amountOut);
-    event SwapRefunded(uint64 indexed requestId, address indexed user, uint256 amount, uint8 reason);
+    event SwapFilled(uint64 indexed requestId, address indexed user, address tokenOut, uint256 amountOut);
+    event SwapRefunded(uint64 indexed requestId, address indexed user, address token, uint256 amount, uint8 reason);
     event DustReturned(uint64 indexed requestId, address indexed user, uint256 amount);
 
-    /// @dev `OnlyEndpoint(address)` is inherited from OAppReceiver.
     error UnexpectedComposeSource(address from);
     error UnexpectedOrigin(uint32 srcEid, bytes32 sender);
     error InsufficientFee(uint256 required, uint256 supplied);
@@ -93,59 +101,72 @@ contract SwapRequest is OApp, IOAppComposer {
     constructor(
         address _endpoint,
         address _owner,
-        address _token,
+        address _baseToken,
+        address _quoteToken,
         uint32 _homeEid
     ) OApp(_endpoint, _owner) Ownable(_owner) {
-        token = IERC20(_token);
-        oft = IOFT(_token);
+        baseToken = IERC20(_baseToken);
+        quoteToken = IERC20(_quoteToken);
         homeEid = _homeEid;
     }
 
     // ------------------------------------------------------------------ user entrypoint
 
     /**
-     * @notice Submit a swap to be executed on the home chain's pool.
-     * @param _amountIn        Amount of the omnichain asset to sell. Caller must have approved this contract.
-     * @param _minAmountOut    Slippage floor in quote-asset units, enforced by the home-chain pool.
-     * @param _recipientOnHome Address that receives the quote asset on the home chain.
-     * @return requestId       Identifier to track this request; echoed back in the settlement.
+     * @notice Buy the omnichain stock from this chain, paying with the quote asset.
+     * @param _amountIn     Quote asset to spend. Caller must have approved this contract.
+     * @param _minAmountOut Minimum stock to accept, enforced by the home chain's pool.
      *
-     * @dev `msg.value` must cover the LayerZero fee returned by {quoteSwap}. Any excess is
-     *      refunded to the caller by the endpoint.
+     * @dev This is the flow the POC exists to prove: the caller is on a chain with no market
+     *      for this asset at all, and receives it here anyway.
      */
-    function requestSwap(
+    function buy(uint256 _amountIn, uint256 _minAmountOut) external payable returns (uint64) {
+        return _submit(SwapTypes.Direction.BUY, _amountIn, _minAmountOut);
+    }
+
+    /// @notice Sell the omnichain stock from this chain, receiving the quote asset here.
+    function sell(uint256 _amountIn, uint256 _minAmountOut) external payable returns (uint64) {
+        return _submit(SwapTypes.Direction.SELL, _amountIn, _minAmountOut);
+    }
+
+    function _submit(
+        SwapTypes.Direction _direction,
         uint256 _amountIn,
-        uint256 _minAmountOut,
-        address _recipientOnHome
-    ) external payable returns (uint64 requestId) {
+        uint256 _minAmountOut
+    ) internal returns (uint64 requestId) {
         if (_amountIn == 0) revert ZeroAmount();
+
+        bool isBuy = _direction == SwapTypes.Direction.BUY;
+        IERC20 tokenIn = isBuy ? quoteToken : baseToken;
+        IERC20 tokenOut = isBuy ? baseToken : quoteToken;
 
         requestId = nextRequestId++;
         requestIds.push(requestId);
 
-        token.safeTransferFrom(msg.sender, address(this), _amountIn);
+        tokenIn.safeTransferFrom(msg.sender, address(this), _amountIn);
 
-        SendParam memory sendParam = _buildSendParam(requestId, _amountIn, _minAmountOut, _recipientOnHome, msg.sender);
+        SendParam memory sendParam = _buildSendParam(requestId, _direction, _amountIn, _minAmountOut, msg.sender);
 
+        IOFT oft = IOFT(address(tokenIn));
         MessagingFee memory fee = oft.quoteSend(sendParam, false);
         if (msg.value < fee.nativeFee) revert InsufficientFee(fee.nativeFee, msg.value);
 
-        // Excess native is refunded to the caller by the endpoint.
         (, OFTReceipt memory oftReceipt) = oft.send{ value: msg.value }(sendParam, fee, msg.sender);
 
-        // The OFT quantises to shared decimals (6) before bridging, so anything finer than
-        // that never leaves this chain. Hand it straight back rather than letting it silently
-        // accumulate in this contract. See NOTES.md.
+        // The OFT quantises to shared decimals (6) before bridging, so anything finer never
+        // leaves this chain. Hand it straight back rather than letting it accumulate here.
         uint256 sent = oftReceipt.amountSentLD;
         if (_amountIn > sent) {
             uint256 dust = _amountIn - sent;
-            token.safeTransfer(msg.sender, dust);
+            tokenIn.safeTransfer(msg.sender, dust);
             emit DustReturned(requestId, msg.sender, dust);
         }
 
         requests[requestId] = Request({
             user: msg.sender,
-            recipientOnHome: _recipientOnHome,
+            direction: uint8(_direction),
+            tokenIn: address(tokenIn),
+            tokenOut: address(tokenOut),
             amountIn: sent,
             minAmountOut: _minAmountOut,
             amountOut: 0,
@@ -155,38 +176,39 @@ contract SwapRequest is OApp, IOAppComposer {
             failureReason: uint8(SwapTypes.FailureReason.NONE)
         });
 
-        emit SwapRequested(requestId, msg.sender, sent, _minAmountOut, _recipientOnHome);
+        emit SwapRequested(requestId, msg.sender, uint8(_direction), address(tokenIn), sent, _minAmountOut);
     }
 
-    /// @notice Native fee required for {requestSwap} with the same arguments.
-    function quoteSwap(
+    /// @notice Native fee required to submit a trade with these arguments.
+    function quoteTrade(
+        SwapTypes.Direction _direction,
         uint256 _amountIn,
-        uint256 _minAmountOut,
-        address _recipientOnHome
+        uint256 _minAmountOut
     ) external view returns (MessagingFee memory) {
+        IERC20 tokenIn = _direction == SwapTypes.Direction.BUY ? quoteToken : baseToken;
         SendParam memory sendParam = _buildSendParam(
             nextRequestId,
+            _direction,
             _amountIn,
             _minAmountOut,
-            _recipientOnHome,
             msg.sender
         );
-        return oft.quoteSend(sendParam, false);
+        return IOFT(address(tokenIn)).quoteSend(sendParam, false);
     }
 
     function _buildSendParam(
         uint64 _requestId,
+        SwapTypes.Direction _direction,
         uint256 _amountIn,
         uint256 _minAmountOut,
-        address _recipientOnHome,
-        address _refundTo
+        address _recipient
     ) internal view returns (SendParam memory) {
         bytes memory composeMsg = SwapTypes.encodeOrder(
             SwapTypes.Order({
                 requestId: _requestId,
+                direction: uint8(_direction),
                 minAmountOut: _minAmountOut,
-                recipient: _recipientOnHome,
-                refundTo: _refundTo
+                recipient: _recipient
             })
         );
 
@@ -207,32 +229,13 @@ contract SwapRequest is OApp, IOAppComposer {
             });
     }
 
-    // ------------------------------------------------------------------ inbound: success
+    // ------------------------------------------------------------------ inbound: the result
 
-    /// @dev Settlement receipt from SwapRelay. OApp has already verified the peer.
-    function _lzReceive(
-        Origin calldata _origin,
-        bytes32,
-        bytes calldata _message,
-        address,
-        bytes calldata
-    ) internal override {
-        if (_origin.srcEid != homeEid) revert UnexpectedOrigin(_origin.srcEid, _origin.sender);
-
-        SwapTypes.Receipt memory receipt = SwapTypes.decodeReceipt(_message);
-        Request storage r = requests[receipt.requestId];
-        if (r.status != SwapTypes.Status.PENDING) return; // already settled; ignore replays
-
-        r.status = SwapTypes.Status.FILLED;
-        r.amountOut = receipt.amountOut;
-        r.settledAt = uint64(block.timestamp);
-
-        emit SwapFilled(receipt.requestId, receipt.amountIn, receipt.amountOut);
-    }
-
-    // ------------------------------------------------------------------ inbound: refund
-
-    /// @dev Refund leg: the input returns as OFT tokens with the notice as composeMsg.
+    /**
+     * @notice Settlement from the home chain, arriving together with the tokens.
+     * @dev One handler covers both outcomes: on a fill the output asset arrives, on a failure
+     *      the input asset comes back. Either way, tokens landed and a request closes.
+     */
     function lzCompose(
         address _from,
         bytes32,
@@ -241,25 +244,37 @@ contract SwapRequest is OApp, IOAppComposer {
         bytes calldata
     ) external payable override {
         if (msg.sender != address(endpoint)) revert OnlyEndpoint(msg.sender);
-        if (_from != address(token)) revert UnexpectedComposeSource(_from);
+        if (_from != address(baseToken) && _from != address(quoteToken)) revert UnexpectedComposeSource(_from);
 
         uint32 srcEid = _message.srcEid();
         bytes32 composeFrom = _message.composeFrom();
         if (srcEid != homeEid || composeFrom != peers[homeEid]) revert UnexpectedOrigin(srcEid, composeFrom);
 
-        uint256 amountReturned = _message.amountLD();
-        SwapTypes.RefundNotice memory notice = SwapTypes.decodeRefund(_message.composeMsg());
+        uint256 amountReceived = _message.amountLD();
+        SwapTypes.Settlement memory s = SwapTypes.decodeSettlement(_message.composeMsg());
 
-        Request storage r = requests[notice.requestId];
-        if (r.status != SwapTypes.Status.PENDING) return; // already settled; keep funds retrievable via sweep
+        Request storage r = requests[s.requestId];
+        // Already settled, or unknown: keep the funds retrievable via sweep rather than
+        // reverting, which would strand the compose in a permanently failing state.
+        if (r.status != SwapTypes.Status.PENDING) return;
 
-        r.status = SwapTypes.Status.REFUNDED;
-        r.failureReason = notice.reason;
         r.settledAt = uint64(block.timestamp);
 
-        token.safeTransfer(r.user, amountReturned);
-        emit SwapRefunded(notice.requestId, r.user, amountReturned, notice.reason);
+        if (s.status == uint8(SwapTypes.Status.FILLED)) {
+            r.status = SwapTypes.Status.FILLED;
+            r.amountOut = amountReceived;
+            IERC20(_from).safeTransfer(r.user, amountReceived);
+            emit SwapFilled(s.requestId, r.user, _from, amountReceived);
+        } else {
+            r.status = SwapTypes.Status.REFUNDED;
+            r.failureReason = s.reason;
+            IERC20(_from).safeTransfer(r.user, amountReceived);
+            emit SwapRefunded(s.requestId, r.user, _from, amountReceived, s.reason);
+        }
     }
+
+    /// @dev No plain OApp messages are expected; results arrive with their tokens.
+    function _lzReceive(Origin calldata, bytes32, bytes calldata, address, bytes calldata) internal override {}
 
     // ------------------------------------------------------------------ views
 
@@ -283,11 +298,10 @@ contract SwapRequest is OApp, IOAppComposer {
 
     /**
      * @notice Owner rescue for tokens that arrived without a matching open request.
-     * @dev POC-only safety valve, e.g. a refund landing after a request was already settled.
-     *      A production version needs a principled claim path instead — see agents.md §9.
+     * @dev POC-only safety valve. A production version needs a principled claim path instead.
      */
-    function sweep(address _to, uint256 _amount) external onlyOwner {
-        token.safeTransfer(_to, _amount);
+    function sweep(address _token, address _to, uint256 _amount) external onlyOwner {
+        IERC20(_token).safeTransfer(_to, _amount);
     }
 
     receive() external payable {}

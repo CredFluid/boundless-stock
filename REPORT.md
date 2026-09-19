@@ -11,50 +11,77 @@ the resulting deployment actually works.
 **Yes.**
 
 > A token deployed and liquid on one chain can be traded from any other chain where only a
-> mirror instance exists, with **zero liquidity required on that other chain**.
+> mirror instance exists, with **no market required on that other chain**.
 
-Proven on **three separate mirror chains**, one of which was added *after* the token was
-already launched:
+The flow that matters is **buying**: a user holds USDC on a chain that has no market for the
+stock, presses buy once, and the stock arrives in their wallet **on that same chain**.
 
-| | Arbitrum Sepolia | Optimism Sepolia | Polygon Amoy |
+### The core proof
+
+| | |
+|---|---|
+| Where the user stood | Arbitrum Sepolia — no pool, no market maker, no price source |
+| What they held | 15,000 USDC. **Zero** tAAPL. |
+| What they did | **one transaction**, on their own chain, 0.0101 ETH fee |
+| What they received | **99.605634 tAAPL, in their wallet on Arbitrum Sepolia** |
+| Price paid | 150.593891 USDC per tAAPL (home pool spot: 150.000000) |
+| Total cost vs spot | 0.3944% |
+| Pool reserves moved | +15,000 USDC in, −99.605634 tAAPL out |
+| Pool spot after | 150.000000 → **150.284352** |
+| Round trip | 84 ms |
+
+Reproduced on a second mirror chain and in reverse:
+
+| | Buy (Arbitrum) | Buy (Optimism) | Sell (Arbitrum) |
 |---|---|---|---|
-| Liquidity on that chain | **none** | **none** | **none** |
-| Sold | 100 tAAPL | 100 tAAPL | 100 tAAPL |
-| Received on Base Sepolia | **14,940.845155 USDC** | **14,898.490980 USDC** | **14,842.298327 USDC** |
-| Spot before | 150.000000 | 149.574580 | 149.010164 |
-| Effective price | 149.408452 | 148.984910 | 148.422983 |
-| Slippage vs spot | 0.3944% | 0.3942% | 0.3941% |
-| `requestSwap` gas | 338,666 | 338,666 | 338,666 |
-| Round trip | 102 ms | 70 ms | 79 ms |
-
-Absolute USDC figures differ only because each trade executes against a pool the previous trade
-already moved.
+| Paid | 15,000 USDC | 15,000 USDC | 20 tAAPL |
+| Received, **on the mirror chain** | 99.605634 tAAPL | 99.342059 tAAPL | 3,004.046491 USDC |
+| Cost vs spot | +0.3944% | +0.3958% | −0.3189% |
+| Latency | 84 ms | 66 ms | 70 ms |
 
 ### Why these numbers constitute a proof rather than a demo
 
-The slippage decomposes exactly:
+The cost decomposes exactly:
 
 ```
-gross at spot (150.000000)         15,000.000000 USDC
-less 0.30% pool fee                14,955.000000 USDC
-actual received                    14,940.845155 USDC
-residual = price impact                14.154845 USDC   (0.0944%)
-trade as share of base reserve                            0.1000%
+stock buyable at spot (15,000 / 150)   100.000000 tAAPL
+less 0.30% pool fee                     99.700000 tAAPL
+actually received                       99.605634 tAAPL
+residual = price impact                  0.094366 tAAPL   (0.0944%)
+trade as share of pool quote reserve                        0.1000%
 ```
 
-A price impact of 0.0944% on a trade worth 0.1000% of the pool's base reserve is what Uniswap
-V3 tick math produces at that size. Alongside this, each run verified that the pool's base
-reserve moved by **exactly** the amount sold and the pool's spot price moved. A mocked or
-short-circuited execution would not reproduce that relationship.
+A price impact of 0.0944% on a trade worth 0.1000% of the pool's quote reserve is what Uniswap
+V3 tick math produces at that size. The pool's reserves moved by exactly the traded amounts and
+its spot price moved *upward*, as a real buy must. A mocked or short-circuited execution would
+not reproduce that relationship. (The sell direction decomposes the same way, with the price
+moving down.)
 
 The validation deliberately does not trust the contracts' own reporting. Scenario 2
-cross-checks four independent sources: the settlement receipt the mirror chain received, the
-user's real USDC balance change on the home chain, the pool's base-reserve delta, and the
-pool's spot-price movement. It also runs as a **distinct user account**, not the deployer —
-proving it with the account that owns the token, the pool and both relay contracts would have
-left an obvious hole.
+cross-checks the settlement the mirror chain received, the user's real wallet balance change on
+the mirror chain, the pool's reserve deltas on the home chain, the pool's spot-price movement,
+and aggregate supply conservation of **both** omnichain assets. It also runs as a **distinct
+user account**, not the deployer.
 
----
+### What "no market" means precisely
+
+This matters, because the quote asset is omnichain and someone will reasonably ask whether that
+smuggles liquidity onto the mirror chain. It does not:
+
+- The mirror chain has **no pool, no market maker, no reserves, no price**, and nothing capable
+  of discovering one. `assertNoLocalMarket()` asserts this at run time in every scenario.
+- It has token *contracts*, and users hold *wallet balances* they bridged in themselves. A
+  wallet balance is not liquidity — nobody on that chain quotes a price or takes the other side.
+- Every unit of price discovery happened on the home chain's Uniswap V3 pool, and the pool's
+  state proves it moved.
+
+### A correction to an earlier version of this report
+
+An earlier build proved the **sell** direction only — stock in on the mirror, USDC out on the
+*home* chain. That followed the brief's line that USDC is a plain ERC-20 on the home chain only,
+which forces sell-only: with no quote asset on a mirror chain, a user there has nothing to pay
+with. Making the quote asset omnichain deliberately contradicts that line and is what enables
+the intended flow. See `NOTES.md`, 2026-09-19.
 
 ## 2. Config-driven vs still hardcoded
 
@@ -85,11 +112,12 @@ eids so this is checkable with `diff` rather than taken on trust.
 |---|---|---|
 | Solidity contract set (OFT, ERC-20, SwapRelay, SwapRequest) | `src/` | By design. Changing the token *standard* is a code change, not config. |
 | Uniswap **V3** as the venue | `SwapRelay`, module 4 | **Real limitation.** A different DEX needs a new relay implementation. Worth abstracting behind a venue interface before production. |
-| Swap direction: base → quote only | `SwapRelay._settle` | **Real limitation.** A mirror user can sell but not buy, because buying needs the quote asset on the mirror chain — which the zero-liquidity premise forbids. See §6. |
+| ~~Swap direction~~ | — | **Resolved.** Both directions are supported and symmetric; `SwapRelay` derives the direction from which OFT delivered the tokens rather than trusting the payload. |
 | Default gas constants (`DEFAULT_RETURN_GAS`, etc.) | `SwapRelay`, `SwapRequest` | Low risk. Every one is overridable by an owner setter that the infra calls from config; the constants are only fallbacks. |
 | Position NFT descriptor = `address(0)` | module 4 | Cosmetic. Only affects `tokenURI()`, which nothing calls. |
 | Mint deadline = now + 1 hour | module 4 | Fine for a POC; should be config for slow live chains. |
-| Trade sizes in the validation scenarios (100 tAAPL, etc.) | `infra/validation/` | Test fixtures, not infra. Should become config if the suite is reused for other tokens. |
+| Trade sizes in the validation scenarios (15,000 USDC, etc.) | `infra/validation/` | Test fixtures, not infra. Should become config if the suite is reused for other tokens. |
+| Exactly two omnichain assets | modules 1/2, `SwapRelay` | The peer-wiring module already loops per asset, but the relay pair assumes one base and one quote. A multi-pair venue needs a registry. |
 | `EXECUTOR_OVERHEAD = 120,000` in the relayer | `infra/relayer.ts` | Local-environment only; irrelevant on live chains where LayerZero's Executor runs. |
 | Anvil account #1 as the test user | validation harness | Overridable via `USER_PRIVATE_KEY`. |
 
@@ -157,26 +185,31 @@ against a large set.
 
 | Chain | Gas | Txs |
 |---|---:|---:|
-| Base Sepolia (home) | 31,908,168 | 25 |
-| Arbitrum Sepolia | 11,522,310 | 13 |
-| Optimism Sepolia | 11,522,310 | 13 |
-| **Total** | **54,952,788** | **51** |
+| Base Sepolia (home) | 34,210,554 | 29 |
+| Arbitrum Sepolia | 14,616,827 | 16 |
+| Optimism Sepolia | 14,616,827 | 16 |
+| **Total** | **63,444,208** | **61** |
+
+Higher than the earlier sell-only build because every chain now carries **two** omnichain
+assets and two peer meshes instead of one.
 
 The home chain's share is dominated by deploying Uniswap V3 from scratch (factory, router,
 position manager). On a live testnet the canonical factory comes from config, so the real home
 figure is substantially lower.
 
-### Runtime — one complete cross-chain swap
+### Runtime — one complete cross-chain buy
 
 | Step | Chain | Gas |
 |---|---|---:|
-| `requestSwap` (user's only transaction) | mirror | 338,666 |
-| OFT `lzReceive` — delivers tokens, queues compose | home | 123,759 |
-| `lzCompose` — the swap + return message | home | 261,625 |
-| Receipt `lzReceive` | mirror | 88,895 |
-| **Total across both chains** | | **812,945** |
+| `buy()` — the user's only transaction | mirror | 300,288 (351,514 on their first ever trade) |
+| USDC `lzReceive` — delivers the money, queues the compose | home | 106,491 |
+| `lzCompose` — the swap **and** the return send | home | 266,251 |
+| Stock `lzReceive` — delivers the stock | mirror | 106,864 |
+| `lzCompose` — records the fill, pays out the user | mirror | 85,242 |
+| **Total across both chains** | | **865,136** (916,362 first trade) |
 
-A plain bridge with no swap, for comparison: `send()` 120,443 + `lzReceive` 108,583.
+A sell costs essentially the same: `sell()` 344,056 on the mirror plus the equivalent legs.
+A plain bridge with no trade, for comparison: `send()` 120,443 + `lzReceive` ~106,000.
 
 **Fees:** the user pays **0.0101 ETH once, on the mirror chain**, and never touches the home
 chain. That figure includes the 0.01 ETH `lzCompose` value forwarded to `SwapRelay` to pre-pay
@@ -186,10 +219,11 @@ the return leg, which is why the round trip is a single user transaction.
 
 | Scenario | Local |
 |---|---:|
-| Direct bridge | 56–73 ms |
-| Swap round trip | 70–102 ms |
-| Bad-slippage refund | 84–97 ms |
-| Recovery after compose retry | 28 ms |
+| Direct bridge | 69 ms |
+| Buy round trip | 66–84 ms |
+| Sell round trip | 70 ms |
+| Bad-slippage refund | 79 ms |
+| Recovery after compose retry | 30 ms |
 
 **These are local-anvil figures and say nothing about production latency.** Real LayerZero
 latency is dominated by DVN attestation and destination block times — typically tens of seconds
@@ -250,12 +284,7 @@ Ordered by severity.
    is the strongest argument for the market-maker fast path that was explicitly out of scope
    here.
 
-4. **Sell-only.** A mirror user can sell the omnichain asset but cannot buy it, because buying
-   requires the quote asset on the mirror chain — which the zero-liquidity premise forbids. The
-   honest framing: this POC proves **cross-chain access to home-chain liquidity in one
-   direction**. Buying needs either a bridgeable quote asset or a credit/intent mechanism.
-
-5. **Address identity assumes EVM.** "Proceeds delivered to the user's address on the home
+4. **Address identity assumes EVM.** "Proceeds delivered to the user's address on the home
    chain" works because an EOA has the same address on every EVM chain. That breaks for
    smart-contract wallets, and it breaks completely for Solana — which is the stated reason
    LayerZero was chosen over Hyperbridge. A Solana mirror needs an explicit recipient mapping.
@@ -272,11 +301,11 @@ Ordered by severity.
 
 | | |
 |---|---|
-| Core claim | **Proven**, on three mirror chains, with execution economics that decompose exactly |
+| Core claim | **Proven** — buying from a chain with no market, on two mirror chains, plus the reverse direction; execution economics decompose exactly |
 | Deployment infra | 6 modules, fully config-driven, one command, no manual follow-up |
 | Peer wiring | Automated, bidirectional, **read back and verified** on every link |
 | Add-a-chain flow | **Confirmed** to reuse the same modules; verified by doing it on a live deployment |
-| Validation | 5/5 scenarios passing from a clean deployment |
+| Validation | 6/6 scenarios passing from a clean deployment |
 | Biggest gap | No timeout/refund for a stalled message — funds recoverable but never automatically |
 
 The repo carries its own findings: `agents.md` for current state and architecture, `NOTES.md`

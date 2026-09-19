@@ -28,6 +28,21 @@ fully wired deployment with **no code changes** — only a new config file.
 A user standing on a mirror chain submits a trade and receives a real result, even though
 there is **no pool, no market maker, and no local liquidity of any kind** where they are.
 
+**The primary flow is BUYING.** A user holds USDC on a mirror chain that has no market for the
+stock at all, presses buy once, and the stock arrives in their wallet **on that same chain**,
+priced by the home chain's pool. Selling works the same way in reverse. Both directions
+deliver the result to the user's wallet on the chain they are standing on; they never touch
+the home chain.
+
+**What "zero liquidity" means precisely**, because the distinction carries the whole claim:
+
+- A mirror chain has **no pool, no market maker, no reserves, no price** and no way to discover
+  one. Nothing there can quote the user or take the other side of their trade.
+- It does have token *contracts*, and users hold *wallet balances* they bridged in themselves.
+  **A wallet balance is not liquidity.**
+- Every validation scenario re-checks this at run time via `assertNoLocalMarket()` rather than
+  assuming it.
+
 - All **price discovery and execution** happen on the home chain's Uniswap V3 pool.
 - The mirror chain only ever handles **identity, messaging, and final delivery of the result**.
 
@@ -48,10 +63,13 @@ no manual follow-up steps.
 
 | Role | Chain | LayerZero EID | What lives there |
 |---|---|---|---|
-| **Home** | Base Sepolia | `40245` | TokenizedStock OFT, USDC (plain ERC-20), Uniswap V3 pool, SwapRelay |
-| **Mirror** | Arbitrum Sepolia | `40231` | TokenizedStock OFT (empty), SwapRequest |
-| **Mirror** | Optimism Sepolia | `40232` | TokenizedStock OFT (empty), SwapRequest |
-| **Mirror** (added later) | Polygon Amoy | `40267` | TokenizedStock OFT (empty), SwapRequest |
+| **Home** | Base Sepolia | `40245` | Both OFTs with full supply, **the Uniswap V3 pool**, SwapRelay |
+| **Mirror** | Arbitrum Sepolia | `40231` | Both OFTs (empty), SwapRequest — **no pool, no market** |
+| **Mirror** | Optimism Sepolia | `40232` | Both OFTs (empty), SwapRequest — **no pool, no market** |
+| **Mirror** (added later) | Polygon Amoy | `40267` | Both OFTs (empty), SwapRequest — **no pool, no market** |
+
+The home chain is the only place a price exists. Mirror chains hold token contracts so users
+can *hold* and *pay with* the assets; they hold no reserves and cannot price anything.
 
 The second mirror chain exists specifically to prove the per-chain wiring **generalizes** —
 that the infra is not accidentally correct only for the first chain it was tested against.
@@ -76,50 +94,56 @@ Fees are paid in the **native testnet gas token**. There is no separate fee-toke
 
 | Contract | Chain | Role |
 |---|---|---|
-| `TokenizedStock` | home + every mirror | LayerZero V2 **OFT**. Full supply minted on home at deploy; mirrors start empty and are credited only by inbound bridge messages. |
-| `USDC` (mock) | **home only** | Plain ERC-20. The pairing asset. Deliberately *not* omnichain — it represents the asset that lives where the real liquidity is. |
-| `SwapRelay` | home only | LayerZero OApp. Receives cross-chain swap orders, executes them against the Uniswap V3 pool, and returns a settlement result. |
-| `SwapRequest` | every mirror | User-facing entrypoint. Locks the user's input, dispatches the swap order to the home chain, and records the settlement result when it comes back. |
+| `OmniToken` | — | Base implementation: a LayerZero V2 OFT with caller-specified decimals. Exists because LayerZero's own `OFT` only really supports 18-decimal tokens (see `NOTES.md`). |
+| `TokenizedStock` | home + every mirror | The stock. A named `OmniToken`. Full supply minted on home at deploy; mirrors start empty and can only be credited by inbound bridge messages. |
+| `USDC` | home + every mirror | The quote asset, also an OFT. Omnichain **so that a mirror-chain user has something to pay with** — without this, they could only ever sell. Its liquidity still exists only on the home chain. |
+| `SwapRelay` | home only | LayerZero OApp. Receives cross-chain orders, executes them against the Uniswap V3 pool, and sends the result back as tokens. |
+| `SwapRequest` | every mirror | User-facing entrypoint: `buy()` and `sell()`. Takes the user's input, dispatches it to the home chain, and pays out whatever comes back. |
 
-### 3.2 The swap round trip (the core mechanism)
+### 3.2 The round trip (the core mechanism)
+
+Shown for a **buy**. A sell is the same path with the two assets swapped.
 
 ```
-  MIRROR CHAIN  (zero liquidity)                 HOME CHAIN  (all liquidity)
-  ──────────────────────────────                 ──────────────────────────────
+  MIRROR CHAIN  (no market)                      HOME CHAIN  (all liquidity)
+  ──────────────────────────                     ──────────────────────────────
 
-  user
-   │  requestSwap(amountIn, minOut)
+  user holds USDC, no stock
+   │  buy(usdcIn, minStockOut)          <- ONE transaction, one fee
    ▼
   SwapRequest
-   │  • pulls TokenizedStock from user
-   │  • locks it, records Request{PENDING}
-   │  • OFT send() ── tokens + composed order ──────────►  TokenizedStock (home)
-   │                                                        │ credits SwapRelay
-   │                                                        ▼
-   │                                              SwapRelay.lzCompose()
-   │                                                        │  • decodes order
-   │                                                        │  • swaps TST → USDC
-   │                                                        │    on Uniswap V3 pool
-   │                                                        │    (REAL price discovery)
-   │                                                        ▼
-   │                                              USDC delivered to user's
-   │                                              address on the HOME chain
-   │                                                        │
-   │  ◄──── LayerZero settlement receipt ───────────────────┘
+   │  • pulls the user's USDC
+   │  • records Request{PENDING}
+   │  • USDC OFT send() ── money + order ────────►  USDC (home)
+   │     (order rides as composeMsg)                 │ credits SwapRelay
+   │                                                 ▼
+   │                                       SwapRelay.lzCompose()
+   │                                                 │ • direction derived from
+   │                                                 │   WHICH OFT delivered
+   │                                                 │ • swaps USDC → stock on
+   │                                                 │   the Uniswap V3 pool
+   │                                                 │   (REAL price discovery)
+   │                                                 ▼
+   │  ◄──── stock OFT send() + Settlement ───────────┘
    ▼
-  SwapRequest
+  SwapRequest.lzCompose()
      • Request{FILLED, amountOut}
-     • user's locked input released/consumed
+     • transfers the stock to the user
+        ↓
+  user now holds the stock, ON THIS CHAIN
 ```
 
-**Why the result returns as a receipt rather than as USDC tokens:** USDC is specified as
-home-chain-only and is a plain ERC-20 — it has no bridging capability by design, because it
-represents the asset that lives where the liquidity lives. So the mirror chain's "delivery of
-the result" is the authenticated settlement record (exact `amountOut`, execution price, status),
-while the USDC itself is delivered to the user's address on the home chain. The *failure*
-path is different: on revert, the locked TokenizedStock is bridged **back** to the mirror
-chain via OFT `send()`, so the user is made whole where they started. See `NOTES.md` for the
-full reasoning and the alternatives that were rejected.
+Three properties are worth calling out:
+
+1. **Tokens and instruction travel in one packet.** The order rides as the `composeMsg` of the
+   OFT `send()`, so neither side can ever be asked to act on a message whose funds have not
+   arrived. No separate "did the money land?" check is needed.
+2. **Direction is derived, not declared.** `SwapRelay` decides buy-vs-sell from *which OFT
+   delivered the tokens*, which a sender cannot forge. The direction stated in the payload is
+   only cross-checked, and a mismatch is refunded rather than executed.
+3. **Failure uses the same path as success.** On a revert the *input* is bridged back with a
+   Settlement marked `REFUNDED`. From the mirror chain's point of view a fill and a refund are
+   the same event: tokens arrived and a request closed.
 
 ### 3.3 Infra modules
 
@@ -128,9 +152,9 @@ be). The full pipeline is the modules in order.
 
 | # | Module | Does |
 |---|---|---|
-| 1 | Token deployment | Deploys `TokenizedStock` OFT + `USDC` on the configured **home** chain |
-| 2 | Mirror deployment | Loops the configured mirror list, deploys an empty `TokenizedStock` OFT on **each** |
-| 3 | Peer wiring | `setPeer()` bidirectionally across every chain pair, **reading each registration back** before moving on |
+| 1 | Token deployment | Deploys both OFTs — `TokenizedStock` + `USDC` — with full supply on the **home** chain |
+| 2 | Mirror deployment | Loops the configured mirror list, deploys **both** OFTs empty on each — contracts, never a market |
+| 3 | Peer wiring | `setPeer()` bidirectionally across every chain pair, **reading each registration back** before moving on. Called once per omnichain asset, plus once for the relay pair |
 | 4 | Pool deployment | Uniswap V3 `TokenizedStock/USDC` pool on home, seeded with configurable test liquidity |
 | 5 | Relay deployment | `SwapRelay` on home, `SwapRequest` on each mirror, peer-wired by the same module as step 3 |
 | 6 | Manifest | Emits one JSON file with every address, every peer-wiring status, and the pool — the single artifact anything downstream reads |
@@ -209,71 +233,71 @@ funds, and the residue is real (see `NOTES.md`). See §6 for what each scenario 
 
 ## 7. Current state
 
-> ## ✅ CORE PROOF POINT: PROVEN — and proven on two independent mirror chains
+> ## ✅ CORE PROOF POINT: PROVEN — buying from a chain with no market
 >
-> **A trade submitted from a chain with zero liquidity executed on the home chain's pool and
-> returned a real, authenticated result to the originating chain.**
+> **A user holding only USDC on a chain with no pool, no market maker and no price for the
+> asset pressed buy once, and the stock arrived in their wallet on that same chain.**
 >
-> | | Arbitrum Sepolia | Optimism Sepolia |
-> |---|---|---|
-> | Local liquidity there | **none** — no pool, no quote asset, no market maker | **none** |
-> | Sold | 100 tAAPL | 100 tAAPL |
-> | Received (on Base Sepolia) | **14,940.845155 USDC** | **14,898.490980 USDC** |
-> | Effective price | 149.408452 | 148.984910 |
-> | Slippage vs spot | 0.3944% | 0.3942% |
-> | `requestSwap` gas | 338,666 | 338,666 |
-> | Round-trip latency | 102 ms | 70 ms |
+> Validation scenario 2, run 2026-09-19 against the local chain set:
 >
-> Slippage decomposes exactly into the 0.3000% pool fee plus 0.0944% price impact, and the
-> impact matches the trade being 0.1% of the pool's base reserve — which is what confirms this
-> is genuine Uniswap V3 execution, not a mocked result. The pool's spot price moved on every
-> trade and its reserves moved by exactly the amount sold.
+> | | |
+> |---|---|
+> | Where the user stood | Arbitrum Sepolia — **no pool, no market maker, no price source** |
+> | What they held | 15,000 USDC. **Zero** tAAPL. |
+> | What they did | one transaction, `buy()`, 0.0101 ETH fee, on their own chain |
+> | What they received | **99.605634 tAAPL, in their wallet on Arbitrum Sepolia** |
+> | Price paid | 150.593891 USDC per tAAPL (home pool spot was 150.000000) |
+> | Total cost vs spot | 0.3944% = 0.3000% pool fee + 0.0944% price impact |
+> | Pool reserves moved | +15,000 USDC in, −99.605634 tAAPL out |
+> | Pool spot after | 150.000000 → **150.284352** — the price moved, because the trade was real |
+> | Round trip | 84 ms |
 >
-> Identical gas across two different mirror chains is the evidence that the per-chain wiring
-> **generalises** rather than being accidentally correct for the first chain tested.
+> The price impact (0.0944%) matches the trade being 0.1000% of the pool's quote reserve —
+> which is what confirms genuine Uniswap V3 execution rather than a mocked result. The user
+> never touched the home chain.
+>
+> Reproduced on a second mirror chain (Optimism Sepolia, scenario 5) and in reverse (selling,
+> scenario 6, proceeds delivered on the mirror chain).
 
-**All 6 deployment milestones complete. All 5 validation scenarios passing.**
+**All deployment milestones complete. All 6 validation scenarios passing.**
 
 | Area | State |
 |---|---|
-| `agents.md` / `NOTES.md` | ✅ current |
-| Contracts | ✅ built, deployed, exercised end to end |
-| Local 3-chain environment (real `EndpointV2` per chain + packet relayer) | ✅ working |
-| Module 0 — endpoint bootstrap | ✅ |
-| Module 1 — token deployment | ✅ |
-| Module 2 — mirror deployment | ✅ |
-| Module 3 — peer wiring | ✅ 10/10 links verified by read-back |
-| Module 4 — pool deployment | ✅ |
-| Module 5 — relay contracts | ✅ |
-| Module 6 — manifest | ✅ |
-| Validation 1 — direct bridge | ✅ 56 ms, supply conserved |
-| Validation 2 — **swap round trip (CORE PROOF)** | ✅ **PASSING** |
-| Validation 3 — bad slippage | ✅ input returned in full, net change 0 |
+| `agents.md` / `NOTES.md` / `REPORT.md` | ✅ current |
+| Contracts: `OmniToken`, `TokenizedStock`, `USDC`, `SwapRelay`, `SwapRequest` | ✅ built, deployed, exercised |
+| Local chain environment (real `EndpointV2` per chain + packet relayer) | ✅ working |
+| Modules 0–6 | ✅ all green, all idempotent |
+| Peer wiring | ✅ 16/16 links verified by read-back (2 asset meshes × 6, + 4 relay star) |
+| Validation 1 — direct bridge | ✅ 69 ms, supply conserved |
+| Validation 2 — **buy from a chain with no market (CORE PROOF)** | ✅ **PASSING** |
+| Validation 3 — bad slippage | ✅ money returned across the bridge, net change 0 |
 | Validation 4 — stalled message | ✅ characterised — **recovery is never automatic** |
 | Validation 5 — multi-mirror | ✅ generalises to a second chain |
+| Validation 6 — reverse direction (sell) | ✅ proceeds delivered on the mirror chain |
 
 ### What runs today
 
 ```bash
 npm run chains:up
 npm run deploy   -- --config config/localnet.json
-npm run validate -- --config config/localnet.json      # 5/5 pass
+npm run validate -- --config config/localnet.json      # 6/6 pass
 ```
 
 ### Headline numbers
 
 | | |
 |---|---|
-| Full 3-chain deployment | 54,952,788 gas / 51 txs (home 31.9M incl. deploying Uniswap V3 from scratch) |
-| Adding a 4th chain | 12,378,021 gas / 31 txs — pool **not** re-seeded, home token unchanged |
-| One cross-chain swap | 812,945 gas across both chains; user pays **0.0101 ETH once, on the mirror chain** |
-| Local round-trip latency | 70–102 ms (says nothing about live LayerZero latency — see `REPORT.md` §4) |
+| Full 3-chain deployment | 63,444,208 gas / 61 txs (home 34.2M incl. deploying Uniswap V3 from scratch) |
+| Adding a 4th chain | ~12.4M gas — pool **not** re-seeded, home token unchanged |
+| One cross-chain buy | `buy()` 351,514 gas on the mirror, plus the home-side legs |
+| User cost | **0.0101 ETH, once, on their own chain** |
+| Local round-trip latency | 66–84 ms (says nothing about live LayerZero latency — see `REPORT.md` §4) |
 
 ### The one thing that is NOT production-safe
 
 Validation 4 established that a stalled message never loses funds but never self-heals either.
 LayerZero V2 has no message expiry: an undelivered packet stays deliverable forever and a
-reverting composed call stays retryable forever, and in both cases the user's input is
+reverting composed call stays retryable forever, and in both cases the user's money is
 unusable until somebody acts. **A timeout/refund path is required before this design goes to
 production.** See `NOTES.md` and §9 below.
 
@@ -324,8 +348,9 @@ Ordered by severity. Full discussion in [`REPORT.md`](REPORT.md) §6.
    is the only protection, so users face a choice between wide slippage tolerance and frequent
    refunds. Inherent to the design; the strongest argument for the market-maker fast path that
    was out of scope here.
-4. **Sell-only.** This POC proves cross-chain access to home-chain liquidity in **one direction**.
-   Buying from a mirror chain needs either a bridgeable quote asset or a credit/intent mechanism.
+4. **~~Sell-only~~ — RESOLVED.** Both directions now work and deliver the result to the user's
+   wallet on the chain they are standing on. Resolved by making the quote asset omnichain, which
+   contradicts one line of the original brief deliberately — see `NOTES.md`, 2026-09-19.
 5. **Address identity assumes EVM.** "Proceeds delivered to the user's address on the home chain"
    works because an EOA shares an address across EVM chains. That breaks for smart-contract
    wallets and completely for Solana — the stated reason LayerZero was chosen over Hyperbridge.

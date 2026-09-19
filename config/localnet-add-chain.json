@@ -62,7 +62,8 @@
     "homeComposeGas": 1200000,
     "homeComposeValue": "0.01",
     "returnGas": 300000,
-    "relayNativeBuffer": "1"
+    "relayNativeBuffer": "1",
+    "returnComposeGas": 400000
   },
   "localMessageLibFee": "0.0001"
 }

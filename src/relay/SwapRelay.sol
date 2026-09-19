@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.22;
 
-import { OApp, Origin, MessagingFee } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
+import { OApp, Origin } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
 import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 import { IOAppComposer } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppComposer.sol";
 import { OFTComposeMsgCodec } from "@layerzerolabs/oft-evm/contracts/libs/OFTComposeMsgCodec.sol";
-import { IOFT, SendParam, MessagingReceipt, OFTReceipt } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
+import {
+    IOFT,
+    SendParam,
+    MessagingFee,
+    MessagingReceipt,
+    OFTReceipt
+} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -15,62 +21,68 @@ import { ISwapRouter } from "./interfaces/IUniswapV3.sol";
 
 /**
  * @title SwapRelay
- * @notice HOME CHAIN ONLY. The contract where all price discovery and execution actually happen.
+ * @notice HOME CHAIN ONLY. The single place where price discovery and execution happen.
  *
- * @dev This is the far side of the core claim. A mirror chain with zero liquidity sends an
- *      order here, packaged as the `composeMsg` of an OFT `send()`, so the input tokens and
- *      the instruction arrive in the same LayerZero packet. That coupling is deliberate: the
- *      relay can never be asked to execute an order whose funds have not already landed.
+ * @dev This is the far side of the core claim. A mirror chain with no pool, no market maker
+ *      and no price of its own sends an order here packaged as the `composeMsg` of an OFT
+ *      `send()`, so the input tokens and the instruction arrive in one packet.
  *
- *      Settlement outcomes:
+ *      Both directions are supported and are perfectly symmetric:
  *
- *        SUCCESS  swap runs against the real Uniswap V3 pool -> quote asset is delivered to
- *                 the recipient ON THIS CHAIN, and a Receipt goes back to the originating
- *                 mirror chain over the relay pair's own peer path.
+ *        BUY   the quote asset (USDC) arrives -> swap quote->base -> the stock goes back
+ *        SELL  the stock arrives             -> swap base->quote -> USDC goes back
  *
- *        FAILURE  the input is bridged BACK to the originating mirror chain via OFT `send()`,
- *                 carrying a RefundNotice as its composeMsg. One packet both restores the
- *                 funds and closes out the request.
+ *      THE DIRECTION IS NEVER TAKEN FROM THE MESSAGE. It is derived from which OFT actually
+ *      delivered the tokens, because that is the one thing a sender cannot forge: the order's
+ *      declared direction is only cross-checked, and a mismatch is refunded rather than
+ *      executed.
  *
- *      `lzCompose` is written so that it does not revert on a failed swap: reverting would
- *      leave the compose in a retryable-but-stuck state with tokens sitting here. Instead
- *      failures are converted into the refund path, and if even the refund dispatch fails
- *      (e.g. this contract is out of native gas) the amount is recorded in `stranded` and can
- *      be retried permissionlessly. See NOTES.md for why that last branch exists.
+ *      Every outcome returns tokens to the originating mirror chain via OFT `send()` — the
+ *      output asset on a fill, the input asset on a failure — each carrying a Settlement as
+ *      its composeMsg. One packet both moves the funds and closes out the request.
+ *
+ *      `lzCompose` never reverts on a failed swap. Reverting would leave the compose in a
+ *      retryable-but-stuck state with tokens sitting here, unreachable by the user. Failures
+ *      are converted into refunds instead, and if even the refund dispatch fails the amount is
+ *      recorded in `stranded` and can be retried permissionlessly.
  */
 contract SwapRelay is OApp, IOAppComposer {
     using SafeERC20 for IERC20;
     using OptionsBuilder for bytes;
     using OFTComposeMsgCodec for bytes;
 
-    /// @notice The omnichain asset being traded (TokenizedStock). Also the OFT that delivers orders.
+    /// @notice The omnichain stock being traded.
     IERC20 public immutable baseToken;
-    /// @notice The pairing asset (USDC). Home-chain only, never bridged.
+    /// @notice The omnichain quote asset. Liquid only here, on the home chain.
     IERC20 public immutable quoteToken;
     /// @notice Uniswap V3 router used for execution.
     ISwapRouter public immutable router;
-    /// @notice Fee tier of the TokenizedStock/USDC pool.
+    /// @notice Fee tier of the base/quote pool.
     uint24 public immutable poolFee;
 
-    /// @notice Gas granted to the Receipt message's `lzReceive` on each mirror chain.
+    /// @notice Gas granted to the return packet's `lzReceive` on each mirror chain.
     mapping(uint32 eid => uint128 gas) public returnGas;
-    /// @notice Gas granted to the RefundNotice's `lzCompose` on each mirror chain.
-    mapping(uint32 eid => uint128 gas) public refundComposeGas;
+    /// @notice Gas granted to `SwapRequest.lzCompose` on each mirror chain.
+    mapping(uint32 eid => uint128 gas) public returnComposeGas;
 
     /// @notice Input that could not be swapped *and* could not be sent home. Retryable.
     mapping(uint32 eid => mapping(uint64 requestId => uint256 amount)) public stranded;
+    /// @notice Which token a stranded amount is denominated in.
+    mapping(uint32 eid => mapping(uint64 requestId => address token)) public strandedToken;
+
+    /// @notice Sub-quantum remainders left behind by OFT dust removal on return sends.
+    mapping(address token => uint256 amount) public dustAccrued;
 
     uint128 public constant DEFAULT_RETURN_GAS = 250_000;
-    uint128 public constant DEFAULT_REFUND_COMPOSE_GAS = 250_000;
+    uint128 public constant DEFAULT_RETURN_COMPOSE_GAS = 300_000;
 
-    event OrderReceived(uint32 indexed srcEid, uint64 indexed requestId, uint256 amountIn, address recipient);
+    event OrderReceived(uint32 indexed srcEid, uint64 indexed requestId, address tokenIn, uint256 amountIn);
     event OrderFilled(uint32 indexed srcEid, uint64 indexed requestId, uint256 amountIn, uint256 amountOut);
     event OrderFailed(uint32 indexed srcEid, uint64 indexed requestId, uint8 reason, uint256 amountIn);
-    event RefundDispatched(uint32 indexed srcEid, uint64 indexed requestId, uint256 amount);
-    event FundsStranded(uint32 indexed srcEid, uint64 indexed requestId, uint256 amount, string reason);
+    event ReturnDispatched(uint32 indexed srcEid, uint64 indexed requestId, address token, uint256 amount);
+    event FundsStranded(uint32 indexed srcEid, uint64 indexed requestId, address token, uint256 amount, string why);
     event NativeFunded(address indexed from, uint256 amount);
 
-    /// @dev `OnlyEndpoint(address)` is inherited from OAppReceiver.
     error UnexpectedComposeSource(address from);
 
     constructor(
@@ -90,9 +102,9 @@ contract SwapRelay is OApp, IOAppComposer {
     // ------------------------------------------------------------------ inbound: the order
 
     /**
-     * @notice Entry point for a cross-chain swap order.
-     * @dev Called by the LayerZero endpoint after the OFT has already credited this contract
-     *      with `amountLD` of `baseToken`.
+     * @notice Entry point for a cross-chain order.
+     * @dev Called by the endpoint after an OFT has already credited this contract with the
+     *      input tokens.
      */
     function lzCompose(
         address _from,
@@ -102,36 +114,70 @@ contract SwapRelay is OApp, IOAppComposer {
         bytes calldata /* _extraData */
     ) external payable override {
         if (msg.sender != address(endpoint)) revert OnlyEndpoint(msg.sender);
-        // Only the OFT that carries our asset may deliver orders here.
-        if (_from != address(baseToken)) revert UnexpectedComposeSource(_from);
+
+        // Direction is derived from the delivering OFT, not from the payload.
+        bool isBuy;
+        if (_from == address(quoteToken)) isBuy = true;
+        else if (_from == address(baseToken)) isBuy = false;
+        else revert UnexpectedComposeSource(_from);
 
         uint32 srcEid = _message.srcEid();
         uint256 amountIn = _message.amountLD();
         bytes32 composeFrom = _message.composeFrom();
 
         SwapTypes.Order memory order = SwapTypes.decodeOrder(_message.composeMsg());
-        emit OrderReceived(srcEid, order.requestId, amountIn, order.recipient);
+        emit OrderReceived(srcEid, order.requestId, _from, amountIn);
+
+        IERC20 tokenIn = IERC20(_from);
+        IERC20 tokenOut = isBuy ? baseToken : quoteToken;
 
         // Authenticate the originator: the order must come from the SwapRequest registered as
-        // this relay's peer on that chain. Anyone else's tokens are bounced straight back.
-        if (composeFrom != peers[srcEid] || peers[srcEid] == bytes32(0)) {
+        // this relay's peer on that chain.
+        if (peers[srcEid] == bytes32(0) || composeFrom != peers[srcEid]) {
             emit OrderFailed(srcEid, order.requestId, uint8(SwapTypes.FailureReason.UNAUTHORIZED_SOURCE), amountIn);
-            _dispatchRefund(srcEid, order, amountIn, SwapTypes.FailureReason.UNAUTHORIZED_SOURCE);
+            _returnToMirror(
+                srcEid,
+                order.requestId,
+                tokenIn,
+                amountIn,
+                _settlementFor(order.requestId, false, SwapTypes.FailureReason.UNAUTHORIZED_SOURCE, amountIn, 0)
+            );
             return;
         }
 
-        _settle(srcEid, amountIn, order);
+        // The declared direction is advisory; disagreeing with the delivering OFT means the
+        // caller is confused or hostile, so the funds go straight back rather than trading.
+        bool declaredBuy = order.direction == uint8(SwapTypes.Direction.BUY);
+        if (declaredBuy != isBuy) {
+            emit OrderFailed(srcEid, order.requestId, uint8(SwapTypes.FailureReason.POOL_ERROR), amountIn);
+            _returnToMirror(
+                srcEid,
+                order.requestId,
+                tokenIn,
+                amountIn,
+                _settlementFor(order.requestId, false, SwapTypes.FailureReason.POOL_ERROR, amountIn, 0)
+            );
+            return;
+        }
+
+        _settle(srcEid, order, tokenIn, tokenOut, amountIn);
     }
 
-    /// @dev Executes against the pool, then routes to the success or failure leg.
-    function _settle(uint32 _srcEid, uint256 _amountIn, SwapTypes.Order memory _order) internal {
-        baseToken.forceApprove(address(router), _amountIn);
+    /// @dev Executes against the pool, then returns either the proceeds or the input.
+    function _settle(
+        uint32 _srcEid,
+        SwapTypes.Order memory _order,
+        IERC20 _tokenIn,
+        IERC20 _tokenOut,
+        uint256 _amountIn
+    ) internal {
+        _tokenIn.forceApprove(address(router), _amountIn);
 
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
-            tokenIn: address(baseToken),
-            tokenOut: address(quoteToken),
+            tokenIn: address(_tokenIn),
+            tokenOut: address(_tokenOut),
             fee: poolFee,
-            recipient: _order.recipient,
+            recipient: address(this), // held here, then bridged back to the mirror chain
             deadline: block.timestamp,
             amountIn: _amountIn,
             amountOutMinimum: _order.minAmountOut,
@@ -139,116 +185,141 @@ contract SwapRelay is OApp, IOAppComposer {
         });
 
         try router.exactInputSingle(params) returns (uint256 amountOut) {
-            baseToken.forceApprove(address(router), 0);
+            _tokenIn.forceApprove(address(router), 0);
             emit OrderFilled(_srcEid, _order.requestId, _amountIn, amountOut);
-            _dispatchReceipt(_srcEid, _order.requestId, _amountIn, amountOut);
+            _returnToMirror(
+                _srcEid,
+                _order.requestId,
+                _tokenOut,
+                amountOut,
+                _settlementFor(_order.requestId, true, SwapTypes.FailureReason.NONE, _amountIn, amountOut)
+            );
         } catch {
-            // Clear the approval before doing anything else — the router must not retain an
-            // allowance over an amount we are about to send back across the bridge.
-            baseToken.forceApprove(address(router), 0);
+            // Clear the approval before anything else: the router must not keep an allowance
+            // over tokens that are about to be bridged away.
+            _tokenIn.forceApprove(address(router), 0);
             emit OrderFailed(_srcEid, _order.requestId, uint8(SwapTypes.FailureReason.SLIPPAGE), _amountIn);
-            _dispatchRefund(_srcEid, _order, _amountIn, SwapTypes.FailureReason.SLIPPAGE);
+            _returnToMirror(
+                _srcEid,
+                _order.requestId,
+                _tokenIn,
+                _amountIn,
+                _settlementFor(_order.requestId, false, SwapTypes.FailureReason.SLIPPAGE, _amountIn, 0)
+            );
         }
     }
 
-    // ------------------------------------------------------------------ outbound: success
+    // ------------------------------------------------------------------ outbound: the result
 
-    /// @dev Success leg: a plain OApp message on the relay pair's peer path.
-    function _dispatchReceipt(uint32 _dstEid, uint64 _requestId, uint256 _amountIn, uint256 _amountOut) internal {
-        bytes memory payload = SwapTypes.encodeReceipt(
-            SwapTypes.Receipt({ requestId: _requestId, amountIn: _amountIn, amountOut: _amountOut })
-        );
-        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(_returnGas(_dstEid), 0);
-
-        MessagingFee memory fee = _quote(_dstEid, payload, options, false);
-        // Paid out of this contract's native balance, which is topped up by the value the
-        // executor forwards with each inbound lzCompose. See _payNative below.
-        _lzSend(_dstEid, payload, options, fee, address(this));
-    }
-
-    // ------------------------------------------------------------------ outbound: failure
-
-    /// @dev Failure leg: bridge the input back, carrying the notice as composeMsg.
-    function _dispatchRefund(
+    /**
+     * @dev Sends tokens back to the originating mirror chain with a Settlement attached.
+     *      Used identically for fills and refunds — only the token and the payload differ.
+     */
+    function _returnToMirror(
         uint32 _dstEid,
-        SwapTypes.Order memory _order,
+        uint64 _requestId,
+        IERC20 _token,
         uint256 _amount,
-        SwapTypes.FailureReason _reason
+        bytes memory _settlement
     ) internal {
-        bytes memory composeMsg = SwapTypes.encodeRefund(
-            SwapTypes.RefundNotice({ requestId: _order.requestId, reason: uint8(_reason), amountReturned: _amount })
-        );
+        if (_amount == 0) return;
 
         bytes memory options = OptionsBuilder
             .newOptions()
             .addExecutorLzReceiveOption(_returnGas(_dstEid), 0)
-            .addExecutorLzComposeOption(0, _refundComposeGas(_dstEid), 0);
+            .addExecutorLzComposeOption(0, _returnComposeGas(_dstEid), 0);
 
         SendParam memory sendParam = SendParam({
             dstEid: _dstEid,
             to: peers[_dstEid], // the SwapRequest on that mirror chain
             amountLD: _amount,
-            minAmountLD: 0, // a refund must never fail on dust; the notice carries the exact figure
+            minAmountLD: 0, // a return must never fail on dust; the settlement carries the figure
             extraOptions: options,
-            composeMsg: composeMsg,
+            composeMsg: _settlement,
             oftCmd: ""
         });
 
-        IOFT oft = IOFT(address(baseToken));
+        IOFT oft = IOFT(address(_token));
 
         try oft.quoteSend(sendParam, false) returns (MessagingFee memory fee) {
             if (address(this).balance < fee.nativeFee) {
-                stranded[_dstEid][_order.requestId] += _amount;
-                emit FundsStranded(_dstEid, _order.requestId, _amount, "insufficient native for refund");
+                _strand(_dstEid, _requestId, address(_token), _amount, "insufficient native for return");
                 return;
             }
             try oft.send{ value: fee.nativeFee }(sendParam, fee, address(this)) returns (
                 MessagingReceipt memory,
-                OFTReceipt memory
+                OFTReceipt memory oftReceipt
             ) {
-                emit RefundDispatched(_dstEid, _order.requestId, _amount);
+                // An 18-decimal OFT quantises to shared decimals, so a sliver can be left
+                // behind. Tracked rather than silently absorbed.
+                if (_amount > oftReceipt.amountSentLD) {
+                    dustAccrued[address(_token)] += _amount - oftReceipt.amountSentLD;
+                }
+                emit ReturnDispatched(_dstEid, _requestId, address(_token), oftReceipt.amountSentLD);
             } catch {
-                stranded[_dstEid][_order.requestId] += _amount;
-                emit FundsStranded(_dstEid, _order.requestId, _amount, "refund send reverted");
+                _strand(_dstEid, _requestId, address(_token), _amount, "return send reverted");
             }
         } catch {
-            stranded[_dstEid][_order.requestId] += _amount;
-            emit FundsStranded(_dstEid, _order.requestId, _amount, "refund quote reverted");
+            _strand(_dstEid, _requestId, address(_token), _amount, "return quote reverted");
         }
     }
 
-    /**
-     * @notice Retry a refund that previously could not be dispatched.
-     * @dev Permissionless: anyone may pay the gas to unstick a user's funds. The destination
-     *      is fixed to the registered peer, so this cannot be used to redirect anything.
-     */
-    function retryRefund(uint32 _dstEid, uint64 _requestId, address _refundTo) external payable {
-        uint256 amount = stranded[_dstEid][_requestId];
-        require(amount > 0, "SwapRelay: nothing stranded");
-        stranded[_dstEid][_requestId] = 0;
-
-        SwapTypes.Order memory order = SwapTypes.Order({
-            requestId: _requestId,
-            minAmountOut: 0,
-            recipient: address(0),
-            refundTo: _refundTo
-        });
-        _dispatchRefund(_dstEid, order, amount, SwapTypes.FailureReason.POOL_ERROR);
+    function _strand(uint32 _dstEid, uint64 _requestId, address _token, uint256 _amount, string memory _why) internal {
+        stranded[_dstEid][_requestId] += _amount;
+        strandedToken[_dstEid][_requestId] = _token;
+        emit FundsStranded(_dstEid, _requestId, _token, _amount, _why);
     }
 
-    // ------------------------------------------------------------------ inbound: OApp
+    function _settlementFor(
+        uint64 _requestId,
+        bool _filled,
+        SwapTypes.FailureReason _reason,
+        uint256 _amountIn,
+        uint256 _amountOut
+    ) internal pure returns (bytes memory) {
+        return
+            SwapTypes.encodeSettlement(
+                SwapTypes.Settlement({
+                    requestId: _requestId,
+                    status: uint8(_filled ? SwapTypes.Status.FILLED : SwapTypes.Status.REFUNDED),
+                    reason: uint8(_reason),
+                    amountIn: _amountIn,
+                    amountOut: _amountOut
+                })
+            );
+    }
 
-    /// @dev The relay does not expect inbound OApp messages; orders arrive via lzCompose.
+    /**
+     * @notice Retry a return that previously could not be dispatched.
+     * @dev Permissionless: anyone may pay the gas to unstick a user's funds. The destination
+     *      is fixed to the registered peer, so this cannot redirect anything.
+     */
+    function retryReturn(uint32 _dstEid, uint64 _requestId) external payable {
+        uint256 amount = stranded[_dstEid][_requestId];
+        require(amount > 0, "SwapRelay: nothing stranded");
+        address token = strandedToken[_dstEid][_requestId];
+        stranded[_dstEid][_requestId] = 0;
+
+        _returnToMirror(
+            _dstEid,
+            _requestId,
+            IERC20(token),
+            amount,
+            _settlementFor(_requestId, false, SwapTypes.FailureReason.POOL_ERROR, amount, 0)
+        );
+    }
+
+    // ------------------------------------------------------------------ plumbing
+
+    /// @dev Orders arrive via lzCompose; no plain OApp messages are expected.
     function _lzReceive(Origin calldata, bytes32, bytes calldata, address, bytes calldata) internal override {}
-
-    // ------------------------------------------------------------------ admin / plumbing
 
     function setReturnGas(uint32 _eid, uint128 _gas) external onlyOwner {
         returnGas[_eid] = _gas;
     }
 
-    function setRefundComposeGas(uint32 _eid, uint128 _gas) external onlyOwner {
-        refundComposeGas[_eid] = _gas;
+    function setReturnComposeGas(uint32 _eid, uint128 _gas) external onlyOwner {
+        returnComposeGas[_eid] = _gas;
     }
 
     function _returnGas(uint32 _eid) internal view returns (uint128) {
@@ -256,24 +327,23 @@ contract SwapRelay is OApp, IOAppComposer {
         return g == 0 ? DEFAULT_RETURN_GAS : g;
     }
 
-    function _refundComposeGas(uint32 _eid) internal view returns (uint128) {
-        uint128 g = refundComposeGas[_eid];
-        return g == 0 ? DEFAULT_REFUND_COMPOSE_GAS : g;
+    function _returnComposeGas(uint32 _eid) internal view returns (uint128) {
+        uint128 g = returnComposeGas[_eid];
+        return g == 0 ? DEFAULT_RETURN_COMPOSE_GAS : g;
     }
 
     /**
-     * @dev The relay sends messages from inside `lzCompose`, where `msg.value` is whatever the
-     *      executor forwarded, not a figure this contract chose. The default OAppSender
-     *      implementation demands `msg.value == nativeFee` exactly, which can never hold here.
-     *      Paying from the contract's own balance is the standard pattern for automated /
-     *      composed sends.
+     * @dev The relay sends from inside `lzCompose`, where `msg.value` is whatever the executor
+     *      forwarded rather than a figure this contract chose, so the default
+     *      `msg.value == nativeFee` check can never hold. Paying from the contract's own
+     *      balance is the standard pattern for composed sends.
      */
     function _payNative(uint256 _nativeFee) internal view override returns (uint256) {
         if (address(this).balance < _nativeFee) revert NotEnoughNative(address(this).balance);
         return _nativeFee;
     }
 
-    /// @notice Top up the native balance used to pay for return-leg messages.
+    /// @notice Top up the native balance used to pay for return legs.
     function fundNative() external payable {
         emit NativeFunded(msg.sender, msg.value);
     }
@@ -281,6 +351,13 @@ contract SwapRelay is OApp, IOAppComposer {
     function withdrawNative(address payable _to, uint256 _amount) external onlyOwner {
         (bool ok, ) = _to.call{ value: _amount }("");
         require(ok, "SwapRelay: withdraw failed");
+    }
+
+    /// @notice Sweep accumulated bridge dust. POC-only convenience.
+    function sweepDust(address _token, address _to) external onlyOwner {
+        uint256 amount = dustAccrued[_token];
+        dustAccrued[_token] = 0;
+        IERC20(_token).safeTransfer(_to, amount);
     }
 
     receive() external payable {

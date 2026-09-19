@@ -70,6 +70,7 @@ export async function deployRelays(
         endpointOf(manifest, mc.key),
         chain.deployer,
         getContract(manifest, mc.key, "TokenizedStock"),
+        getContract(manifest, mc.key, "QuoteAsset"),
         cfg.homeChain.eid,
       ]));
     log.kv("SwapRequest", request);
@@ -90,6 +91,10 @@ export async function deployRelays(
 
   for (const mc of cfg.mirrorChains) {
     await home.write(relay, relayArtifact.abi, "setReturnGas", [mc.eid, BigInt(cfg.relay.returnGas)]);
+    await home.write(relay, relayArtifact.abi, "setReturnComposeGas", [
+      mc.eid,
+      BigInt(cfg.relay.returnComposeGas ?? cfg.relay.returnGas),
+    ]);
   }
   log.ok(`return gas configured for ${cfg.mirrorChains.length} mirror chains`);
 
@@ -108,6 +113,7 @@ export async function deployRelays(
 
   const result = await wirePeers({
     kind: "relay",
+    label: "SwapRelay↔SwapRequest",
     nodes,
     chains,
     manifest,

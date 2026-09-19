@@ -1,7 +1,6 @@
 {
   "name": "crossstock-testnet",
   "_comment": "Live testnet run. Diff this against config/localnet.json: only rpcUrl, lzEndpoint, explorer and the Uniswap factory differ. No module code changes between the two.",
-
   "token": {
     "name": "Tokenized Apple Inc.",
     "symbol": "tAAPL",
@@ -14,7 +13,6 @@
     "decimals": 6,
     "initialSupply": "50000000"
   },
-
   "homeChain": {
     "key": "base-sepolia",
     "name": "Base Sepolia",
@@ -30,7 +28,6 @@
       "_comment": "Canonical Base Sepolia V3 factory. swapRouter is intentionally omitted so the infra deploys the original SwapRouter: Base Sepolia's canonical router is SwapRouter02, whose exactInputSingle drops the deadline field and therefore does not match SwapRelay's interface. See NOTES.md."
     }
   },
-
   "mirrorChains": [
     {
       "key": "arbitrum-sepolia",
@@ -53,7 +50,6 @@
       "nativeSymbol": "ETH"
     }
   ],
-
   "pool": {
     "feeTier": 3000,
     "initialPrice": "150",
@@ -61,12 +57,12 @@
     "quoteLiquidity": "15000000",
     "tickHalfWidth": 60000
   },
-
   "relay": {
     "homeLzReceiveGas": 300000,
     "homeComposeGas": 1200000,
     "homeComposeValue": "0.01",
     "returnGas": 300000,
-    "relayNativeBuffer": "0.02"
+    "relayNativeBuffer": "0.02",
+    "returnComposeGas": 400000
   }
 }

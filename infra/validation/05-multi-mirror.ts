@@ -31,7 +31,7 @@ export async function scenario5(h: Harness): Promise<ScenarioResult> {
   }
 
   const second = mirrors[1];
-  log.banner(`Scenario 5 — repeating the core proof on a SECOND mirror: ${h.name(second)}`);
+  log.banner(`Scenario 5 — repeating the core proof (BUY) on a SECOND mirror: ${h.name(second)}`);
   log.info(`First mirror was ${h.name(mirrors[0])}. Same test code, different chain, no special casing.`);
 
   const result = await scenario2(h, second, "5");

@@ -9,24 +9,30 @@ import { log } from "../lib/logger.js";
 /**
  * MODULE 2 — mirror deployment.
  *
- * Loops the configured mirror chain list and deploys an empty TokenizedStock OFT on each one.
- * Adding a chain to the set is a config edit; there is no per-chain code path here, which is
- * the property the multi-mirror validation scenario exists to confirm.
+ * Loops the configured mirror chain list and deploys **both** omnichain assets on each one:
+ * the stock and the quote asset. Adding a chain to the set is a config edit; there is no
+ * per-chain code path here, which is the property the multi-mirror validation scenario exists
+ * to confirm.
  *
- * Every mirror is deployed with `initialSupply = 0`. A mirror instance therefore starts
- * structurally empty — it can only ever be credited by an inbound bridge message, which is
- * what makes "zero liquidity on the mirror chain" a property of the deployment rather than a
- * matter of operational discipline.
+ * Every mirror instance is deployed with `initialSupply = 0`. A mirror therefore starts
+ * structurally empty and can only ever be credited by an inbound bridge message.
+ *
+ * WHAT "ZERO LIQUIDITY" MEANS HERE, PRECISELY. The mirror chain gets token *contracts*, not a
+ * market. There is no pool, no market maker, no reserves and no price on a mirror chain — and
+ * critically, this module never seeds anything. A user who later holds the quote asset here
+ * holds it in their own wallet, having bridged it themselves; that is not liquidity, and
+ * nobody on this chain can quote them a price or take the other side of their trade.
  */
 export async function deployMirrorTokens(
   cfg: DeploymentConfig,
   chains: Map<string, Chain>,
   manifest: Manifest
-): Promise<Record<string, string>> {
-  log.step(`Module 2 — mirror deployment (${cfg.mirrorChains.length} chains)`);
+): Promise<Record<string, { base: string; quote: string }>> {
+  log.step(`Module 2 — mirror deployment (${cfg.mirrorChains.length} chains × 2 assets)`);
 
-  const artifact = forgeArtifact("TokenizedStock");
-  const deployed: Record<string, string> = {};
+  const stockArtifact = forgeArtifact("TokenizedStock");
+  const quoteArtifact = forgeArtifact("OmniToken");
+  const deployed: Record<string, { base: string; quote: string }> = {};
 
   for (const mc of cfg.mirrorChains) {
     const chain = chains.get(mc.key)!;
@@ -34,31 +40,53 @@ export async function deployMirrorTokens(
 
     log.group(`${mc.name} (mirror, eid ${mc.eid})`);
 
-    const existing = await reuse(manifest, chain, mc.key, "TokenizedStock");
-    const token =
-      existing ??
-      (await chain.deploy(artifact, [
+    const existingBase = await reuse(manifest, chain, mc.key, "TokenizedStock");
+    const base =
+      existingBase ??
+      (await chain.deploy(stockArtifact, [
         cfg.token.name,
         cfg.token.symbol,
+        cfg.token.decimals,
         endpoint,
         chain.deployer,
         0n, // empty by construction
       ]));
-    log.kv(`${cfg.token.symbol} (OFT)`, token);
+    log.kv(`${cfg.token.symbol} (OFT)`, base);
 
-    const supply = await chain.read<bigint>(token, artifact.abi, "totalSupply");
-    if (!existing && supply !== 0n) {
-      throw new Error(`Mirror ${mc.name} deployed with non-zero supply ${supply} — zero-liquidity premise violated.`);
+    const existingQuote = await reuse(manifest, chain, mc.key, "QuoteAsset");
+    const quote =
+      existingQuote ??
+      (await chain.deploy(quoteArtifact, [
+        cfg.quoteAsset.name,
+        cfg.quoteAsset.symbol,
+        cfg.quoteAsset.decimals,
+        endpoint,
+        chain.deployer,
+        0n, // empty by construction
+      ]));
+    log.kv(`${cfg.quoteAsset.symbol} (OFT)`, quote);
+
+    // Verify emptiness on a first deployment. On an incremental run a non-zero supply is
+    // legitimate — it means users have bridged in — so only the fresh case is asserted.
+    for (const [label, addr, wasExisting] of [
+      [cfg.token.symbol, base, existingBase],
+      [cfg.quoteAsset.symbol, quote, existingQuote],
+    ] as const) {
+      const supply = await chain.read<bigint>(addr, stockArtifact.abi, "totalSupply");
+      if (!wasExisting && supply !== 0n) {
+        throw new Error(`Mirror ${mc.name} deployed ${label} with non-zero supply ${supply}.`);
+      }
+      log.kv(`${label} supply`, wasExisting ? `${supply} (bridged in since launch)` : "0 (verified empty)");
     }
-    log.kv("total supply", existing ? `${supply} (existing mirror, bridged balance)` : "0 (verified)");
 
-    setContract(manifest, mc.key, "TokenizedStock", token);
-    deployed[mc.key] = token;
+    setContract(manifest, mc.key, "TokenizedStock", base);
+    setContract(manifest, mc.key, "QuoteAsset", quote);
+    deployed[mc.key] = { base, quote };
 
     log.groupEnd();
-    log.ok(`${mc.name}: mirror instance live and empty`);
+    log.ok(`${mc.name}: mirror instances live — contracts only, no market`);
   }
 
-  recordStep(manifest, "02-mirrors", "ok", `${cfg.mirrorChains.length} mirrors`);
+  recordStep(manifest, "02-mirrors", "ok", `${cfg.mirrorChains.length} mirrors × 2 assets`);
   return deployed;
 }

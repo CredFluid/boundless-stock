@@ -1,7 +1,6 @@
 {
   "name": "crossstock-localnet",
   "_comment": "Local three-chain environment. Chain ids and LayerZero eids are the REAL Base/Arbitrum/Optimism Sepolia values, so this file differs from config/testnet.json only in rpcUrl and lzEndpoint. That is the whole reusability claim, made checkable with a diff.",
-
   "token": {
     "name": "Tokenized Apple Inc.",
     "symbol": "tAAPL",
@@ -14,7 +13,6 @@
     "decimals": 6,
     "initialSupply": "50000000"
   },
-
   "homeChain": {
     "key": "base-sepolia",
     "name": "Base Sepolia",
@@ -22,9 +20,10 @@
     "eid": 40245,
     "rpcUrl": "http://127.0.0.1:8545",
     "nativeSymbol": "ETH",
-    "uniswap": { "deployIfMissing": true }
+    "uniswap": {
+      "deployIfMissing": true
+    }
   },
-
   "mirrorChains": [
     {
       "key": "arbitrum-sepolia",
@@ -43,7 +42,6 @@
       "nativeSymbol": "ETH"
     }
   ],
-
   "pool": {
     "feeTier": 3000,
     "initialPrice": "150",
@@ -51,14 +49,13 @@
     "quoteLiquidity": "15000000",
     "tickHalfWidth": 60000
   },
-
   "relay": {
     "homeLzReceiveGas": 300000,
     "homeComposeGas": 1200000,
     "homeComposeValue": "0.01",
     "returnGas": 300000,
-    "relayNativeBuffer": "1"
+    "relayNativeBuffer": "1",
+    "returnComposeGas": 400000
   },
-
   "localMessageLibFee": "0.0001"
 }

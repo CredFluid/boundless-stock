@@ -10,11 +10,20 @@ import { log } from "../lib/logger.js";
 /**
  * MODULE 1 — home-chain token deployment.
  *
- * Deploys the omnichain asset (TokenizedStock, a LayerZero OFT) with the full initial supply,
- * and the pairing asset (USDC) as a plain ERC-20 that exists nowhere else.
+ * Deploys both assets on the home chain with their full initial supply: the stock
+ * (TokenizedStock) and the quote asset (USDC). Both are LayerZero OFTs.
  *
- * Token name, symbol, decimals and supply all come from config. Nothing here knows or cares
- * which chain it is running against.
+ * WHY THE QUOTE ASSET IS OMNICHAIN TOO: a user standing on a mirror chain has to be able to
+ * *pay* with something. If the quote asset only existed on the home chain, a mirror user could
+ * only ever sell — they would have nothing to buy with. Making it omnichain is what enables
+ * the flow this POC is actually about: buying an asset from a chain that has no market for it.
+ *
+ * This does not put liquidity on the mirror chain. A user's own wallet balance is not
+ * liquidity: there is still no pool there, no market maker, no reserves, and no price. All
+ * price discovery happens on the home chain's pool.
+ *
+ * Token names, symbols, decimals and supplies all come from config. Nothing here knows or
+ * cares which chain it is running against.
  */
 export async function deployHomeToken(
   cfg: DeploymentConfig,
@@ -32,13 +41,20 @@ export async function deployHomeToken(
   log.group(`${home.name} (home, eid ${home.eid})`);
 
   const tokenArtifact = forgeArtifact("TokenizedStock");
-  const quoteArtifact = forgeArtifact("USDCMock");
+  const quoteArtifact = forgeArtifact("OmniToken");
 
   // Reuse before deploying. Adding a mirror chain to an already-launched token must never
   // mint a second home-chain token — that would fork the supply and orphan the pool.
   const token =
     (await reuse(manifest, home, home.key, "TokenizedStock")) ??
-    (await home.deploy(tokenArtifact, [cfg.token.name, cfg.token.symbol, endpoint, home.deployer, supply]));
+    (await home.deploy(tokenArtifact, [
+      cfg.token.name,
+      cfg.token.symbol,
+      cfg.token.decimals,
+      endpoint,
+      home.deployer,
+      supply,
+    ]));
   log.kv(`${cfg.token.symbol} (OFT)`, token);
 
   const quote =
@@ -47,10 +63,11 @@ export async function deployHomeToken(
       cfg.quoteAsset.name,
       cfg.quoteAsset.symbol,
       cfg.quoteAsset.decimals,
+      endpoint,
       home.deployer,
       quoteSupply,
     ]));
-  log.kv(`${cfg.quoteAsset.symbol} (ERC-20)`, quote);
+  log.kv(`${cfg.quoteAsset.symbol} (OFT)`, quote);
 
   // Read back on-chain rather than trusting the constructor arguments we just passed.
   const onChainSupply = await home.read<bigint>(token, tokenArtifact.abi, "totalSupply");

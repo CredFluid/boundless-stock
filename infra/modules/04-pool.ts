@@ -42,7 +42,7 @@ export async function deployPool(
   if (existingPool && manifest.pool) {
     const poolAbiExisting = packageArtifact(UNI.pool).abi;
     const liq = await home.read<bigint>(existingPool, poolAbiExisting, "liquidity");
-    const erc20 = forgeArtifact("USDCMock").abi;
+    const erc20 = forgeArtifact("OmniToken").abi;
     manifest.pool.liquidity = liq.toString();
     manifest.pool.reserves = {
       base: formatUnits(await home.read<bigint>(base, erc20, "balanceOf", [existingPool]), cfg.token.decimals),
@@ -153,7 +153,7 @@ export async function deployPool(
   const amount0Desired = baseIsToken0 ? baseAmount : quoteAmount;
   const amount1Desired = baseIsToken0 ? quoteAmount : baseAmount;
 
-  const erc20Abi = forgeArtifact("USDCMock").abi;
+  const erc20Abi = forgeArtifact("OmniToken").abi;
   await home.write(base, erc20Abi, "approve", [nfpm, maxUint256]);
   await home.write(quote, erc20Abi, "approve", [nfpm, maxUint256]);
 

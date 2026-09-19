@@ -65,8 +65,10 @@ export interface RelayConfig {
   homeComposeGas: number;
   /** Native value (home chain) forwarded to SwapRelay to fund the return leg, in ether units. */
   homeComposeValue: string;
-  /** Gas granted to the return message on each mirror chain. */
+  /** Gas granted to the return packet's lzReceive on each mirror chain. */
   returnGas: number;
+  /** Gas granted to SwapRequest.lzCompose on each mirror chain (records + pays out the user). */
+  returnComposeGas?: number;
   /** Native pre-funding for SwapRelay, in ether units. A buffer, not the primary funding path. */
   relayNativeBuffer: string;
 }
@@ -89,6 +91,8 @@ export interface DeploymentConfig {
 export interface PeerRecord {
   /** Which contract role this wiring belongs to: "oft" or "relay". */
   kind: "oft" | "relay";
+  /** Which contract the link belongs to, e.g. "TokenizedStock". Distinguishes the two meshes. */
+  label: string;
   fromChain: string;
   toChain: string;
   toEid: number;

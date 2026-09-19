@@ -33,19 +33,21 @@ export type Topology = "mesh" | "star";
  */
 export async function wirePeers(opts: {
   kind: "oft" | "relay";
+  /** Which contract these links belong to, e.g. "TokenizedStock". Keeps meshes distinct. */
+  label: string;
   nodes: PeerNode[];
   chains: Map<string, Chain>;
   manifest: Manifest;
   topology: Topology;
   hubKey?: string;
 }): Promise<{ wired: number; verified: number; failures: PeerRecord[] }> {
-  const { kind, nodes, chains, manifest, topology, hubKey } = opts;
+  const { kind, label, nodes, chains, manifest, topology, hubKey } = opts;
 
   // Any OApp exposes setPeer/peers; TokenizedStock's ABI is a convenient source for it.
   const abi = forgeArtifact("TokenizedStock").abi;
 
   const pairs = buildPairs(nodes, topology, hubKey);
-  log.info(`${kind}: ${pairs.length} directed peer links (${topology})`);
+  log.info(`${label}: ${pairs.length} directed peer links (${topology})`);
 
   let verified = 0;
   const failures: PeerRecord[] = [];
@@ -75,6 +77,7 @@ export async function wirePeers(opts: {
 
     const record: PeerRecord = {
       kind,
+      label,
       fromChain: from.chainKey,
       toChain: to.chainKey,
       toEid: to.eid,
@@ -96,7 +99,7 @@ export async function wirePeers(opts: {
 
   recordStep(
     manifest,
-    `03-peers:${kind}`,
+    `03-peers:${label}`,
     failures.length === 0 ? "ok" : "failed",
     `${verified}/${pairs.length} verified`
   );
@@ -143,7 +146,7 @@ export async function auditPeers(
   for (const p of manifest.peers) {
     const chain = chains.get(p.fromChain);
     if (!chain) continue;
-    const contractName = p.kind === "oft" ? "TokenizedStock" : sourceRelayName(manifest, p.fromChain);
+    const contractName = p.kind === "oft" ? p.label : sourceRelayName(manifest, p.fromChain);
     const address = manifest.chains[p.fromChain]?.contracts[contractName];
     if (!address) {
       broken.push({ ...p, verified: false, actual: "missing contract" });

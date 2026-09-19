@@ -69,19 +69,41 @@ async function main(): Promise<void> {
   await deployMirrorTokens(cfg, chains, manifest);
   saveManifest(manifest);
 
-  log.step("Module 3 — peer wiring (OFT mesh)");
-  const oftNodes: PeerNode[] = allChains(cfg).map((c) => ({
-    chainKey: c.key,
-    chainName: c.name,
-    eid: c.eid,
-    address: getContract(manifest, c.key, "TokenizedStock") as Address,
-  }));
-  const oftWiring = await wirePeers({ kind: "oft", nodes: oftNodes, chains, manifest, topology: "mesh" });
-  saveManifest(manifest);
-  if (oftWiring.failures.length > 0) {
-    throw new Error(`OFT peer wiring failed verification on ${oftWiring.failures.length} link(s).`);
+  // Two omnichain assets means two independent peer meshes. The module is called twice with
+  // different nodes rather than being taught about a second token — adding a third asset later
+  // is another call, not a code change.
+  log.step("Module 3 — peer wiring (one OFT mesh per omnichain asset)");
+  let totalLinks = 0;
+  let totalVerified = 0;
+
+  for (const [assetLabel, contractName] of [
+    [cfg.token.symbol, "TokenizedStock"],
+    [cfg.quoteAsset.symbol, "QuoteAsset"],
+  ] as const) {
+    log.group(`${assetLabel} mesh`);
+    const nodes: PeerNode[] = allChains(cfg).map((c) => ({
+      chainKey: c.key,
+      chainName: c.name,
+      eid: c.eid,
+      address: getContract(manifest, c.key, contractName) as Address,
+    }));
+    const wiring = await wirePeers({
+      kind: "oft",
+      nodes,
+      chains,
+      manifest,
+      topology: "mesh",
+      label: contractName,
+    });
+    log.groupEnd();
+    saveManifest(manifest);
+    if (wiring.failures.length > 0) {
+      throw new Error(`${assetLabel} peer wiring failed verification on ${wiring.failures.length} link(s).`);
+    }
+    totalLinks += wiring.wired;
+    totalVerified += wiring.verified;
   }
-  log.ok(`OFT mesh: ${oftWiring.verified}/${oftWiring.wired} links verified bidirectionally`);
+  log.ok(`OFT meshes: ${totalVerified}/${totalLinks} links verified bidirectionally across 2 assets`);
 
   await deployPool(cfg, chains, manifest);
   saveManifest(manifest);
