@@ -150,27 +150,31 @@ A fourth chain (Polygon Amoy, eid 40267) was added to a live 3-chain deployment:
 
 | | Before | After |
 |---|---|---|
-| Home `TokenizedStock` | `0x75c6…1135` | `0x75c6…1135` — unchanged |
-| Pool | `0xF8dd…A648` | `0xF8dd…A648` — unchanged |
+| Home `TokenizedStock` | `0xc963…8a75` | `0xc963…8a75` — unchanged |
+| Home `QuoteAsset` | `0x34b4…8c70` | `0x34b4…8c70` — unchanged |
 | Pool liquidity `L` | 1288875159409035126 | 1288875159409035126 — **not re-seeded** |
 | `SwapRelay` | existing | reused |
-| Peer links | 10, all verified | 18, all verified |
+| Peer links | 16, all verified | 30, all verified |
+| Chains | 3 | 4 |
 
-Then the core proof ran against the new chain and passed, with `requestSwap` gas identical
-(338,666) to both original mirrors.
+Then the core proof ran against the brand-new chain: a user holding only USDC on Polygon Amoy
+bought **99.192078 tAAPL and received it in their wallet there**, at +0.3957% vs spot, with
+`buy()` gas of **351,538** — within 24 gas of the 351,514 measured on both original mirrors.
+That near-identical gas on a chain the infra had never executed a trade on is the strongest
+single signal that the same code path ran.
 
 ### Cost of adding one chain
 
 | Chain | Gas | Txs | What it paid for |
 |---|---:|---:|---|
-| Polygon Amoy (new) | 11,685,135 | 16 | LayerZero endpoint stack, OFT, SwapRequest, wiring |
-| Base Sepolia (home) | 309,494 | 7 | peer wiring + `setReturnGas` only |
-| Arbitrum Sepolia | 191,696 | 4 | peer wiring to the new chain only |
-| Optimism Sepolia | 191,696 | 4 | peer wiring to the new chain only |
-| **Total** | **12,378,021** | **31** | |
+| Polygon Amoy (new) | 14,827,351 | 20 | LayerZero endpoint stack, both OFTs, SwapRequest, wiring |
+| Base Sepolia (home) | 455,965 | 11 | peer wiring + per-chain gas setters only |
+| Arbitrum Sepolia | 239,395 | 5 | peer wiring to the new chain only |
+| Optimism Sepolia | 239,395 | 5 | peer wiring to the new chain only |
+| **Total** | **15,762,106** | **41** | |
 
-On a live chain the endpoint already exists, so the new-chain figure drops to roughly the OFT +
-SwapRequest deployments (~3–4M gas).
+On a live chain the LayerZero endpoint already exists, so the new-chain figure drops to roughly
+the two OFT deployments plus `SwapRequest` (~5–6M gas).
 
 **Caveat:** the incremental run re-checks every existing peer link and rewrites `setReturnGas`
 for every mirror, so cost scales with the size of the existing set rather than with the number

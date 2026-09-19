@@ -2,7 +2,7 @@
   "name": "crossstock-localnet",
   "version": "1",
   "createdAt": "2026-09-19T07:45:01.888Z",
-  "updatedAt": "2026-09-19T07:45:02.642Z",
+  "updatedAt": "2026-09-19T07:45:49.630Z",
   "environment": "local",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "token": {
@@ -38,8 +38,8 @@
         "SwapRelay": "0xe3011a37a904ab90c8881a99bd1f6e21401f1522"
       },
       "deploymentGas": {
-        "gasUsed": "34210418",
-        "txCount": 29
+        "gasUsed": "455965",
+        "txCount": 11
       }
     },
     "arbitrum-sepolia": {
@@ -56,8 +56,8 @@
         "SwapRequest": "0xc9a43158891282a2b1475592d5719c001986aaec"
       },
       "deploymentGas": {
-        "gasUsed": "14616827",
-        "txCount": 16
+        "gasUsed": "239395",
+        "txCount": 5
       }
     },
     "optimism-sepolia": {
@@ -74,8 +74,26 @@
         "SwapRequest": "0x5f3f1dbd7b74c6b46e8c44f98792a1daf8d69154"
       },
       "deploymentGas": {
-        "gasUsed": "14616827",
-        "txCount": 16
+        "gasUsed": "239395",
+        "txCount": 5
+      }
+    },
+    "polygon-amoy": {
+      "key": "polygon-amoy",
+      "name": "Polygon Amoy",
+      "chainId": 80002,
+      "eid": 40267,
+      "role": "mirror",
+      "lzEndpoint": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "localMessageLib": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+      "contracts": {
+        "TokenizedStock": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+        "QuoteAsset": "0x610178da211fef7d417bc0e6fed39f05609ad788",
+        "SwapRequest": "0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae"
+      },
+      "deploymentGas": {
+        "gasUsed": "14827351",
+        "txCount": 20
       }
     }
   },
@@ -88,8 +106,7 @@
       "toEid": 40231,
       "expected": "0x0000000000000000000000004EE6eCAD1c2Dae9f525404De8555724e3c35d07B",
       "actual": "0x0000000000000000000000004ee6ecad1c2dae9f525404de8555724e3c35d07b",
-      "verified": true,
-      "txHash": "0x458343c2b9fad43b0322327f2f9ff2af26b2414c91ef4e276f68199edb23232a"
+      "verified": true
     },
     {
       "kind": "oft",
@@ -99,8 +116,7 @@
       "toEid": 40232,
       "expected": "0x0000000000000000000000009d4454B023096f34B160D6B654540c56A1F81688",
       "actual": "0x0000000000000000000000009d4454b023096f34b160d6b654540c56a1f81688",
-      "verified": true,
-      "txHash": "0xc487fe16355bb754a31d35dc1f8fe1fe51ddc13180481bb55dbc968f533dde86"
+      "verified": true
     },
     {
       "kind": "oft",
@@ -110,8 +126,7 @@
       "toEid": 40245,
       "expected": "0x000000000000000000000000c96304e3c037f81dA488ed9dEa1D8F2a48278a75",
       "actual": "0x000000000000000000000000c96304e3c037f81da488ed9dea1d8f2a48278a75",
-      "verified": true,
-      "txHash": "0x4282437cb5bc1c8f66a62631a85b501de8e9b89d9bd5a8b69e74439088798687"
+      "verified": true
     },
     {
       "kind": "oft",
@@ -121,8 +136,7 @@
       "toEid": 40232,
       "expected": "0x0000000000000000000000009d4454B023096f34B160D6B654540c56A1F81688",
       "actual": "0x0000000000000000000000009d4454b023096f34b160d6b654540c56a1f81688",
-      "verified": true,
-      "txHash": "0x8046836bfc5833f3a04e86aff4e1f86400cac18984b22250dc83b1e7b6d2cd52"
+      "verified": true
     },
     {
       "kind": "oft",
@@ -132,8 +146,7 @@
       "toEid": 40245,
       "expected": "0x000000000000000000000000c96304e3c037f81dA488ed9dEa1D8F2a48278a75",
       "actual": "0x000000000000000000000000c96304e3c037f81da488ed9dea1d8f2a48278a75",
-      "verified": true,
-      "txHash": "0x56b0bd1ee3b03c310519591f1394796febdddd54e7148bcc0c91bc68a6c0164b"
+      "verified": true
     },
     {
       "kind": "oft",
@@ -143,8 +156,7 @@
       "toEid": 40231,
       "expected": "0x0000000000000000000000004EE6eCAD1c2Dae9f525404De8555724e3c35d07B",
       "actual": "0x0000000000000000000000004ee6ecad1c2dae9f525404de8555724e3c35d07b",
-      "verified": true,
-      "txHash": "0x8e0ce74234ecb7380a6c011fa723a7fb0ad2ff5ef8a904de0925bff0fce363b1"
+      "verified": true
     },
     {
       "kind": "oft",
@@ -154,8 +166,7 @@
       "toEid": 40231,
       "expected": "0x000000000000000000000000BEc49fA140aCaA83533fB00A2BB19bDdd0290f25",
       "actual": "0x000000000000000000000000bec49fa140acaa83533fb00a2bb19bddd0290f25",
-      "verified": true,
-      "txHash": "0x25684b476526832aed8614a1dfb8d5f42412411ed29813372810dbaed89f2edb"
+      "verified": true
     },
     {
       "kind": "oft",
@@ -165,8 +176,7 @@
       "toEid": 40232,
       "expected": "0x0000000000000000000000005eb3Bc0a489C5A8288765d2336659EbCA68FCd00",
       "actual": "0x0000000000000000000000005eb3bc0a489c5a8288765d2336659ebca68fcd00",
-      "verified": true,
-      "txHash": "0xfaa8b02f3aea1c5683eb4ae33568af5459a5481973f49f9f492da2b0eb97b3a8"
+      "verified": true
     },
     {
       "kind": "oft",
@@ -176,8 +186,7 @@
       "toEid": 40245,
       "expected": "0x00000000000000000000000034B40BA116d5Dec75548a9e9A8f15411461E8c70",
       "actual": "0x00000000000000000000000034b40ba116d5dec75548a9e9a8f15411461e8c70",
-      "verified": true,
-      "txHash": "0x0dea6bf00ba79fa7fd82fe2e9e25642cbf6cd3d1499d1c0c86ab23fa0380e3f8"
+      "verified": true
     },
     {
       "kind": "oft",
@@ -187,8 +196,7 @@
       "toEid": 40232,
       "expected": "0x0000000000000000000000005eb3Bc0a489C5A8288765d2336659EbCA68FCd00",
       "actual": "0x0000000000000000000000005eb3bc0a489c5a8288765d2336659ebca68fcd00",
-      "verified": true,
-      "txHash": "0xa9360a92a3b2e10a299d15334d2f99867732ab493fd4d37d5654689e36b7f76f"
+      "verified": true
     },
     {
       "kind": "oft",
@@ -198,8 +206,7 @@
       "toEid": 40245,
       "expected": "0x00000000000000000000000034B40BA116d5Dec75548a9e9A8f15411461E8c70",
       "actual": "0x00000000000000000000000034b40ba116d5dec75548a9e9a8f15411461e8c70",
-      "verified": true,
-      "txHash": "0x43fbfdafdfcccc6d0b3836c0af280d1eb423612cac8a9e4060605078f259651d"
+      "verified": true
     },
     {
       "kind": "oft",
@@ -209,8 +216,7 @@
       "toEid": 40231,
       "expected": "0x000000000000000000000000BEc49fA140aCaA83533fB00A2BB19bDdd0290f25",
       "actual": "0x000000000000000000000000bec49fa140acaa83533fb00a2bb19bddd0290f25",
-      "verified": true,
-      "txHash": "0x1502ad9614a77a0897cda7ceb0dabf043a22afdb7205d6b561d70fd7b6a6dc98"
+      "verified": true
     },
     {
       "kind": "relay",
@@ -220,8 +226,7 @@
       "toEid": 40231,
       "expected": "0x000000000000000000000000C9a43158891282A2B1475592D5719c001986Aaec",
       "actual": "0x000000000000000000000000c9a43158891282a2b1475592d5719c001986aaec",
-      "verified": true,
-      "txHash": "0x39c638d0e4045bc913ddb7a7cdf5caac5547526c1cb04d154eb4792ef1deae2e"
+      "verified": true
     },
     {
       "kind": "relay",
@@ -231,8 +236,7 @@
       "toEid": 40245,
       "expected": "0x000000000000000000000000E3011A37A904aB90C8881a99BD1F6E21401f1522",
       "actual": "0x000000000000000000000000e3011a37a904ab90c8881a99bd1f6e21401f1522",
-      "verified": true,
-      "txHash": "0xa3c04aa6b012880fe0de35bdf1d980e5241beb99524316e07c643fbb5fa3d3d7"
+      "verified": true
     },
     {
       "kind": "relay",
@@ -242,8 +246,7 @@
       "toEid": 40232,
       "expected": "0x0000000000000000000000005f3f1dBD7B74C6B46e8c44f98792A1dAf8d69154",
       "actual": "0x0000000000000000000000005f3f1dbd7b74c6b46e8c44f98792a1daf8d69154",
-      "verified": true,
-      "txHash": "0x99012a90521854266b93ca1698db316cb3c23450bb45276ed881b2951f2d7a36"
+      "verified": true
     },
     {
       "kind": "relay",
@@ -253,8 +256,161 @@
       "toEid": 40245,
       "expected": "0x000000000000000000000000E3011A37A904aB90C8881a99BD1F6E21401f1522",
       "actual": "0x000000000000000000000000e3011a37a904ab90c8881a99bd1f6e21401f1522",
+      "verified": true
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStock",
+      "fromChain": "base-sepolia",
+      "toChain": "polygon-amoy",
+      "toEid": 40267,
+      "expected": "0x0000000000000000000000008A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "actual": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
       "verified": true,
-      "txHash": "0x779326c3910fcfa82f5a79d39d45bb75249072b941a0bbd452023afb70aad650"
+      "txHash": "0x6c73b1d52451f80319afbc48b47a09a8b54b72c8ce1511e4cda6d4c57f47a69c"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStock",
+      "fromChain": "arbitrum-sepolia",
+      "toChain": "polygon-amoy",
+      "toEid": 40267,
+      "expected": "0x0000000000000000000000008A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "actual": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
+      "verified": true,
+      "txHash": "0x7bf67e09e1e97dab6c5ed9fb6d36d6cf3e5d379c173b74a6b6f0f6190c538f29"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStock",
+      "fromChain": "optimism-sepolia",
+      "toChain": "polygon-amoy",
+      "toEid": 40267,
+      "expected": "0x0000000000000000000000008A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "actual": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
+      "verified": true,
+      "txHash": "0x79f29e66c2ca1c00aa25c3d44d741d03ec990b6daf4556d2750d363cb515eb18"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStock",
+      "fromChain": "polygon-amoy",
+      "toChain": "base-sepolia",
+      "toEid": 40245,
+      "expected": "0x000000000000000000000000c96304e3c037f81dA488ed9dEa1D8F2a48278a75",
+      "actual": "0x000000000000000000000000c96304e3c037f81da488ed9dea1d8f2a48278a75",
+      "verified": true,
+      "txHash": "0xcfc409a78108c69166aa3a07fe4556bfe2c1376eef61f7696518fff8332b91d2"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStock",
+      "fromChain": "polygon-amoy",
+      "toChain": "arbitrum-sepolia",
+      "toEid": 40231,
+      "expected": "0x0000000000000000000000004EE6eCAD1c2Dae9f525404De8555724e3c35d07B",
+      "actual": "0x0000000000000000000000004ee6ecad1c2dae9f525404de8555724e3c35d07b",
+      "verified": true,
+      "txHash": "0x6f3433741a76a4582876391f29bbe26cb76a600bd6ed64007787fcd11e85ea92"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStock",
+      "fromChain": "polygon-amoy",
+      "toChain": "optimism-sepolia",
+      "toEid": 40232,
+      "expected": "0x0000000000000000000000009d4454B023096f34B160D6B654540c56A1F81688",
+      "actual": "0x0000000000000000000000009d4454b023096f34b160d6b654540c56a1f81688",
+      "verified": true,
+      "txHash": "0x12e6149c84da5fc3d5fc1aaf10f501e5faec496966984c932e66385f4bcf52ec"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAsset",
+      "fromChain": "base-sepolia",
+      "toChain": "polygon-amoy",
+      "toEid": 40267,
+      "expected": "0x000000000000000000000000610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "actual": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+      "verified": true,
+      "txHash": "0x10e059cb00e156e2e2fc09f8c92ccac3102a48a3e0e152f706eeb7c2a0f47452"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAsset",
+      "fromChain": "arbitrum-sepolia",
+      "toChain": "polygon-amoy",
+      "toEid": 40267,
+      "expected": "0x000000000000000000000000610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "actual": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+      "verified": true,
+      "txHash": "0xcffecf205a5c0c8a7d029b78fc76b3d8196c1c5b0e16a0ed6aea632dd13d50e5"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAsset",
+      "fromChain": "optimism-sepolia",
+      "toChain": "polygon-amoy",
+      "toEid": 40267,
+      "expected": "0x000000000000000000000000610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "actual": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+      "verified": true,
+      "txHash": "0x083182cde8576985e043b358c91b3b14f238da5ad1f735d832312d88cd153d89"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAsset",
+      "fromChain": "polygon-amoy",
+      "toChain": "base-sepolia",
+      "toEid": 40245,
+      "expected": "0x00000000000000000000000034B40BA116d5Dec75548a9e9A8f15411461E8c70",
+      "actual": "0x00000000000000000000000034b40ba116d5dec75548a9e9a8f15411461e8c70",
+      "verified": true,
+      "txHash": "0xd07b6bb3dd67ed49b256b0755bf92b37ed7c8e464615cfe6762dd0e983f80e3a"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAsset",
+      "fromChain": "polygon-amoy",
+      "toChain": "arbitrum-sepolia",
+      "toEid": 40231,
+      "expected": "0x000000000000000000000000BEc49fA140aCaA83533fB00A2BB19bDdd0290f25",
+      "actual": "0x000000000000000000000000bec49fa140acaa83533fb00a2bb19bddd0290f25",
+      "verified": true,
+      "txHash": "0x3fcffb8ee0c4abc11b67ee4832cf892afb7d7717b46ba71e31247de6d87c4792"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAsset",
+      "fromChain": "polygon-amoy",
+      "toChain": "optimism-sepolia",
+      "toEid": 40232,
+      "expected": "0x0000000000000000000000005eb3Bc0a489C5A8288765d2336659EbCA68FCd00",
+      "actual": "0x0000000000000000000000005eb3bc0a489c5a8288765d2336659ebca68fcd00",
+      "verified": true,
+      "txHash": "0x43801b045a5adcbe4632ac355c9f11f6f0b86265f0e98820d5deb1b92edfe295"
+    },
+    {
+      "kind": "relay",
+      "label": "SwapRelay↔SwapRequest",
+      "fromChain": "base-sepolia",
+      "toChain": "polygon-amoy",
+      "toEid": 40267,
+      "expected": "0x0000000000000000000000009A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE",
+      "actual": "0x0000000000000000000000009a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae",
+      "verified": true,
+      "txHash": "0xb52313363965fa2f035df493c32ae54a73b6c8441c6b58a8c0a548a0493c65f1"
+    },
+    {
+      "kind": "relay",
+      "label": "SwapRelay↔SwapRequest",
+      "fromChain": "polygon-amoy",
+      "toChain": "base-sepolia",
+      "toEid": 40245,
+      "expected": "0x000000000000000000000000E3011A37A904aB90C8881a99BD1F6E21401f1522",
+      "actual": "0x000000000000000000000000e3011a37a904ab90c8881a99bd1f6e21401f1522",
+      "verified": true,
+      "txHash": "0x5c5af3eb995d32282dcd6610dfe3ac34b259c3e3943117ab5ca5af5c7fda1097"
     }
   ],
   "steps": [
@@ -311,6 +467,60 @@
       "status": "ok",
       "at": "2026-09-19T07:45:02.642Z",
       "detail": "0 problems"
+    },
+    {
+      "module": "00-endpoints",
+      "status": "ok",
+      "at": "2026-09-19T07:45:49.277Z",
+      "detail": "4 chains"
+    },
+    {
+      "module": "01-token",
+      "status": "ok",
+      "at": "2026-09-19T07:45:49.293Z",
+      "detail": "tAAPL + USDC on base-sepolia"
+    },
+    {
+      "module": "02-mirrors",
+      "status": "ok",
+      "at": "2026-09-19T07:45:49.338Z",
+      "detail": "3 mirrors × 2 assets"
+    },
+    {
+      "module": "03-peers:TokenizedStock",
+      "status": "ok",
+      "at": "2026-09-19T07:45:49.414Z",
+      "detail": "12/12 verified"
+    },
+    {
+      "module": "03-peers:QuoteAsset",
+      "status": "ok",
+      "at": "2026-09-19T07:45:49.491Z",
+      "detail": "12/12 verified"
+    },
+    {
+      "module": "04-pool",
+      "status": "ok",
+      "at": "2026-09-19T07:45:49.497Z",
+      "detail": "reused existing pool"
+    },
+    {
+      "module": "03-peers:SwapRelay↔SwapRequest",
+      "status": "ok",
+      "at": "2026-09-19T07:45:49.629Z",
+      "detail": "6/6 verified"
+    },
+    {
+      "module": "05-relays",
+      "status": "ok",
+      "at": "2026-09-19T07:45:49.629Z",
+      "detail": "relay + 3 requests, 6 links"
+    },
+    {
+      "module": "06-manifest",
+      "status": "ok",
+      "at": "2026-09-19T07:45:49.630Z",
+      "detail": "0 problems"
     }
   ],
   "pool": {
@@ -322,8 +532,8 @@
     "sqrtPriceX96": "6468952380608306175113258943073524",
     "liquidity": "1288875159409035126",
     "reserves": {
-      "base": "99999.999999999999926594",
-      "quote": "14998807.794277"
+      "base": "99781.262826727746598473",
+      "quote": "15031803.747786"
     }
   }
 }
