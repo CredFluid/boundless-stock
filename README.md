@@ -27,6 +27,7 @@ forge build
 npm run chains:up                                    # local chain set
 npm run deploy   -- --config config/localnet.json    # full pipeline -> manifest
 npm run validate -- --config config/localnet.json    # 6/6 scenarios
+npm run supply   -- --config config/localnet.json    # where every token lives
 npm run chains:down
 ```
 

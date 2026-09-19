@@ -614,3 +614,40 @@ rate of exactly 1 and loses nothing to dust**. It is the 18-decimal stock that q
 bottom 12 decimal places on every hop. So on a buy the money crosses exactly and only the
 delivered stock is subject to dust; on a sell it is the reverse. `SwapRelay` tracks the
 remainder in `dustAccrued` rather than silently absorbing it.
+
+---
+
+### [2026-09-19] An OFT's `totalSupply()` is per chain, not global
+**Milestone:** M9 — supply reporting
+
+**What happened / what to know:** The first thing an issuer notices after users start trading
+is that the home chain's `totalSupply()` no longer matches what they minted. That is correct
+behaviour and reads like a bug, so `infra/supply.ts` exists to make it legible.
+
+A bridge **burns on the source chain and mints on the destination**. Each chain's
+`totalSupply()` is therefore just the portion currently sitting there. Only the **sum across
+the whole chain set** is invariant. Measured after running all six validation scenarios:
+
+| Chain | tAAPL | USDC |
+|---|---:|---:|
+| Base Sepolia (home) | 998,781.262829 | 49,990,995.953509 |
+| Arbitrum Sepolia | 1,119.395112 | 9,004.046491 |
+| Optimism Sepolia | 99.342059 | 0 |
+| **Sum** | **1,000,000.000000** | **50,000,000.000000** |
+
+Both sums are exactly what was minted at launch. Nothing was created or destroyed — supply
+moved.
+
+**Why it matters / what breaks if ignored:** Three consequences worth carrying:
+
+1. **Never treat one chain's `totalSupply()` as the token's supply.** Any supply cap, any
+   circulating-supply figure and any accounting check has to sum across the set. A naive
+   home-chain read understates it, and understates it by more the more successful the product is.
+2. **The invariant genuinely breaks while a message is in flight.** Validation scenario 4
+   measured the aggregate dipping from 1,000,000 to 999,975 during a stall — burned on the
+   source, not yet minted on the destination. Any monitor that alerts on "sum != minted" will
+   fire spuriously on every in-flight message, so it needs a tolerance or a pending-message feed.
+3. **The pool's holdings are separate from supply.** The pool held 99,781.26 tAAPL after
+   trading, which is a *balance on the home chain*, not a share of supply. Reconciled against
+   the trades: 100,000 seeded, minus 198.95 bought by the two mirror users, minus ~40 from
+   scenario 4's two buys, plus 20 sold back — matching the measured figure.
