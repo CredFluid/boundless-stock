@@ -21,8 +21,7 @@
     "solana:build": "cd solana && cargo build-sbf --manifest-path programs/swap_request/Cargo.toml",
     "solana:test": "cd solana && cargo test -p swap-request --lib",
     "solana:deploy": "tsx infra/solana/deploy-program.ts",
-    "solana:init": "tsx infra/solana/init-store.ts",
-    "solana:oft": "tsx infra/solana/init-oft.ts"
+    "solana:setup": "tsx infra/solana/setup.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
