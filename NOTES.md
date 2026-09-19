@@ -689,3 +689,94 @@ property notices.
 
 Post-fix, every campaign reaches 60,000–82,000 tokens simultaneously in flight, which is the
 window the whole exercise is about.
+
+---
+
+### [2026-09-19] The relay invariant fuzzer found two real bugs, both around bridge precision
+**Milestone:** M10 — relay accounting invariants
+
+**What happened / what to know:** Neither bug was reachable through the TypeScript validation
+suite, because both need trade sizes or prices no sensible scenario would pick. Both were found
+within minutes of the invariant campaign running.
+
+**Bug 1 — zombie requests from sub-quantum inputs.** Caught by
+`invariant_requestStatesAreCoherent` ("a request must record a non-zero input").
+
+An OFT bridges at 6 shared decimals, so an 18-decimal asset cannot move anything smaller than
+`1e12`. `SwapRequest._submit` checked `_amountIn != 0` but then recorded `amountSentLD`, which
+is the amount *after* dust removal — and that can be zero. The result: a request created with
+`amountIn == 0`, a zero-amount packet sent to the home chain, `_returnToMirror` returning early
+on a zero amount, and therefore **no settlement ever coming back**. The request sits `PENDING`
+forever. The user loses nothing (their dust is returned) but the record is a permanent zombie.
+
+Fixed by rejecting any trade whose input bridges to zero, with
+`AmountBelowBridgeableMinimum(amountIn, quantum)` so the caller learns the actual floor.
+
+**Bug 2 — a fill that delivers nothing.** Caught by `invariant_fillsDeliverSomething` ("a FILLED
+request must have delivered a non-zero amount"). This one loses money.
+
+When a swap's *output* was smaller than one bridgeable unit, the return send quantised it to
+zero. The user's input had already been consumed by the venue, and a settlement claiming
+`FILLED` arrived carrying nothing. Reproduced exactly: a user spent 1,000 USDC, the request was
+marked `FILLED`, `amountOut` was `0`, and zero tokens reached their wallet.
+
+Fixed in two layers:
+
+1. **`SwapRelay._settle` now raises `amountOutMinimum` to at least one bridgeable unit.** A
+   swap that could only produce an undeliverable amount is rejected *by the venue*, which
+   routes into the existing refund path and returns the user's money. This is the real fix —
+   it converts a silent loss into a clean refund.
+2. **`_returnToMirror` strands anything sub-quantum** rather than sending a settlement that
+   claims a delivery it cannot make. A belt-and-braces net for any path that gets past (1).
+
+**Why it matters / what breaks if ignored:** The general lesson is that **precision loss at a
+protocol boundary is not a rounding nuisance, it is a correctness boundary.** Both bugs come
+from the same root: code treated "the amount the user asked for" and "the amount that can
+actually cross" as interchangeable. Anywhere those two differ needs an explicit decision about
+what happens to the difference.
+
+Worth noting what the fix does *not* solve: a sub-quantum amount recorded in `stranded` is not
+recoverable by `retryReturn`, because it will never become bridgeable. It needs a home-chain
+claim path — which is the same gap as the stalled-message finding, and is recorded in
+`agents.md` §9.
+
+---
+
+### [2026-09-19] Three ways an invariant campaign can pass while testing nothing
+**Milestone:** M10 — relay accounting invariants
+
+**What happened / what to know:** Getting the relay campaign to genuinely exercise the system
+took four separate fixes, each of which produced a green or near-green suite that was proving
+much less than it appeared to.
+
+1. **`bool` parameters in a handler are almost always `true`.** Foundry fuzzes a `bool` from a
+   random byte and treats anything non-zero as true — so `setVenueFailing(bool)` was true
+   roughly 255 times in 256. The venue was permanently broken and no trade ever filled. Handler
+   switches now take a `uint256` seed and are weighted explicitly (`bound(seed, 0, 4) == 0` for
+   ~20%).
+2. **An unbounded `minAmountOut` makes every order unsatisfiable.** Bounding it over the whole
+   `uint256` range meant every single order was rejected on slippage. It is now anchored to
+   what the venue would actually pay and ranged 0–150% of that, so roughly a third are rejected
+   and the rest fill.
+3. **A single `rate` cannot price both directions.** The first mock router applied one
+   `num/den` to every swap, which cannot be right for buys and sells simultaneously — a rate
+   calibrated for buys made sells absurd. The router is now direction-aware.
+4. **A stalled compose must stay retryable.** The fixture originally read `ComposeSent` from the
+   logs of the delivering call, so `deliverPacketsOnly()` discarded the compose permanently and
+   every stalled order was stuck for good. LayerZero actually keeps the compose queued, so the
+   fixture now keeps its own pending queue that a later `deliverAll()` drains.
+
+**Why it matters / what breaks if ignored:** Every one of these was invisible in the pass/fail
+result. The only reason any of them surfaced is the `afterInvariant()` coverage assertions,
+which fail the suite unless the campaign actually reached a fill, a refund *and* a stalled
+compose:
+
+```solidity
+assertGt(handler.fillsObserved(), 0, "no trade ever filled - the success path was never tested");
+assertGt(handler.refundsObserved(), 0, "no trade was ever refunded - the failure path was never tested");
+assertGt(handler.callsStall(), 0, "the stalled-compose path was never exercised");
+```
+
+Treat those assertions as part of the invariant, not as decoration. A campaign reports 7,680
+calls and zero reverts whether it is stress-testing the protocol or calling a broken venue
+7,680 times.

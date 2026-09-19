@@ -2,17 +2,19 @@
   "name": "crossstock-infra",
   "version": "0.1.0",
   "private": true,
-  "description": "CrossStock — config-driven omnichain token deployment infrastructure (LayerZero V2)",
+  "description": "CrossStock \u2014 config-driven omnichain token deployment infrastructure (LayerZero V2)",
   "type": "module",
   "scripts": {
     "build": "forge build",
-    "test": "forge test -vv",
+    "test": "forge test",
     "chains:up": "tsx infra/localnet.ts up",
     "chains:down": "tsx infra/localnet.ts down",
     "relayer": "tsx infra/relayer.ts",
     "deploy": "tsx infra/deploy.ts",
     "validate": "tsx infra/validate.ts",
-    "supply": "tsx infra/supply.ts"
+    "supply": "tsx infra/supply.ts",
+    "test:invariant": "forge test --match-path 'test/invariant/*'",
+    "test:fuzz": "forge test --match-path 'test/fuzz/*'"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

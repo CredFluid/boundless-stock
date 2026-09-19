@@ -14,6 +14,7 @@ import {
 } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { SwapTypes } from "./SwapTypes.sol";
@@ -173,6 +174,15 @@ contract SwapRelay is OApp, IOAppComposer {
     ) internal {
         _tokenIn.forceApprove(address(router), _amountIn);
 
+        // Never execute a swap whose output could not be delivered. Anything below one
+        // bridgeable unit cannot cross back to the mirror chain, so accepting it would consume
+        // the user's input for a result they can never receive. Raising the floor makes the
+        // venue reject the trade instead, which routes into the refund path and returns the
+        // user's money. Found by the invariant fuzzer; see NOTES.md.
+        uint256 minOut = _order.minAmountOut;
+        uint256 quantum = _bridgeQuantum(address(_tokenOut));
+        if (minOut < quantum) minOut = quantum;
+
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
             tokenIn: address(_tokenIn),
             tokenOut: address(_tokenOut),
@@ -180,7 +190,7 @@ contract SwapRelay is OApp, IOAppComposer {
             recipient: address(this), // held here, then bridged back to the mirror chain
             deadline: block.timestamp,
             amountIn: _amountIn,
-            amountOutMinimum: _order.minAmountOut,
+            amountOutMinimum: minOut,
             sqrtPriceLimitX96: 0
         });
 
@@ -222,7 +232,19 @@ contract SwapRelay is OApp, IOAppComposer {
         uint256 _amount,
         bytes memory _settlement
     ) internal {
-        if (_amount == 0) return;
+        // An amount below the OFT's precision floor bridges as ZERO. Sending it anyway would
+        // deliver a settlement claiming FILLED while carrying nothing — telling the user their
+        // trade succeeded when they received none of it, after their input was already
+        // consumed by the venue. Record it as owed on this chain instead, and leave the
+        // request unsettled rather than lying about it.
+        //
+        // Found by the invariant fuzzer via `invariant_fillsDeliverSomething`; see NOTES.md.
+        // Note this value is NOT recoverable by `retryReturn` — it will never be bridgeable —
+        // so it needs a home-chain claim path before production. Tracked in agents.md.
+        if (_amount < _bridgeQuantum(address(_token))) {
+            _strand(_dstEid, _requestId, address(_token), _amount, "amount below the bridgeable minimum");
+            return;
+        }
 
         bytes memory options = OptionsBuilder
             .newOptions()
@@ -262,6 +284,13 @@ contract SwapRelay is OApp, IOAppComposer {
         } catch {
             _strand(_dstEid, _requestId, address(_token), _amount, "return quote reverted");
         }
+    }
+
+    /// @dev Smallest amount of `_token` that can cross the bridge: one shared-decimal unit.
+    function _bridgeQuantum(address _token) internal view returns (uint256) {
+        uint8 localDecimals = IERC20Metadata(_token).decimals();
+        uint8 shared = IOFT(_token).sharedDecimals();
+        return localDecimals > shared ? 10 ** (localDecimals - shared) : 1;
     }
 
     function _strand(uint32 _dstEid, uint64 _requestId, address _token, uint256 _amount, string memory _why) internal {

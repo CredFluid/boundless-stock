@@ -358,7 +358,11 @@ Ordered by severity. Full discussion in [`REPORT.md`](REPORT.md) §6.
 6. **No fee-bump retry.** The gas *limit* problem is fixed; a live transaction can still fail on
    *price* if the base fee moves between estimation and inclusion.
 7. **Single owner key across all chains.** Every contract is owned by the deployer EOA.
-8. **Incremental runs scale with the existing set**, not with the number of chains being added:
+8. **Sub-quantum stranded value has no claim path.** When a swap's output is smaller than one
+   bridgeable unit it is recorded in `SwapRelay.stranded`, but `retryReturn` can never deliver
+   it — it will never become bridgeable. Same shape as (1): the value is recorded, not lost, but
+   nothing recovers it. Needs the same home-chain claim path.
+9. **Incremental runs scale with the existing set**, not with the number of chains being added:
    every peer link is re-checked and `setReturnGas` rewritten for every mirror. Harmless at four
    chains; make it delta-only before running against a large set.
 
@@ -368,7 +372,54 @@ delivered on the home chain) — see `NOTES.md`.
 
 ---
 
-## 10. Repo layout
+## 10. Testing
+
+Two layers, deliberately non-overlapping.
+
+| Layer | What it proves | Run |
+|---|---|---|
+| **Foundry** (`test/`) | The *contracts* are correct, including under adversarial inputs no sensible scenario would pick | `npm test` |
+| **TypeScript** (`infra/validation/`) | The *deployment* works across separate chains with a real relayer | `npm run validate -- --config config/localnet.json` |
+
+40 Foundry tests: 16 fuzz (512 runs each) and 12 invariants (48 runs × 160 calls).
+
+```bash
+npm test                # everything
+npm run test:invariant  # stateful fuzzing only
+npm run test:fuzz       # stateless property tests only
+```
+
+### The invariants
+
+**Supply** (`test/invariant/SupplyInvariant.t.sol`) — three real LayerZero endpoints, full peer
+mesh, handler that deliberately leaves messages in flight:
+
+- `supplyPlusInFlightEqualsMinted` — every token is on a chain or in flight, never elsewhere
+- `neverInflates` — aggregate supply never exceeds what was minted
+- `deliveredNeverExceedsSent` — a mint can never outpace its burn
+- `perChainBalancesSumToSupply` — catches supply/balance divergence an aggregate check misses
+
+**Relay** (`test/invariant/RelayInvariant.t.sol`) — the fuzzer controls price, venue failure,
+zero-output swaps and whether delivery completes:
+
+- `neitherAssetIsEverCreated`, `relayHoldingsAreBounded` — conservation
+- `settlementIsFinal` — a settled request can never settle again
+- `requestStatesAreCoherent`, `fillsDeliverSomething` — the mirror's record matches reality
+- `swapRequestDoesNotAccumulate` — the entrypoint is a conduit, not a vault
+
+### Two rules this suite follows
+
+1. **Every invariant campaign asserts its own coverage.** `afterInvariant()` fails the suite
+   unless the fuzzer actually reached a fill, a refund and a stalled compose. This is not
+   decoration — it caught the supply suite passing vacuously (no bridge send had ever
+   succeeded) and three separate ways the relay campaign was testing a broken venue. See
+   `NOTES.md`.
+2. **Invariants have negative controls.** `SupplyNegativeControl` deliberately inflates supply
+   and asserts the property notices. An invariant that cannot fail is not evidence.
+
+---
+
+## 11. Repo layout
 
 ```
 src/            Solidity contracts

@@ -8,6 +8,7 @@ import { OFTComposeMsgCodec } from "@layerzerolabs/oft-evm/contracts/libs/OFTCom
 import { IOFT, SendParam, MessagingFee, OFTReceipt } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { SwapTypes } from "./SwapTypes.sol";
@@ -96,6 +97,8 @@ contract SwapRequest is OApp, IOAppComposer {
     error UnexpectedOrigin(uint32 srcEid, bytes32 sender);
     error InsufficientFee(uint256 required, uint256 supplied);
     error ZeroAmount();
+    /// @dev The whole input was below the OFT's precision floor, so nothing could be bridged.
+    error AmountBelowBridgeableMinimum(uint256 amountIn, uint256 quantum);
     error UnknownRequest(uint64 requestId);
 
     constructor(
@@ -156,6 +159,15 @@ contract SwapRequest is OApp, IOAppComposer {
         // The OFT quantises to shared decimals (6) before bridging, so anything finer never
         // leaves this chain. Hand it straight back rather than letting it accumulate here.
         uint256 sent = oftReceipt.amountSentLD;
+
+        // An input entirely below the OFT's precision floor bridges as zero. The home chain
+        // would then have nothing to swap and nothing to send back, leaving the request
+        // PENDING forever — a zombie that can never settle. Found by the invariant fuzzer;
+        // see NOTES.md. Reject it at the door instead.
+        if (sent == 0) {
+            revert AmountBelowBridgeableMinimum(_amountIn, _bridgeQuantum(tokenIn));
+        }
+
         if (_amountIn > sent) {
             uint256 dust = _amountIn - sent;
             tokenIn.safeTransfer(msg.sender, dust);
@@ -227,6 +239,13 @@ contract SwapRequest is OApp, IOAppComposer {
                 composeMsg: composeMsg,
                 oftCmd: ""
             });
+    }
+
+    /// @dev Smallest amount of `_token` that can cross the bridge: one shared-decimal unit.
+    function _bridgeQuantum(IERC20 _token) internal view returns (uint256) {
+        uint8 localDecimals = IERC20Metadata(address(_token)).decimals();
+        uint8 sharedDecimals = IOFT(address(_token)).sharedDecimals();
+        return localDecimals > sharedDecimals ? 10 ** (localDecimals - sharedDecimals) : 1;
     }
 
     // ------------------------------------------------------------------ inbound: the result

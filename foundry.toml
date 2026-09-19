@@ -17,8 +17,11 @@ fs_permissions = [
 ]
 
 [invariant]
-runs = 64
-depth = 64
+runs = 48
+# Deep enough that every run reliably reaches a fill, a refund AND a stalled compose.
+# At depth 64 with seven handler actions, trades were sparse enough that some runs never
+# filled and the coverage assertions tripped.
+depth = 160
 fail_on_revert = false
 call_override = false
 shrink_run_limit = 2000

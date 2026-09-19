@@ -24,6 +24,8 @@ decomposes exactly into the 0.30% pool fee plus 0.0944% price impact. One transa
 npm install
 forge build
 
+npm test                                             # 40 Foundry tests (fuzz + invariants)
+
 npm run chains:up                                    # local chain set
 npm run deploy   -- --config config/localnet.json    # full pipeline -> manifest
 npm run validate -- --config config/localnet.json    # 6/6 scenarios
@@ -52,12 +54,20 @@ npm run deploy -- --config config/localnet-add-chain.json
 | [`NOTES.md`](NOTES.md) | Running log of gotchas, failures and findings — including several that cost real debugging time. |
 | [`REPORT.md`](REPORT.md) | Final report: config-driven vs hardcoded, gas and latency, what still needs manual intervention. |
 
+Testing is two non-overlapping layers: Foundry (`test/`) proves the **contracts** are correct
+under adversarial fuzzing; the TypeScript suite (`infra/validation/`) proves the **deployment**
+works across separate chains with a real relayer. See `agents.md` §10.
+
 ## Layout
 
 ```
 src/            Solidity
   core/         OmniToken (OFT base), TokenizedStock, USDC
   relay/        SwapRelay (home), SwapRequest (mirror: buy/sell), wire format
+test/
+  fuzz/         stateless property tests (precision, codecs)
+  invariant/    stateful fuzzing (supply conservation, relay accounting)
+  helpers/      multi-endpoint fixtures, mock venue
   mocks/        local-only: EndpointV2 wrapper, message library, WETH9
 infra/          TypeScript deployment infrastructure
   modules/      the deployment modules, 0-6, run in order

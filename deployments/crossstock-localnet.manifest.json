@@ -1,8 +1,8 @@
 {
   "name": "crossstock-localnet",
   "version": "1",
-  "createdAt": "2026-09-19T08:38:05.837Z",
-  "updatedAt": "2026-09-19T08:38:06.517Z",
+  "createdAt": "2026-09-19T14:02:20.558Z",
+  "updatedAt": "2026-09-19T14:02:21.448Z",
   "environment": "local",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "token": {
@@ -38,7 +38,7 @@
         "SwapRelay": "0x59b670e9fa9d0a427751af201d676719a970857b"
       },
       "deploymentGas": {
-        "gasUsed": "34210442",
+        "gasUsed": "34351913",
         "txCount": 29
       }
     },
@@ -56,7 +56,7 @@
         "SwapRequest": "0x0dcd1bf9a1b36ce34237eeafef220932846bcd82"
       },
       "deploymentGas": {
-        "gasUsed": "14616839",
+        "gasUsed": "14746651",
         "txCount": 16
       }
     },
@@ -74,7 +74,7 @@
         "SwapRequest": "0x0dcd1bf9a1b36ce34237eeafef220932846bcd82"
       },
       "deploymentGas": {
-        "gasUsed": "14616839",
+        "gasUsed": "14746651",
         "txCount": 16
       }
     }
@@ -89,7 +89,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0xa8e5215936d160a9f479f81060895eeea3ada5c951a77488e15be6210655ef1f"
+      "txHash": "0xe1d561c8c9a8322f2c281215d7909a9e5d62bdeb7374ca7f068855485ed8174b"
     },
     {
       "kind": "oft",
@@ -100,7 +100,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0x849f74e823026001d2add5c168fa556e029e3e30dda867e1e468152f789b978b"
+      "txHash": "0x7ca1219746767447ef45e55f0c42a652bab83d3336151798dae5b462c2caad5e"
     },
     {
       "kind": "oft",
@@ -111,7 +111,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0x5f7df54e2eaba652c29bd79a17ee46b06be83d5006a9b9acf7cb17753b0c3978"
+      "txHash": "0x39cc184c46b86271479f305a643e1a582f6f68d775054e549675490cd31387cf"
     },
     {
       "kind": "oft",
@@ -122,7 +122,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0x61330badb1a9cf7d190e70a8d56526176c37ff81c3f9932f4a8a1eee06075fd8"
+      "txHash": "0x88b93db2532df1c81bef5ae8d46ba84c4e0424b3e51fb19a0273883506e43458"
     },
     {
       "kind": "oft",
@@ -133,7 +133,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0x1dec185943ffe68eb26afb5fb4afbd7938121d5664a6536cc91a10aa2082e281"
+      "txHash": "0xf2f0306a30cb78f75274f30557273414235bf7127b19263e4f5557c8ff902eb9"
     },
     {
       "kind": "oft",
@@ -144,7 +144,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0x8ef5cd88c61e72bd37c88f7fc4d791b58806614108cb67032d052ca51854978c"
+      "txHash": "0x09d1299979e61ad4784454996f86b7724edd587c6d1429a229e9c11aab1c1ec4"
     },
     {
       "kind": "oft",
@@ -155,7 +155,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0x851a55cfd400d19bbb80ea390730089b9947b98c62611cd37d24052cb8356112"
+      "txHash": "0x3474d314f1938eb19411c3b6713e20e2d9e46eef7954f705c0e518c6f32c076a"
     },
     {
       "kind": "oft",
@@ -166,7 +166,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0xb72f370c0c7982430484ebecca98eacc36ef1d7cfd8a03c7f5272e8521dfddf0"
+      "txHash": "0xd97929a73b9029ca4c8769741df2efe97eec274032908f2e37d4580371ec972d"
     },
     {
       "kind": "oft",
@@ -177,7 +177,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0x69b13a8f8994bf887893d4cc2ce4b4217765b31cb9653c358636d3b477ec9444"
+      "txHash": "0xfe68259c56a243f033b6501917bcbba6c8f7c68a49c214ded9cbfcf722a31ea8"
     },
     {
       "kind": "oft",
@@ -188,7 +188,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0x07f8ed679fe4aacfcb1c2fe99b0d41e379ac85575114be2c11b9b46e0a10f09a"
+      "txHash": "0xc1fbd0db7b65730912f9957abd2667138854a554956fcb8cd6545f6c2476ede9"
     },
     {
       "kind": "oft",
@@ -199,7 +199,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0x5c2ae006cea0dbc9f98b7518677bf2dff99563603682c6f67adb91d86a3997a7"
+      "txHash": "0x6f1686e90208b14bd2f5ea081fa53abce6964255b00472d2b3630b0f91102a26"
     },
     {
       "kind": "oft",
@@ -210,7 +210,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0x7aade280f16decbba176b61968de8183130e1f4aa62523e7438e56976d8be620"
+      "txHash": "0x903a27c94d0f088ac749d606092b0c97f559c45f177902efac7a0b4efbd2b68c"
     },
     {
       "kind": "relay",
@@ -221,7 +221,7 @@
       "expected": "0x0000000000000000000000000DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
       "actual": "0x0000000000000000000000000dcd1bf9a1b36ce34237eeafef220932846bcd82",
       "verified": true,
-      "txHash": "0x49fb6abb53f1a33834f80b6373d64598595b1b3dd40669790411d5c05b6a22e9"
+      "txHash": "0xf37a778ee83fddfb1e02ce3be18a1801baccf6c3036755debb5bd3347c1014d0"
     },
     {
       "kind": "relay",
@@ -232,7 +232,7 @@
       "expected": "0x00000000000000000000000059b670e9fA9D0A427751Af201D676719a970857b",
       "actual": "0x00000000000000000000000059b670e9fa9d0a427751af201d676719a970857b",
       "verified": true,
-      "txHash": "0x38957ee8d91b336db222031d3fcba1ac9b26ff283851b63b5c94e6b23c54f1b7"
+      "txHash": "0x11b1afaeb8d0d6d32e4a2fc9fdc0e60218f254b354010a3cef5614fd26093968"
     },
     {
       "kind": "relay",
@@ -243,7 +243,7 @@
       "expected": "0x0000000000000000000000000DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
       "actual": "0x0000000000000000000000000dcd1bf9a1b36ce34237eeafef220932846bcd82",
       "verified": true,
-      "txHash": "0x9e401dbeb6b47a93c43958c7fd668505d26e1504eef030d7b1e2c62134f81ed9"
+      "txHash": "0x76eb73a0405e2ee3de490c53c889dbd9443abd176ef0e540143b0dea6b74469b"
     },
     {
       "kind": "relay",
@@ -254,62 +254,62 @@
       "expected": "0x00000000000000000000000059b670e9fA9D0A427751Af201D676719a970857b",
       "actual": "0x00000000000000000000000059b670e9fa9d0a427751af201d676719a970857b",
       "verified": true,
-      "txHash": "0x4a5b374123691bf3c7957d401d6b7cf79932b82776622d61a16ad93d864b9ac9"
+      "txHash": "0x106fe3edb3a9600527a3085100452b1a7dd08f01aaf5cd9d0ee297998176c01d"
     }
   ],
   "steps": [
     {
       "module": "00-endpoints",
       "status": "ok",
-      "at": "2026-09-19T08:38:06.093Z",
+      "at": "2026-09-19T14:02:20.885Z",
       "detail": "3 chains"
     },
     {
       "module": "01-token",
       "status": "ok",
-      "at": "2026-09-19T08:38:06.126Z",
+      "at": "2026-09-19T14:02:20.927Z",
       "detail": "tAAPL + USDC on base-sepolia"
     },
     {
       "module": "02-mirrors",
       "status": "ok",
-      "at": "2026-09-19T08:38:06.182Z",
+      "at": "2026-09-19T14:02:21.002Z",
       "detail": "2 mirrors × 2 assets"
     },
     {
       "module": "03-peers:TokenizedStock",
       "status": "ok",
-      "at": "2026-09-19T08:38:06.249Z",
+      "at": "2026-09-19T14:02:21.082Z",
       "detail": "6/6 verified"
     },
     {
       "module": "03-peers:QuoteAsset",
       "status": "ok",
-      "at": "2026-09-19T08:38:06.304Z",
+      "at": "2026-09-19T14:02:21.154Z",
       "detail": "6/6 verified"
     },
     {
       "module": "04-pool",
       "status": "ok",
-      "at": "2026-09-19T08:38:06.405Z",
+      "at": "2026-09-19T14:02:21.291Z",
       "detail": "L=1288875159409035126"
     },
     {
       "module": "03-peers:SwapRelay↔SwapRequest",
       "status": "ok",
-      "at": "2026-09-19T08:38:06.516Z",
+      "at": "2026-09-19T14:02:21.447Z",
       "detail": "4/4 verified"
     },
     {
       "module": "05-relays",
       "status": "ok",
-      "at": "2026-09-19T08:38:06.516Z",
+      "at": "2026-09-19T14:02:21.447Z",
       "detail": "relay + 2 requests, 4 links"
     },
     {
       "module": "06-manifest",
       "status": "ok",
-      "at": "2026-09-19T08:38:06.517Z",
+      "at": "2026-09-19T14:02:21.448Z",
       "detail": "0 problems"
     }
   ],
