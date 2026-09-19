@@ -461,10 +461,15 @@ everything around it — deployment, addressing, and what a "pool" is.
 - **The `oapp` crate is not on crates.io.** It lives at
   `packages/layerzero-v2/solana/programs/libs/oapp` in `LayerZero-Labs/LayerZero-v2` and must be
   vendored or path-referenced.
-- **Version pins are a real obstacle.** That crate pins `anchor-lang 0.29.0` and
-  `rust-toolchain 1.75.0`. This machine has anchor-cli 0.30.1 and platform-tools rustc 1.84.1.
-  There is an `anchor-latest/` variant in the same repo that may resolve it; that should be
-  evaluated before writing any program code.
+- **Version pins are NOT an obstacle — this was tested, not assumed.** The repo has two
+  variants. `programs/` pins `anchor-lang 0.29.0` / rust 1.75 and carries the full endpoint
+  program. `anchor-latest/` pins `anchor-lang 0.32.1`, is **interface-only**
+  (`endpoint-interface` + `messagelib-interface`), and is the right base for an OApp — you CPI
+  into the deployed endpoint rather than building it.
+
+  `cargo build-sbf` on `anchor-latest/libs/oapp` **compiles cleanly on this machine in ~67s.**
+  The local anchor-cli version (0.30.1) is irrelevant to compilation; it matters only for IDL
+  generation and test scaffolding. Use `anchor-latest`.
 - **LayerZero already ships a complete Solana OFT program** (`programs/oft` in that repo), so
   the token side does not need to be written — only deployed and initialised.
 
@@ -472,11 +477,12 @@ everything around it — deployment, addressing, and what a "pool" is.
 
 **Solana as a mirror chain** (the smaller half):
 
-1. Anchor workspace vendoring `oapp` + `endpoint`, reconciling the anchor/rust version pins.
+1. Anchor workspace referencing `anchor-latest/libs/oapp`. Verified to build; no version
+   reconciliation needed.
 2. Deploy LayerZero's OFT program and initialise the mint + its PDAs.
 3. A `swap_request` Anchor program: the `SwapRequest.sol` equivalent. Needs a PDA-based request
-   store, an SPL token escrow, and the LayerZero OApp instruction surface
-   (`lz_receive_types`, `lz_receive`) plus compose handling.
+   store, an SPL token escrow, and the LayerZero OApp instruction surface. **Two things here
+   are restructures rather than ports** — see "The real difficulties" below.
 4. A `SolanaChain` backend in `infra/` alongside the EVM `Chain`, using `@solana/web3.js` and
    `@layerzerolabs/lz-solana-sdk-v2` for deployment and peer configuration (Solana peers are
    PDAs, not a `setPeer` mapping).
@@ -490,12 +496,40 @@ everything around it — deployment, addressing, and what a "pool" is.
 7. A pool-deployment module for that venue: create the pool, seed liquidity, read reserves.
 8. Reformulating `infra/supply.ts` and the supply invariants for SPL mint semantics.
 
+### The real difficulties
+
+Neither is a toolchain problem. Both are architectural, and both were found by reading
+LayerZero's actual Solana source rather than assuming the EVM design carries over.
+
+**1. Compose is invoked differently.** On EVM, `endpoint.lzCompose()` *calls into* your
+contract. The Solana endpoint has **no `lz_compose` instruction at all** — only `send_compose`
+and `clear_compose`. The executor invokes the **composer program's own** instruction, which
+then CPIs `clear_compose` to validate and consume the queued message. So the compose handling
+in `SwapRelay` and `SwapRequest` is inverted: the program is the entrypoint, not the callee.
+
+**2. Every account must be declared up front.** Solana requires a program to enumerate, ahead
+of time, every account a delivery will touch — through an `lz_receive_types` view instruction
+the executor calls before delivering. An EVM contract simply touches whatever storage it
+likes. For `SwapRequest` that means deterministically listing the request PDA, both token
+accounts and the escrow; for a Solana `swap_relay` it additionally means listing **every
+account the DEX swap will touch**, which for a concentrated-liquidity venue includes tick
+arrays that depend on the price at execution time. This is the single hardest part of putting
+the relay on Solana, and it has no EVM analogue.
+
+**What carries over unchanged:** the core mechanism. Solana's OFT supports composed messages
+(`SendParams.compose_msg: Option<Vec<u8>>`) with a `compose_msg_codec` matching the EVM one,
+so "tokens and instruction travel in one packet" holds on both VMs. LayerZero's OFT program
+also already implements `init_adapter_oft`, so the bring-your-own-token work has a direct
+Solana counterpart.
+
 ### Honest assessment
 
 Steps 1–5 are a substantial build; steps 6–8 are larger still, because the venue integration is
-new work rather than a translation. Nothing here is blocked — the environment is verified
-working end to end — but it is not a small increment, and it should not be started by writing
-Rust before the anchor version question in the second bullet above is settled.
+new work rather than a translation, and because account pre-declaration makes a
+concentrated-liquidity swap materially harder to express than its EVM equivalent.
+
+Nothing is blocked. The toolchain builds, the endpoint runs locally, and the messaging
+semantics carry over. The work is real engineering rather than obstacle-clearing.
 
 ---
 

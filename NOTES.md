@@ -905,3 +905,47 @@ venue integration rather than a port of the EVM relay.
 path is unaffected (6/6 scenarios, 39/39 Foundry tests still pass). The pipeline now detects an
 SVM chain up front and says exactly what is missing instead of failing deep inside viem with a
 chain-id error. `agents.md` §12 carries the dependency-ordered plan.
+
+---
+
+### [2026-09-19] CORRECTION: the Solana version pins are not a blocker
+**Milestone:** M14 — supersedes the previous entry
+
+**What happened / what to know:** The previous entry flagged LayerZero's anchor/rust pins as
+something to settle before writing program code. That was caution based on reading version
+numbers, and **testing it showed it is not an obstacle.**
+
+LayerZero's repo has two Solana variants:
+
+| | `programs/` | `anchor-latest/` |
+|---|---|---|
+| `anchor-lang` | 0.29.0 | **0.32.1** |
+| Contents | full endpoint program | **interface-only** (`endpoint-interface`, `messagelib-interface`) |
+| Right choice for an OApp | no | **yes** — you CPI into the deployed endpoint |
+
+`cargo build-sbf --manifest-path anchor-latest/libs/oapp/Cargo.toml` **compiles cleanly on this
+machine in 67 seconds**, pulling anchor-lang 0.32.1 and the solana 2.2.x crates. The locally
+installed anchor-cli (0.30.1) is irrelevant to compilation — it matters only for IDL generation
+and test scaffolding, and `cargo build-sbf` does not use it.
+
+**Why it matters / what breaks if ignored:** The lesson is the same one that has recurred
+through this build: **verify the obstacle before planning around it.** An unverified blocker in
+a planning document is worse than no document, because it redirects effort away from the real
+problems.
+
+The real difficulties are architectural, and were found by reading LayerZero's Solana source:
+
+1. **Compose is inverted.** The Solana endpoint has no `lz_compose` instruction — only
+   `send_compose` and `clear_compose`. Where EVM's endpoint *calls into* the composer, on
+   Solana the executor invokes the **composer program's own** instruction, which CPIs
+   `clear_compose` to consume the message. The compose handling is a restructure, not a port.
+2. **Accounts must be declared up front** via `lz_receive_types`, before delivery. An EVM
+   contract touches whatever storage it wants. A Solana `swap_relay` would have to enumerate
+   every account its DEX swap will touch — including tick arrays that depend on the price at
+   execution time. This is the hardest part of putting the relay on Solana and has no EVM
+   analogue.
+
+Good news that also came out of reading the source: Solana's OFT supports composed messages
+(`SendParams.compose_msg`) with a codec matching the EVM one, so the core "tokens and
+instruction in one packet" mechanism holds on both VMs. And LayerZero's OFT already implements
+`init_adapter_oft`, so the bring-your-own-token feature has a direct Solana counterpart.
