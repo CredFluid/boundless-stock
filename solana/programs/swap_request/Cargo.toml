@@ -1,0 +1,26 @@
+[package]
+name = "swap-request"
+version = "0.1.0"
+edition = "2021"
+description = "CrossStock mirror-chain entrypoint on Solana"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "swap_request"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build"]
+custom-heap = []
+custom-panic = []
+anchor-debug = []
+
+[dependencies]
+anchor-lang = { workspace = true }
+oapp = { workspace = true }
+endpoint-interface = { workspace = true, features = ["cpi"] }
+

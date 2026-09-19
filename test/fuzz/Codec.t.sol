@@ -29,11 +29,14 @@ contract CodecFuzz is Test {
 
     // ------------------------------------------------------------------ Order
 
+    /// @dev `recipient` is fuzzed over the full bytes32 domain, not just EVM addresses — the
+    ///      field is 32 bytes wide precisely so a Solana pubkey survives the trip, and a codec
+    ///      tested only with left-padded addresses would not catch a regression there.
     function testFuzz_orderRoundTrip(
         uint64 requestId,
         uint8 direction,
         uint256 minAmountOut,
-        address recipient
+        bytes32 recipient
     ) public pure {
         SwapTypes.Order memory o = SwapTypes.Order({
             requestId: requestId,
@@ -80,7 +83,7 @@ contract CodecFuzz is Test {
     ///      Settlement decoded as an Order (or vice versa) must not produce a usable struct.
     function testFuzz_orderAndSettlementAreDistinguishable(uint64 requestId, uint256 amount) public pure {
         bytes memory order = SwapTypes.encodeOrder(
-            SwapTypes.Order({ requestId: requestId, direction: 0, minAmountOut: amount, recipient: address(0xBEEF) })
+            SwapTypes.Order({ requestId: requestId, direction: 0, minAmountOut: amount, recipient: bytes32(uint256(0xBEEF)) })
         );
         bytes memory settlement = SwapTypes.encodeSettlement(
             SwapTypes.Settlement({ requestId: requestId, status: 2, reason: 0, amountIn: amount, amountOut: amount })

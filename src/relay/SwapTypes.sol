@@ -46,7 +46,16 @@ library SwapTypes {
         uint64 requestId; // unique per (mirror chain, SwapRequest) pair
         uint8 direction; // SwapTypes.Direction, declared by the sender
         uint256 minAmountOut; // slippage floor, in output-asset units
-        address recipient; // who receives the result, ON THE MIRROR CHAIN
+        /**
+         * Who receives the result, ON THE MIRROR CHAIN.
+         *
+         * `bytes32`, not `address`, so a non-EVM mirror can name its own account. A Solana
+         * pubkey is 32 bytes; Solidity's `abi.decode` into `address` REVERTS when the upper 12
+         * bytes are non-zero, so an `address` here would make every order from Solana
+         * undecodable on the home chain. LayerZero addresses every chain this way for the same
+         * reason — an EVM address simply sits left-padded in the low 20 bytes.
+         */
+        bytes32 recipient;
     }
 
     /// @dev home -> mirror, inside the OFT composeMsg accompanying the returned tokens.
@@ -65,7 +74,7 @@ library SwapTypes {
     function decodeOrder(bytes memory _b) internal pure returns (Order memory o) {
         (o.requestId, o.direction, o.minAmountOut, o.recipient) = abi.decode(
             _b,
-            (uint64, uint8, uint256, address)
+            (uint64, uint8, uint256, bytes32)
         );
     }
 

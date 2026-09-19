@@ -1,0 +1,27 @@
+[workspace]
+members = ["programs/*", "vendor/layerzero/*"]
+resolver = "2"
+
+# Mirrors LayerZero's own `anchor-latest` workspace pins. Changing these means the vendored
+# crates no longer match what LayerZero tested, so they move together or not at all.
+[workspace.dependencies]
+anchor-lang = "0.32.1"
+anchor-spl = "0.32.1"
+solana-keccak-hasher = "2.2.1"
+solana-helper = "0.1.0"
+solana-address-lookup-table-interface = "2.2.2"
+
+oapp = { path = "vendor/layerzero/oapp", package = "oapp-latest" }
+utils = { path = "vendor/layerzero/utils", package = "utils-latest" }
+cpi-helper = { path = "vendor/layerzero/cpi-helper" }
+endpoint-interface = { path = "vendor/layerzero/endpoint-interface" }
+messagelib-interface = { path = "vendor/layerzero/messagelib-interface", package = "messagelib-interface-latest" }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 20
+[profile.release.build-override]
+opt-level = 0
+incremental = false
+codegen-units = 20

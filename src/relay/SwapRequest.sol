@@ -236,12 +236,13 @@ contract SwapRequest is OApp, IOAppComposer {
         uint256 _minAmountOut,
         address _recipient
     ) internal view returns (SendParam memory) {
+        // Widened to bytes32 on the wire so a non-EVM mirror can name its own account format.
         bytes memory composeMsg = SwapTypes.encodeOrder(
             SwapTypes.Order({
                 requestId: _requestId,
                 direction: uint8(_direction),
                 minAmountOut: _minAmountOut,
-                recipient: _recipient
+                recipient: bytes32(uint256(uint160(_recipient)))
             })
         );
 

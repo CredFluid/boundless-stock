@@ -949,3 +949,47 @@ Good news that also came out of reading the source: Solana's OFT supports compos
 (`SendParams.compose_msg`) with a codec matching the EVM one, so the core "tokens and
 instruction in one packet" mechanism holds on both VMs. And LayerZero's OFT already implements
 `init_adapter_oft`, so the bring-your-own-token feature has a direct Solana counterpart.
+
+---
+
+### [2026-09-19] Solana: the mirror program builds against LayerZero's real OApp crate
+**Milestone:** M15 — swap_request program
+
+**What happened / what to know:** `solana/programs/swap_request` compiles to a 361 KB SBF
+program against LayerZero's actual `oapp` crate, and its wire-format codec round-trips against
+`SwapTypes.sol`. Five host tests cover the codec, including truncated and oversized payloads.
+
+**The build fight, and what actually resolved it.** The SBF toolchain ships cargo 1.84.0, which
+cannot parse manifests declaring Rust edition 2024 — and crates.io releases are adopting it.
+Resolving from scratch failed on `block-buffer 0.12`, then `zeroize_derive 1.5`, then
+`toml_datetime 1.1`, each with the same error. Pinning them one at a time was a losing race.
+
+**What worked: seeding `Cargo.lock` from LayerZero's own `anchor-latest/Cargo.lock`.** They have
+already pinned a consistent pre-edition2024 set, and reusing it resolved everything at once.
+That lock is now load-bearing — if a dependency is added and the build starts failing on
+`feature edition2024 is required`, pin rather than upgrade.
+
+Also dropped `anchor-spl` entirely. It pulls `spl-associated-token-account` and
+`solana-program 2.3`, which drag in precisely that crate tree. Only `TransferChecked` was needed
+and that instruction is three fields wide and stable since SPL Token launched, so `src/spl.rs`
+encodes it directly — fewer dependencies and no fight with the migration.
+
+**One cross-VM correctness fix that had to land on the EVM side too.** `SwapTypes.Order.recipient`
+is now `bytes32` rather than `address`. A Solana pubkey is 32 bytes, and Solidity's `abi.decode`
+into `address` **reverts** when the upper 12 bytes are non-zero — so an `address` there would
+have made every order originating on Solana undecodable on the home chain. The codec fuzz test
+now fuzzes `recipient` over the full `bytes32` domain rather than just EVM addresses, since a
+test using only left-padded values would not catch a regression. EVM suite still 39/39, live
+pipeline still 6/6.
+
+**Design points worth carrying:**
+
+- The store PDA *is* the OApp identity. It signs the outbound OFT send, so the home-chain relay
+  sees `composeFrom == store` and can authenticate it. If a user called the OFT directly,
+  `composeFrom` would be their own key and the relay would correctly reject the order.
+- The OFT `send` is invoked by hand-built CPI with an inlined discriminator, not through the
+  OFT's generated client. The OFT crate pins an older Anchor than this workspace, and depending
+  on it would couple our build to a specific OFT release for no benefit.
+- A request is its own PDA keyed by request id, not an entry in a map, because
+  `lz_compose_types_v2` must name every account a delivery will touch *before* delivery — so the
+  account has to be derivable from the payload with no chain reads.
