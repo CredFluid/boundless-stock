@@ -1,8 +1,9 @@
 # CrossStock POC — Final Report
 
-**Date:** 2026-09-18
+**Date:** 2026-09-19
 **Scope:** config-driven omnichain deployment infra + peer-wiring automation + validation that
-the resulting deployment actually works.
+the resulting deployment actually works — extended since the first draft with bring-your-own-
+token support, an invariant/fuzz test layer, and the Solana mirror-chain stack.
 
 ---
 
@@ -94,6 +95,8 @@ Verified by grep: **no chain identity appears anywhere in `src/` or `infra/` out
 | Home chain: name, chain id, LayerZero eid, RPC, endpoint address | `config.homeChain` |
 | Mirror chain list — any length | `config.mirrorChains[]` |
 | Token name, symbol, decimals, initial supply | `config.token` |
+| **Launch vs adapt** — mint a new OFT, or lock a token that already exists | `config.token.existingToken` |
+| **Which VM a chain runs** (`evm` \| `svm`) and its per-VM settings | `config.*.vm`, `config.*.svm` |
 | Pairing asset name, symbol, decimals, supply | `config.quoteAsset` |
 | Pool fee tier, initial price, seed liquidity, tick range | `config.pool` |
 | All LayerZero gas/fee params (`lzReceive`, `lzCompose`, compose value, return gas, relay buffer) | `config.relay` |
@@ -113,6 +116,7 @@ eids so this is checkable with `diff` rather than taken on trust.
 | Solidity contract set (OFT, ERC-20, SwapRelay, SwapRequest) | `src/` | By design. Changing the token *standard* is a code change, not config. |
 | Uniswap **V3** as the venue | `SwapRelay`, module 4 | **Real limitation.** A different DEX needs a new relay implementation. Worth abstracting behind a venue interface before production. |
 | ~~Swap direction~~ | — | **Resolved.** Both directions are supported and symmetric; `SwapRelay` derives the direction from which OFT delivered the tokens rather than trusting the payload. |
+| ~~New tokens only~~ | — | **Resolved.** `existingToken` adapts a deployed ERC-20 via `OmniTokenAdapter` instead of minting. Proven against a token the infra never deployed. |
 | Default gas constants (`DEFAULT_RETURN_GAS`, etc.) | `SwapRelay`, `SwapRequest` | Low risk. Every one is overridable by an owner setter that the infra calls from config; the constants are only fallbacks. |
 | Position NFT descriptor = `address(0)` | module 4 | Cosmetic. Only affects `tokenURI()`, which nothing calls. |
 | Mint deadline = now + 1 hour | module 4 | Fine for a POC; should be config for slow live chains. |
@@ -301,15 +305,119 @@ Ordered by severity.
 
 ---
 
-## 7. Summary
+## 7. Testing
+
+Two non-overlapping layers, because they prove different things.
+
+| Layer | Proves | Scale |
+|---|---|---|
+| **Foundry** (`test/`) | The *contracts* are correct under adversarial input | 39 tests: 16 fuzz at 512 runs, 12 invariants at 48×160 calls |
+| **TypeScript** (`infra/validation/`) | The *deployment* works across separate chains with a real relayer | 6 scenarios |
+| **Rust** (`solana/`) | The Solana wire format matches Solidity's byte for byte | 5 codec tests |
+
+### The invariant suite found two real bugs
+
+Neither was reachable through the scenario suite, because both need trade sizes or prices no
+sensible scenario would choose.
+
+- **Zombie requests.** An OFT cannot move anything below its precision floor. `SwapRequest`
+  checked the *requested* amount but recorded the amount *after* dust removal — which can be
+  zero, producing a request that could never settle and sat `PENDING` forever.
+- **A fill that delivered nothing.** When a swap's output fell below one bridgeable unit, the
+  return send quantised it to zero. Reproduced exactly: a user spent 1,000 USDC, the request
+  was marked `FILLED`, `amountOut` was `0`, and nothing reached their wallet. Their input had
+  already been consumed by the venue. Fixed by raising the venue's `amountOutMinimum` to at
+  least one bridgeable unit, which converts a silent loss into a clean refund.
+
+Both share a root cause worth stating plainly: **treating "the amount the user asked for" and
+"the amount that can actually cross" as interchangeable.** Precision loss at a protocol
+boundary is a correctness boundary, not a rounding nuisance.
+
+### Every invariant campaign asserts its own coverage
+
+`afterInvariant()` fails the suite unless the fuzzer actually reached a fill, a refund *and* a
+stalled compose. This is not decoration. It caught the supply suite passing vacuously — six
+green invariants over 4,096 calls in which **no bridge send had ever succeeded** — and three
+separate ways the relay campaign was stress-testing a broken venue. A campaign reports
+"7,680 calls, 0 reverts" either way.
+
+`SupplyNegativeControl` complements it by deliberately inflating supply and asserting the
+property notices. An invariant that cannot fail is not evidence.
+
+---
+
+## 8. Solana
+
+**Status: the mirror-chain stack is built, deployed and initialised on a local validator.
+Trades cannot round-trip yet.**
+
+```bash
+npm run solana:up      # validator with LayerZero's real EndpointV2 cloned from devnet
+npm run solana:build   # swap_request.so (361 KB)
+npm run solana:deploy  # LayerZero's OFT + swap_request
+npm run solana:setup   # mints, init_oft, mint authority, peers, init_store -> manifest
+```
+
+Three programs run on the validator: LayerZero's EndpointV2 (cloned), LayerZero's OFT (built
+from vendored source), and CrossStock's `swap_request`. The endpoint has accepted both as
+registered OApps, and peers are wired with the same read-back verification the EVM module uses.
+
+### What is genuinely different, and had to be rebuilt rather than ported
+
+**Compose is inverted.** The Solana endpoint has no `lz_compose` instruction — only
+`send_compose` and `clear_compose`. Where EVM's endpoint *calls into* the composer, on Solana
+the Executor invokes the **program's own** instruction, which CPIs `clear_compose` to prove the
+message was queued and consume it. That CPI, not a modifier, is what makes a settlement
+authentic and unreplayable.
+
+**Every account must be declared before delivery**, through an `lz_receive_types` /
+`lz_compose_types_v2` view instruction the Executor calls first. An EVM contract reaches into
+whatever storage it likes. This is why a request is its own PDA keyed by request id: the
+account must be derivable from the payload with no chain reads.
+
+**Peers are accounts, not a mapping** — a `PeerConfig` PDA per remote eid, so wiring is account
+creation and reading a peer back means fetching that account.
+
+### What carried over unchanged
+
+The mechanism. Solana's OFT supports composed messages with a codec matching the EVM one, so
+*tokens and instruction travel in one packet* holds on both VMs. LayerZero's OFT also
+implements `init_adapter_oft`, giving bring-your-own-token a direct Solana counterpart.
+
+### One cross-VM bug this surfaced in the EVM contracts
+
+`SwapTypes.Order.recipient` was `address`. A Solana pubkey is 32 bytes, and Solidity's
+`abi.decode` into `address` **reverts** when the upper 12 bytes are non-zero — so every order
+originating on Solana would have been undecodable on the home chain. Now `bytes32`, with the
+codec fuzzed over the full domain rather than just left-padded addresses.
+
+### What remains
+
+- Relayer support for the SVM delivery path.
+- **Solana as the base chain**, which needs a `swap_relay` CPI-ing into Orca Whirlpools or
+  Raydium CLMM. Uniswap V3 has no Solana deployment, so this is a new venue integration rather
+  than a port — and account pre-declaration makes a concentrated-liquidity swap materially
+  harder to express, since the tick arrays a swap touches depend on the price at execution time.
+
+Four build traps, each of which cost real time, are recorded in `NOTES.md` and
+`solana/README.md`: Rust edition 2024 versus the SBF toolchain's cargo; LayerZero shipping two
+Solana OFT programs of which only one compiles; the OFT taking its program id from an
+environment variable at build time; and the endpoint CPI account ordering.
+
+---
+
+## 9. Summary
 
 | | |
 |---|---|
 | Core claim | **Proven** — buying from a chain with no market, on two mirror chains, plus the reverse direction; execution economics decompose exactly |
+| Bring your own token | **Proven** against an ERC-20 the infra never deployed |
+| Base chain selectable | **Proven** by moving it from Base to Arbitrum and re-running |
 | Deployment infra | 6 modules, fully config-driven, one command, no manual follow-up |
 | Peer wiring | Automated, bidirectional, **read back and verified** on every link |
 | Add-a-chain flow | **Confirmed** to reuse the same modules; verified by doing it on a live deployment |
-| Validation | 6/6 scenarios passing from a clean deployment |
+| Validation | 6/6 scenarios, 39/39 Foundry tests, 5/5 Rust codec tests |
+| Solana | Mirror-chain stack built, deployed and initialised; trades not yet round-tripping |
 | Biggest gap | No timeout/refund for a stalled message — funds recoverable but never automatically |
 
 The repo carries its own findings: `agents.md` for current state and architecture, `NOTES.md`
