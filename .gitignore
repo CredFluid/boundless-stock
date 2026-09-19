@@ -11,3 +11,4 @@ deployments/*.local.json
 # NOTE: deployments/*.manifest.json IS tracked -- it is module 6's deliverable
 # and the record of a real deployment run.
 .localnet/
+.localnet-solana/

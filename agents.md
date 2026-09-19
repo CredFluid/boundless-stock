@@ -435,6 +435,70 @@ zero-output swaps and whether delivery completes:
 
 ---
 
+## 12. Solana support — status and what remains
+
+**Status: foundation in place, SVM backend not implemented.** Solana chains can be *configured*
+and the pipeline routes them explicitly; they cannot yet be deployed to or traded on.
+
+### What is built and verified
+
+| | |
+|---|---|
+| Multi-VM config schema | `vm: "evm" \| "svm"`, with per-VM validation. An SVM chain carries an `svm` block and must omit `chainId`; an EVM chain must have one. |
+| VM routing in the pipeline | An SVM chain is detected before anything is deployed and reported clearly, rather than failing several layers down inside viem. |
+| Local Solana validator | `npm run solana:up` starts a validator with LayerZero's **real** EndpointV2 cloned from devnet — 1,639,888 bytes, executable under BPFLoaderUpgradeab1e. Verified working. |
+| Manifest records the VM | So downstream tooling never has to infer it. |
+
+Why `eid` needs no special-casing: LayerZero addresses every chain as a `bytes32` and routes on
+`eid` regardless of VM, so the *messaging* layer is already VM-agnostic. What differs is
+everything around it — deployment, addressing, and what a "pool" is.
+
+### Verified facts the next step should start from
+
+- **LayerZero EndpointV2 on Solana:** `76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6`, same id
+  on mainnet and devnet. Must be cloned with `--clone-upgradeable-program`; a plain `--clone`
+  produces an account the loader cannot execute.
+- **The `oapp` crate is not on crates.io.** It lives at
+  `packages/layerzero-v2/solana/programs/libs/oapp` in `LayerZero-Labs/LayerZero-v2` and must be
+  vendored or path-referenced.
+- **Version pins are a real obstacle.** That crate pins `anchor-lang 0.29.0` and
+  `rust-toolchain 1.75.0`. This machine has anchor-cli 0.30.1 and platform-tools rustc 1.84.1.
+  There is an `anchor-latest/` variant in the same repo that may resolve it; that should be
+  evaluated before writing any program code.
+- **LayerZero already ships a complete Solana OFT program** (`programs/oft` in that repo), so
+  the token side does not need to be written — only deployed and initialised.
+
+### What remains, in dependency order
+
+**Solana as a mirror chain** (the smaller half):
+
+1. Anchor workspace vendoring `oapp` + `endpoint`, reconciling the anchor/rust version pins.
+2. Deploy LayerZero's OFT program and initialise the mint + its PDAs.
+3. A `swap_request` Anchor program: the `SwapRequest.sol` equivalent. Needs a PDA-based request
+   store, an SPL token escrow, and the LayerZero OApp instruction surface
+   (`lz_receive_types`, `lz_receive`) plus compose handling.
+4. A `SolanaChain` backend in `infra/` alongside the EVM `Chain`, using `@solana/web3.js` and
+   `@layerzerolabs/lz-solana-sdk-v2` for deployment and peer configuration (Solana peers are
+   PDAs, not a `setPeer` mapping).
+5. Relayer support for the SVM delivery path.
+
+**Solana as the base chain** (the larger half, and what makes trades *happen* on Solana):
+
+6. A `swap_relay` program equivalent, executing swaps by CPI into **Orca Whirlpools or Raydium
+   CLMM** — Uniswap V3 does not exist on Solana, so this is a genuinely different venue
+   integration, not a port.
+7. A pool-deployment module for that venue: create the pool, seed liquidity, read reserves.
+8. Reformulating `infra/supply.ts` and the supply invariants for SPL mint semantics.
+
+### Honest assessment
+
+Steps 1–5 are a substantial build; steps 6–8 are larger still, because the venue integration is
+new work rather than a translation. Nothing here is blocked — the environment is verified
+working end to end — but it is not a small increment, and it should not be started by writing
+Rust before the anchor version question in the second bullet above is settled.
+
+---
+
 ## 11. Repo layout
 
 ```

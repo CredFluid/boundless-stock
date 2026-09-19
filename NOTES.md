@@ -870,3 +870,38 @@ obvious:
 Constraints inherited from `OFTAdapter`, all documented on the contract: exactly one adapter
 may ever exist per token (a second lockbox fractures supply), and transfers must be lossless —
 **fee-on-transfer and rebasing tokens are explicitly out of scope** for this POC.
+
+---
+
+### [2026-09-19] Solana: environment verified, backend not built
+**Milestone:** M14 — multi-VM foundation
+
+**What happened / what to know:** Before writing any Rust, the environment was checked end to
+end, because the cost of discovering a blocked toolchain after building a program is much
+higher than the cost of checking first. Everything needed is available:
+
+- `cargo build-sbf` 3.0.15 with platform-tools v1.51 — SBF programs can be built here.
+- Solana devnet reachable.
+- **LayerZero's real EndpointV2 clones onto a local validator and is executable there** —
+  1,639,888 bytes under BPFLoaderUpgradeab1e. `npm run solana:up` does this reproducibly.
+
+Two findings that would have cost real time if discovered later:
+
+1. **`--clone-upgradeable-program` is required, not `--clone`.** A plain clone copies the
+   account but not its programdata, giving something the loader refuses to execute.
+2. **LayerZero's `oapp` crate is not published to crates.io.** It is vendored inside
+   `LayerZero-Labs/LayerZero-v2` and pins `anchor-lang 0.29.0` / `rust 1.75.0`, against
+   anchor-cli 0.30.1 and rustc 1.84.1 here. There is an `anchor-latest/` variant in the same
+   repo that may reconcile this. **Settle that question before writing program code** — it
+   determines the whole workspace layout.
+
+Also worth knowing: LayerZero already ships a complete Solana OFT program, so the token side is
+a deployment exercise rather than a writing one. The work that genuinely has to be written is
+the `swap_request` program, and — for Solana as a base chain — a `swap_relay` that CPIs into
+Orca Whirlpools or Raydium CLMM. Uniswap V3 has no Solana deployment, so that half is a new
+venue integration rather than a port of the EVM relay.
+
+**Why it matters / what breaks if ignored:** The multi-VM foundation is committed and the EVM
+path is unaffected (6/6 scenarios, 39/39 Foundry tests still pass). The pipeline now detects an
+SVM chain up front and says exactly what is missing instead of failing deep inside viem with a
+chain-id error. `agents.md` §12 carries the dependency-ordered plan.

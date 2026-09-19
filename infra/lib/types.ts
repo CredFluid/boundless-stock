@@ -16,14 +16,43 @@ export interface UniswapConfig {
   deployIfMissing?: boolean;
 }
 
+/**
+ * Which virtual machine a chain runs.
+ *
+ * LayerZero addresses every chain as a `bytes32` and identifies it by `eid`, so the *messaging*
+ * layer is already VM-agnostic. What differs per VM is everything around it: how contracts are
+ * deployed, how accounts are addressed, and what a "pool" even is. This discriminator is what
+ * lets the pipeline route to the right backend instead of assuming EVM everywhere.
+ */
+export type VmKind = "evm" | "svm";
+
+/** Solana-specific deployment settings. Required when `vm` is "svm". */
+export interface SvmConfig {
+  /** LayerZero EndpointV2 program id on this cluster. */
+  endpointProgramId: string;
+  /** OFT program id, once deployed. Recorded in the manifest on first run. */
+  oftProgramId?: string;
+  /** The CrossStock request program id, once deployed. */
+  swapRequestProgramId?: string;
+  /** Path to the payer keypair. Solana has no single "private key hex" convention. */
+  keypairPath?: string;
+  /** Commitment level for reads. */
+  commitment?: "processed" | "confirmed" | "finalized";
+}
+
 export interface ChainConfig {
   /** Stable identifier used as the manifest key, e.g. "base-sepolia". */
   key: string;
   name: string;
-  chainId: number;
-  /** LayerZero V2 endpoint id. */
+  /** Defaults to "evm" when omitted, so every existing config keeps working untouched. */
+  vm?: VmKind;
+  /** EVM only. Asserted against the RPC before anything is deployed. */
+  chainId?: number;
+  /** LayerZero V2 endpoint id. VM-independent — this is how LayerZero routes. */
   eid: number;
   rpcUrl: string;
+  /** Present when `vm` is "svm". */
+  svm?: SvmConfig;
   /**
    * LayerZero EndpointV2 address. Omit to have the infra deploy a local endpoint stack
    * (EndpointV2Mock + LocalMessageLib) — used only by the local development environment.
@@ -118,7 +147,9 @@ export interface PeerRecord {
 export interface ChainDeployment {
   key: string;
   name: string;
-  chainId: number;
+  vm: VmKind;
+  /** EVM only. */
+  chainId?: number;
   eid: number;
   role: "home" | "mirror";
   lzEndpoint: string;

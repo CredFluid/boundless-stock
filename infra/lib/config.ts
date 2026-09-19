@@ -45,12 +45,34 @@ function walk(node: unknown, where: string): unknown {
 }
 
 function validateChain(c: ChainConfig, where: string): void {
-  for (const field of ["key", "name", "chainId", "eid", "rpcUrl"] as const) {
+  for (const field of ["key", "name", "eid", "rpcUrl"] as const) {
     if (c[field] === undefined || c[field] === null || c[field] === "") {
       throw new Error(`Config ${where} is missing required field "${field}".`);
     }
   }
+
+  const vm = c.vm ?? "evm";
+  if (vm !== "evm" && vm !== "svm") {
+    throw new Error(`Config ${where} has unknown vm "${vm}". Supported: "evm", "svm".`);
+  }
+
+  // Per-VM requirements. Checked here rather than at deploy time so a malformed config fails
+  // before anything touches a chain.
+  if (vm === "evm" && (c.chainId === undefined || c.chainId === null)) {
+    throw new Error(`Config ${where} is an EVM chain and must specify "chainId".`);
+  }
+  if (vm === "svm") {
+    if (!c.svm?.endpointProgramId) {
+      throw new Error(`Config ${where} is a Solana chain and must specify "svm.endpointProgramId".`);
+    }
+    if (c.chainId !== undefined) {
+      throw new Error(`Config ${where} is a Solana chain; "chainId" is an EVM concept and must be omitted.`);
+    }
+  }
 }
+
+/** The VM a chain runs, defaulting to EVM so existing configs are unaffected. */
+export const vmOf = (c: ChainConfig): "evm" | "svm" => c.vm ?? "evm";
 
 export function loadConfig(path: string): DeploymentConfig {
   loadDotEnv();

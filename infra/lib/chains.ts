@@ -32,10 +32,12 @@ export function deployerKey(): Hex {
 }
 
 /**
- * A single chain's clients plus the small set of operations the modules need.
+ * The **EVM** backend: one chain's clients plus the operations the modules need.
  *
- * Every module talks to chains only through this class, so nothing downstream ever needs to
- * know whether it is pointed at anvil or at Base Sepolia.
+ * Modules talk to chains only through this class, so nothing downstream needs to know whether
+ * it is pointed at anvil or at Base Sepolia. A Solana chain is a different backend entirely —
+ * different addressing, different deployment model — and is routed by `ChainConfig.vm` rather
+ * than squeezed in here.
  */
 export class Chain {
   readonly config: ChainConfig;
@@ -49,6 +51,16 @@ export class Chain {
   txCount = 0;
 
   constructor(config: ChainConfig, privateKey: Hex = deployerKey()) {
+    if ((config.vm ?? "evm") !== "evm") {
+      throw new Error(
+        `Chain "${config.key}" is a ${config.vm} chain and cannot use the EVM backend. ` +
+          `This is a routing bug: the pipeline should have dispatched it elsewhere.`
+      );
+    }
+    if (config.chainId === undefined) {
+      throw new Error(`Chain "${config.key}" is missing chainId, which every EVM chain needs.`);
+    }
+
     this.config = config;
     this.account = privateKeyToAccount(privateKey);
 
@@ -237,7 +249,7 @@ export class Chain {
   /** Confirms the RPC is reachable and is actually the chain the config claims it is. */
   async preflight(): Promise<void> {
     const id = await this.publicClient.getChainId();
-    if (id !== this.config.chainId) {
+    if (id !== this.config.chainId!) {
       throw new Error(
         `Chain id mismatch for "${this.key}": config says ${this.config.chainId}, RPC reports ${id}. ` +
           `Refusing to deploy — this is exactly how contracts end up on the wrong network.`

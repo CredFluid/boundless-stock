@@ -37,6 +37,7 @@ export async function ensureEndpoints(
       upsertChain(manifest, {
         key: cc.key,
         name: cc.name,
+        vm: cc.vm ?? "evm",
         chainId: cc.chainId,
         eid: cc.eid,
         role,
@@ -82,6 +83,7 @@ export async function ensureEndpoints(
     upsertChain(manifest, {
       key: cc.key,
       name: cc.name,
+      vm: cc.vm ?? "evm",
       chainId: cc.chainId,
       eid: cc.eid,
       role,

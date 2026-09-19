@@ -7,7 +7,7 @@
  *
  *   npm run deploy -- --config config/localnet.json
  */
-import { loadConfig, allChains, isLocal } from "./lib/config.js";
+import { loadConfig, allChains, isLocal, vmOf } from "./lib/config.js";
 import { buildChains, deployerKey } from "./lib/chains.js";
 import { privateKeyToAccount } from "viem/accounts";
 import { formatEther } from "viem";
@@ -43,6 +43,22 @@ async function main(): Promise<void> {
   log.kv("token", `${cfg.token.name} (${cfg.token.symbol})`);
   log.kv("home chain", `${cfg.homeChain.name} — eid ${cfg.homeChain.eid}`);
   log.kv("mirror chains", cfg.mirrorChains.map((c) => `${c.name} (${c.eid})`).join(", "));
+
+  // Route by VM before touching anything. A Solana chain reaching the EVM backend produces a
+  // confusing viem error several layers down; naming the gap here is far more useful.
+  const svmChains = allChains(cfg).filter((c) => vmOf(c) === "svm");
+  if (svmChains.length > 0) {
+    log.step("VM routing");
+    for (const c of svmChains) {
+      log.warn(`${c.name} (eid ${c.eid}) is a Solana chain — the SVM backend is not implemented yet.`);
+    }
+    log.fail("Solana chains are configured but cannot be deployed to yet.");
+    log.info("");
+    log.info("The multi-VM config schema, validation and local validator harness are in place");
+    log.info("(`npm run solana:up` clones LayerZero's real EndpointV2 onto a local validator).");
+    log.info("What remains is the SVM backend itself — see agents.md §12 for the exact list.");
+    process.exit(1);
+  }
 
   const chains = buildChains(allChains(cfg));
 

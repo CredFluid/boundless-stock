@@ -76,7 +76,7 @@ async function up(): Promise<void> {
       "anvil",
       [
         "--port", String(port),
-        "--chain-id", String(c.chainId),
+        "--chain-id", String(c.chainId!),
         "--accounts", "10",
         "--balance", "100000",
         // Uniswap's NonfungiblePositionManager sits right at the EIP-170 limit; raising it
@@ -88,7 +88,7 @@ async function up(): Promise<void> {
     child.unref();
 
     await waitForRpc(c.rpcUrl);
-    nodes.push({ key: c.key, name: c.name, chainId: c.chainId, port, pid: child.pid!, logFile });
+    nodes.push({ key: c.key, name: c.name, chainId: c.chainId!, port, pid: child.pid!, logFile });
     log.ok(`${c.name}: chainId ${c.chainId} on :${port} (pid ${child.pid})`);
   }
 
