@@ -780,3 +780,42 @@ assertGt(handler.callsStall(), 0, "the stalled-compose path was never exercised"
 Treat those assertions as part of the invariant, not as decoration. A campaign reports 7,680
 calls and zero reverts whether it is stress-testing the protocol or calling a broken venue
 7,680 times.
+
+---
+
+### [2026-09-19] The base chain is genuinely selectable — verified by moving it
+**Milestone:** M12 — base-chain portability
+
+**What happened / what to know:** "Pick your base chain" is the product claim the infra exists
+to serve, so it was checked by actually doing it rather than by reading the config schema.
+
+`config/localnet-arb-home.json` promotes Arbitrum Sepolia to home and demotes Base Sepolia to a
+mirror. Diff it against `config/localnet.json`: the only change is **which chain object sits in
+`homeChain` versus `mirrorChains`** (and the `uniswap` block moving with the home role). No
+module code differs.
+
+Result — the pool was built on Arbitrum, and a user on Base Sepolia, now a mirror with no
+market, bought against it:
+
+| | Base as home (original) | Arbitrum as home |
+|---|---|---|
+| Pool lives on | Base Sepolia | Arbitrum Sepolia |
+| User stands on | Arbitrum Sepolia | **Base Sepolia** |
+| Spent | 15,000 USDC | 15,000 USDC |
+| Received, on the mirror | 99.605634 tAAPL | **99.605634 tAAPL** |
+| Cost vs spot | +0.3944% | +0.3959% |
+| `buy()` gas | 351,514 | 351,540 |
+| Peer links | 16/16 verified | 16/16 verified |
+
+Identical to the token, with gas differing by 26 (deployment nonce ordering).
+
+**Why it matters / what breaks if ignored:** Two real constraints sit behind the claim, and
+neither is visible from the config:
+
+1. **The home chain must be able to host the venue.** Module 4 deploys or uses Uniswap V3, so
+   the home chain has to be EVM *and* have a V3 deployment (or permit deploying one). A chain
+   with a different AMM needs a venue adapter behind `SwapRelay` — see `agents.md` §8.
+2. **The home chain cannot be migrated after launch.** Reusing the pipeline promotes a chain
+   cleanly on a *fresh* deployment, but there is no path that moves an existing pool, its
+   liquidity and the relay from one chain to another. Choosing the base chain is a one-way
+   decision today.

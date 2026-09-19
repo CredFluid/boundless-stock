@@ -1,0 +1,61 @@
+{
+  "name": "crossstock-arb-home",
+  "_comment": "SAME token, SAME code, DIFFERENT base chain. Arbitrum Sepolia is now the home chain holding the pool; Base Sepolia is demoted to a mirror. Diff against localnet.json: only which chain object sits in homeChain vs mirrorChains. No module code differs.",
+  "token": {
+    "name": "Tokenized Apple Inc.",
+    "symbol": "tAAPL",
+    "decimals": 18,
+    "initialSupply": "1000000"
+  },
+  "quoteAsset": {
+    "name": "USD Coin",
+    "symbol": "USDC",
+    "decimals": 6,
+    "initialSupply": "50000000"
+  },
+  "homeChain": {
+    "key": "arbitrum-sepolia",
+    "name": "Arbitrum Sepolia",
+    "chainId": 421614,
+    "eid": 40231,
+    "rpcUrl": "http://127.0.0.1:8546",
+    "nativeSymbol": "ETH",
+    "uniswap": {
+      "deployIfMissing": true
+    }
+  },
+  "mirrorChains": [
+    {
+      "key": "base-sepolia",
+      "name": "Base Sepolia",
+      "chainId": 84532,
+      "eid": 40245,
+      "rpcUrl": "http://127.0.0.1:8545",
+      "nativeSymbol": "ETH"
+    },
+    {
+      "key": "optimism-sepolia",
+      "name": "Optimism Sepolia",
+      "chainId": 11155420,
+      "eid": 40232,
+      "rpcUrl": "http://127.0.0.1:8547",
+      "nativeSymbol": "ETH"
+    }
+  ],
+  "pool": {
+    "feeTier": 3000,
+    "initialPrice": "150",
+    "baseLiquidity": "100000",
+    "quoteLiquidity": "15000000",
+    "tickHalfWidth": 60000
+  },
+  "relay": {
+    "homeLzReceiveGas": 300000,
+    "homeComposeGas": 1200000,
+    "homeComposeValue": "0.01",
+    "returnGas": 300000,
+    "relayNativeBuffer": "1",
+    "returnComposeGas": 400000
+  },
+  "localMessageLibFee": "0.0001"
+}
