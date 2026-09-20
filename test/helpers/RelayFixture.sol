@@ -166,6 +166,20 @@ abstract contract RelayFixture is TestHelperOz5 {
     }
 
     /**
+     * @notice Deliver only the packets queued for one specific receiver.
+     * @dev Lets a test settle one message while deliberately leaving another in flight — which
+     *      is the whole shape of a cancellation, where the point is that the original never
+     *      arrives.
+     */
+    function deliverOnlyTo(uint32 _eid, address _target) public {
+        bytes32 asBytes32 = bytes32(uint256(uint160(_target)));
+        if (!hasPendingPackets(uint16(_eid), asBytes32)) return;
+        vm.recordLogs();
+        verifyPackets(_eid, asBytes32);
+        _collectComposes(vm.getRecordedLogs());
+        _executePendingComposes();
+    }
+    /**
      * @notice Deliver packets but execute NO composes — reproduces an under-gassed or failing
      *         composed call, leaving tokens sitting in the relay.
      * @dev The composes stay QUEUED, exactly as LayerZero keeps them, so a later `deliverAll()`
@@ -177,13 +191,18 @@ abstract contract RelayFixture is TestHelperOz5 {
     }
 
     function _deliverPackets() private returns (bool progressed) {
-        address[4] memory targets = [
+        // The relay pair is included alongside the tokens: settlements that carry no tokens —
+        // STRANDED and CANCELLED — are plain OApp messages addressed to those contracts, not
+        // to an OFT, and would otherwise never be delivered here at all.
+        address[6] memory targets = [
             address(homeStock),
             address(homeQuote),
             address(mirrorStock),
-            address(mirrorQuote)
+            address(mirrorQuote),
+            address(relay),
+            address(request)
         ];
-        uint32[4] memory targetEids = [HOME_EID, HOME_EID, MIRROR_EID, MIRROR_EID];
+        uint32[6] memory targetEids = [HOME_EID, HOME_EID, MIRROR_EID, MIRROR_EID, HOME_EID, MIRROR_EID];
 
         vm.recordLogs();
         for (uint256 i = 0; i < targets.length; i++) {

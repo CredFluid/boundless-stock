@@ -72,7 +72,7 @@ contract DustZombieRegression is RelayFixture {
         uint64 id = request.sell{ value: fee.nativeFee }(quantum, 0);
         vm.stopPrank();
 
-        (, , , , uint256 amountIn, , , , , SwapTypes.Status status, ) = request.requests(id);
+        (, , , , uint256 amountIn, , , , , SwapTypes.Status status, , ) = request.requests(id);
         assertEq(amountIn, quantum, "one quantum must bridge intact");
         assertEq(uint8(status), uint8(SwapTypes.Status.PENDING), "and create a real request");
         console2.log("one quantum accepted, amountIn:", amountIn);
@@ -88,7 +88,7 @@ contract DustZombieRegression is RelayFixture {
         uint64 id = request.sell{ value: fee.nativeFee }(amount, 0);
         vm.stopPrank();
 
-        (, , , , uint256 amountIn, , , , , , ) = request.requests(id);
+        (, , , , uint256 amountIn, , , , , , , ) = request.requests(id);
         assertEq(amountIn, 3e12, "the bridgeable part must be kept and the remainder returned");
     }
 }
@@ -143,7 +143,7 @@ contract DustOutputRegression is RelayFixture {
         deliverAll();
         deliverAll();
 
-        (, , , , , , uint256 amountOut, , , SwapTypes.Status status, ) = request.requests(id);
+        (, , , , , , uint256 amountOut, , , SwapTypes.Status status, , ) = request.requests(id);
         console2.log("status (1=PENDING,2=FILLED):", uint8(status));
         console2.log("amountOut:", amountOut);
         console2.log("stock delivered to user:", mirrorStock.balanceOf(user));

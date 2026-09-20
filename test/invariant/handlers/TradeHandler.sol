@@ -188,7 +188,7 @@ contract TradeHandler is Test {
     function _observeSettlements() internal {
         for (uint256 i = 0; i < createdIds.length; i++) {
             uint64 id = createdIds[i];
-            (, , , , , , , , uint64 settledAt, SwapTypes.Status status, ) = request.requests(id);
+            (, , , , , , , , uint64 settledAt, SwapTypes.Status status, , ) = request.requests(id);
             if (status == SwapTypes.Status.PENDING) continue;
 
             if (!seenSettled[id]) {

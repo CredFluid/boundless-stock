@@ -1204,3 +1204,79 @@ truncating a 32-byte pubkey into the wrong `address`.
 expiry, so those funds stay in flight indefinitely, and nothing at the application layer can
 reclaim them without risking a double-spend if the message later lands. That is a property of
 the bridge, not of this design — and it is now at least *visible*, via `bridgedOut − bridgedIn`.
+
+---
+
+### [2026-09-20] The undelivered-message case was not unfixable after all
+**Milestone:** M23 — stuck-message cancellation
+
+**What happened / what to know:** This had been written off twice as "a property of the bridge",
+on the reasoning that refunding a message which might still land would create the amount twice.
+That reasoning is only valid for a **unilateral source-side refund**. Reading
+`MessagingChannel.sol` showed it does not survive contact with what the endpoint actually
+offers.
+
+LayerZero lets the OApp **or its delegate** make an inbound nonce permanently dead:
+
+| | Effect | Pre-verification? |
+|---|---|---|
+| `skip` | advances the lazy inbound nonce past it | **yes** |
+| `nilify` | blocks execution *until re-verified* | yes |
+| `burn` | *"can never be re-verified or executed"* | no — needs it verified and `nonce <= lazyInboundNonce` |
+
+So the safe sequence is **kill, then authorise**:
+
+1. On the destination, `skip` (plus `burn` if it was verified) makes the nonce unexecutable
+   *and* unverifiable — after `skip`, verification needs either a nonce above the lazy one or an
+   existing payload hash, and it now has neither.
+2. Only then does a CANCELLED settlement authorise the source to restore the input.
+
+Reversing those two steps is the double spend. Performing them in this order cannot be.
+
+**`nilify` alone would not have been enough**, and that is the subtle part: it only blocks
+execution *until re-verified*, so a DVN attesting again would resurrect the message and the
+double spend with it. `skip` then `burn` is what makes it terminal.
+
+**The prerequisite that nearly got missed.** `oft.send()` returns
+`MessagingReceipt{guid, nonce, fee}` and `SwapRequest` was discarding it. Without the nonce
+recorded against the request, a stuck message cannot even be *named* — recovery is not merely
+unbuilt, it is unreachable, and no later work can recover the information. Three lines, and the
+only genuinely irreversible decision in this area.
+
+**Why restoring supply is safe here.** Refunding a burned amount necessarily means re-creating
+it — the tokens exist nowhere. `OmniToken.recoveryCredit` is therefore the one exception to "no
+mint", gated to a single designated contract that acts only on an authenticated cross-chain
+cancellation. It counts the amount as `bridgedIn` rather than as new supply, which is exactly
+right: the amount was counted in `bridgedOut` when it left, so recording the restoration as an
+arrival closes the pair and the invariant holds across a cancellation just as it does across a
+normal delivery.
+
+**What remains is policy, not mechanism.** Cancellation is owner-gated, so a user depends on the
+operator to trigger it — though the operator cannot redirect the funds, only release them to the
+recorded user. Production wants a timeout after which anyone may trigger, and the delegate role
+behind a timelock, since a delegate can kill *any* inbound message on that OFT.
+
+---
+
+### [2026-09-20] The options parser had a latent out-of-bounds, found by a re-run
+**Milestone:** M23
+
+**What happened / what to know:** `testFuzz_malformedOptionsDoNotRevert` had passed at 512 runs
+several times. On this run a new seed produced
+`0x0003cd2c7569545588bf9f0da5ed6fe8c0008d88b33d75` and it failed.
+
+The payload declares an option of **11,381 bytes inside a 23-byte buffer**. The bounds guard
+checked only that the 3-byte header fit; it did not check that the *declared size* fit, and
+`ExecutorOptions.nextExecutorOption` then slices with that size and reverts.
+
+**Why it matters / what breaks if ignored:** Two things worth carrying.
+
+First, a property test passing is evidence about the seeds that ran, not a proof. This one had
+been green repeatedly while the bug sat there. Fuzz suites are worth re-running with fresh
+seeds rather than trusting a historical pass — and worth running in CI where seeds vary.
+
+Second, the bug is in the right place to matter. The parser decides how much native value the
+endpoint charges and the executor forwards; a revert there means a quote that fails for a reason
+the caller cannot act on. The local message library is not production code, but the same parsing
+shape appears in anything that reads LayerZero options, and "the header fits" is not the same
+check as "the option fits".

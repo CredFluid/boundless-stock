@@ -2,6 +2,7 @@
 pragma solidity ^0.8.22;
 
 import { OApp, Origin } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
+import { ILayerZeroEndpointV2 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 import { IOAppComposer } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppComposer.sol";
 import { OFTComposeMsgCodec } from "@layerzerolabs/oft-evm/contracts/libs/OFTComposeMsgCodec.sol";
@@ -101,6 +102,7 @@ contract SwapRelay is OApp, IOAppComposer {
     event FundsStranded(uint32 indexed srcEid, uint64 indexed requestId, address token, uint256 amount, string why);
     event StrandedClaimed(uint32 indexed srcEid, uint64 indexed requestId, address token, address to, uint256 amount);
     event NativeFunded(address indexed from, uint256 amount);
+    event StuckMessageCancelled(uint32 indexed srcEid, uint64 indexed nonce, address oft, bytes32 payloadHash);
 
     error UnexpectedComposeSource(address from);
     error NothingStranded(uint32 srcEid, uint64 requestId);
@@ -365,7 +367,8 @@ contract SwapRelay is OApp, IOAppComposer {
                 status: uint8(SwapTypes.Status.STRANDED),
                 reason: uint8(SwapTypes.FailureReason.POOL_ERROR),
                 amountIn: _amount,
-                amountOut: 0
+                amountOut: 0,
+                lzNonce: 0
             })
         );
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(_returnGas(_dstEid), 0);
@@ -432,7 +435,8 @@ contract SwapRelay is OApp, IOAppComposer {
                     status: uint8(_filled ? SwapTypes.Status.FILLED : SwapTypes.Status.REFUNDED),
                     reason: uint8(_reason),
                     amountIn: _amountIn,
-                    amountOut: _amountOut
+                    amountOut: _amountOut,
+                    lzNonce: 0
                 })
             );
     }
@@ -490,6 +494,76 @@ contract SwapRelay is OApp, IOAppComposer {
     function _payNative(uint256 _nativeFee) internal view override returns (uint256) {
         if (address(this).balance < _nativeFee) revert NotEnoughNative(address(this).balance);
         return _nativeFee;
+    }
+
+    /**
+     * @notice Permanently kill an inbound message that will never arrive, and tell the mirror
+     *         chain so the user can be made whole.
+     *
+     * @dev THE ORDERING IS THE SAFETY ARGUMENT. A source chain cannot simply refund a message
+     *      that has not arrived: if it later lands, the amount exists twice. What makes a
+     *      refund safe is proving first, here on the destination, that it can never execute —
+     *      and only then authorising the restoration. Kill, then notify. Never the reverse.
+     *
+     *      LayerZero gives the OApp (or its delegate) exactly the tools for that half:
+     *
+     *        unverified  `skip` advances the lazy inbound nonce past it. Afterwards the nonce
+     *                    is neither verifiable nor executable, because verification requires
+     *                    either a nonce above the lazy one or an existing payload hash, and it
+     *                    now has neither.
+     *        verified    `skip` then `burn`. `skip` brings the lazy nonce up so `burn` is
+     *                    permitted; `burn` deletes the payload hash outright. `nilify` alone
+     *                    would NOT be enough — it only blocks execution *until re-verified*,
+     *                    so a DVN attesting again would resurrect the message and with it the
+     *                    double spend.
+     *
+     *      This relay must be the OFT's **delegate** for the calls to be authorised. That is a
+     *      powerful role — a delegate can kill any inbound message on that OFT — so it is
+     *      owner-gated here and belongs behind a timelock in production, together with a
+     *      timeout policy that lets anyone trigger it rather than only the operator.
+     *
+     * @param _srcEid       The mirror chain the message came from.
+     * @param _sender       That chain's OFT, as LayerZero addresses it.
+     * @param _oft          The OFT on this chain whose inbound channel is stuck.
+     * @param _nonce        Must be the oldest unexecuted nonce on that path.
+     * @param _payloadHash  The verified payload hash, or zero if it was never verified.
+     */
+    function cancelStuckInbound(
+        uint32 _srcEid,
+        bytes32 _sender,
+        address _oft,
+        uint64 _nonce,
+        bytes32 _payloadHash
+    ) external onlyOwner {
+        if (_oft != address(baseOft) && _oft != address(quoteOft)) revert UnexpectedComposeSource(_oft);
+
+        ILayerZeroEndpointV2 ep = ILayerZeroEndpointV2(address(endpoint));
+
+        // Advance the lazy nonce past it. For an unverified message this alone is terminal.
+        ep.skip(_oft, _srcEid, _sender, _nonce);
+
+        // For a verified one, delete the payload so it can never be re-verified either.
+        if (_payloadHash != bytes32(0)) {
+            ep.burn(_oft, _srcEid, _sender, _nonce, _payloadHash);
+        }
+
+        // Only now is it safe to authorise the restoration. The mirror chain holds the request
+        // record and the amount, so the nonce is all that has to travel.
+        bytes memory payload = SwapTypes.encodeSettlement(
+            SwapTypes.Settlement({
+                requestId: 0,
+                status: uint8(SwapTypes.Status.CANCELLED),
+                reason: uint8(SwapTypes.FailureReason.NONE),
+                amountIn: 0,
+                amountOut: 0,
+                lzNonce: _nonce
+            })
+        );
+        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(_returnGas(_srcEid), 0);
+        MessagingFee memory fee = _quote(_srcEid, payload, options, false);
+        _lzSend(_srcEid, payload, options, fee, address(this));
+
+        emit StuckMessageCancelled(_srcEid, _nonce, _oft, _payloadHash);
     }
 
     /// @notice Top up the native balance used to pay for return legs.

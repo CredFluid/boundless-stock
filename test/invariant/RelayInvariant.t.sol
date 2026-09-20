@@ -118,7 +118,7 @@ contract RelayInvariant is RelayFixture {
             uint64 id = handler.createdAt(i);
             if (!handler.seenSettled(id)) continue;
 
-            (, , , , , , , , uint64 settledAt, SwapTypes.Status status, ) = request.requests(id);
+            (, , , , , , , , uint64 settledAt, SwapTypes.Status status, , ) = request.requests(id);
             assertTrue(status != SwapTypes.Status.PENDING, "a settled request must never revert to PENDING");
             assertEq(settledAt, handler.firstSettledAt(id), "a request must never settle twice");
         }
@@ -133,7 +133,7 @@ contract RelayInvariant is RelayFixture {
         uint256 n = handler.createdCount();
         for (uint256 i = 0; i < n; i++) {
             uint64 id = handler.createdAt(i);
-            (address u, , address tokenIn, address tokenOut, uint256 amountIn, , , , , SwapTypes.Status st, ) = request
+            (address u, , address tokenIn, address tokenOut, uint256 amountIn, , , , , SwapTypes.Status st, , ) = request
                 .requests(id);
 
             assertTrue(u != address(0), "a created request must have an owner");
@@ -169,7 +169,7 @@ contract RelayInvariant is RelayFixture {
         uint256 n = handler.createdCount();
         for (uint256 i = 0; i < n; i++) {
             uint64 id = handler.createdAt(i);
-            (, , , , , , uint256 amountOut, , , SwapTypes.Status st, ) = request.requests(id);
+            (, , , , , , uint256 amountOut, , , SwapTypes.Status st, , ) = request.requests(id);
             if (st == SwapTypes.Status.FILLED) {
                 assertGt(amountOut, 0, "a FILLED request must have delivered a non-zero amount");
             }

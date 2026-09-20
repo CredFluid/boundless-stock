@@ -111,8 +111,19 @@ contract LocalMessageLib is ISendLib, ERC165, Ownable {
 
         uint256 cursor = 2;
         while (cursor < _options.length) {
-            // Bounds-guard: a truncated trailing option must not read past the end.
+            // Bounds-guard, in two parts. Checking only that the 3-byte header fits is not
+            // enough: the header declares a `size` that `nextExecutorOption` then slices with,
+            // and a hostile or truncated payload can declare a size running far past the end.
+            // Layout is [workerId:1][size:2][optionType:1][params:size-1], so the option
+            // occupies `cursor + 2 + size` bytes in total.
+            //
+            // Found by `testFuzz_malformedOptionsDoNotRevert` with
+            // 0x0003cd2c7569545588bf9f0da5ed6fe8c0008d88b33d75, which declares a 11,381-byte
+            // option inside a 23-byte payload. Earlier runs of that fuzz test happened not to
+            // generate it.
             if (cursor + 3 > _options.length) break;
+            uint256 declaredSize = uint256(uint16(bytes2(_options[cursor + 1:cursor + 3])));
+            if (cursor + 2 + declaredSize > _options.length) break;
 
             (uint8 optionType, bytes calldata option, uint256 next) = ExecutorOptions.nextExecutorOption(
                 _options,

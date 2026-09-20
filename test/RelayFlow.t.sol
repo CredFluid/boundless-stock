@@ -142,6 +142,7 @@ contract RelayFlow is RelayFixture {
         uint64 settledAt;
         SwapTypes.Status status;
         uint8 failureReason;
+        uint64 lzNonce;
     }
 
     function _getRequest(uint64 id) internal view returns (SwapRequest_Request memory out) {
@@ -156,8 +157,9 @@ contract RelayFlow is RelayFixture {
             uint64 created,
             uint64 settled,
             SwapTypes.Status st,
-            uint8 reason
+            uint8 reason,
+            uint64 nonce
         ) = request.requests(id);
-        out = SwapRequest_Request(u, dir, tIn, tOut, aIn, minOut, aOut, created, settled, st, reason);
+        out = SwapRequest_Request(u, dir, tIn, tOut, aIn, minOut, aOut, created, settled, st, reason, nonce);
     }
 }

@@ -126,16 +126,21 @@ pub struct Settlement {
     pub reason: u8,
     pub amount_in: u128,
     pub amount_out: u128,
+    /// LayerZero nonce of the outbound message this settles. Carried because a CANCELLED
+    /// settlement concerns a message the home chain never received: it knows the nonce it
+    /// killed but not the request id, since the payload never arrived to be decoded.
+    pub lz_nonce: u64,
 }
 
 impl Settlement {
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(5 * WORD);
+        let mut out = Vec::with_capacity(6 * WORD);
         write_u64(&mut out, self.request_id);
         write_u8(&mut out, self.status);
         write_u8(&mut out, self.reason);
         write_u128(&mut out, self.amount_in);
         write_u128(&mut out, self.amount_out);
+        write_u64(&mut out, self.lz_nonce);
         out
     }
 
@@ -146,6 +151,7 @@ impl Settlement {
             reason: read_u8(data, 2)?,
             amount_in: read_u128(data, 3)?,
             amount_out: read_u128(data, 4)?,
+            lz_nonce: read_u64(data, 5)?,
         })
     }
 }
@@ -174,14 +180,15 @@ mod tests {
             reason: 0,
             amount_in: 15_000_000_000,
             amount_out: 99_605_634,
+            lz_nonce: 17,
         };
         assert_eq!(Settlement::decode(&s.encode()).unwrap(), s);
-        assert_eq!(s.encode().len(), 5 * WORD, "must match abi.encode of five value types");
+        assert_eq!(s.encode().len(), 6 * WORD, "must match abi.encode of six value types");
     }
 
     #[test]
     fn truncated_payload_is_rejected() {
-        let s = Settlement { request_id: 1, status: 2, reason: 0, amount_in: 1, amount_out: 1 };
+        let s = Settlement { request_id: 1, status: 2, reason: 0, amount_in: 1, amount_out: 1, lz_nonce: 1 };
         let encoded = s.encode();
         assert!(Settlement::decode(&encoded[..encoded.len() - 1]).is_err());
     }
@@ -189,7 +196,7 @@ mod tests {
     #[test]
     fn oversized_value_is_rejected_not_truncated() {
         // A uint256 that does not fit u64 means the two sides disagree about the type.
-        let mut data = vec![0u8; 5 * WORD];
+        let mut data = vec![0u8; 6 * WORD];
         data[0] = 1; // high byte of the first word
         assert!(Settlement::decode(&data).is_err());
     }

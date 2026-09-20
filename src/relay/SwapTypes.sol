@@ -40,7 +40,17 @@ library SwapTypes {
          * actually claimable. A STRANDED request means "your money is on the home chain, go and
          * claim it there", and `SwapRelay.claimStranded` is how.
          */
-        STRANDED
+        STRANDED,
+        /**
+         * The outbound message was never delivered and has been permanently killed on the
+         * destination, so the input is restored here.
+         *
+         * Distinct from REFUNDED: a refund carries the tokens back across the bridge, whereas
+         * a cancellation restores them locally, because they never arrived anywhere to be sent
+         * back from. Only ever issued *after* the destination has proved the original message
+         * can no longer execute — see `SwapRelay.cancelStuckInbound`.
+         */
+        CANCELLED
     }
 
     /// @notice Why a request was refunded rather than filled.
@@ -71,10 +81,20 @@ library SwapTypes {
     /// @dev home -> mirror, inside the OFT composeMsg accompanying the returned tokens.
     struct Settlement {
         uint64 requestId;
-        uint8 status; // SwapTypes.Status: FILLED or REFUNDED
+        uint8 status; // SwapTypes.Status
         uint8 reason; // SwapTypes.FailureReason, NONE when filled
         uint256 amountIn; // input actually executed (post bridge-dust removal)
         uint256 amountOut; // output produced on the home chain pool
+        /**
+         * LayerZero nonce of the *outbound* message this settles.
+         *
+         * Carried because a CANCELLED settlement concerns a message the home chain never
+         * received: it knows the nonce it killed but not the request id, since the payload
+         * never arrived to be decoded. The mirror chain holds that mapping and is the source
+         * of truth for the amount, so the nonce is all that has to cross. Zero on settlements
+         * that do carry a request id.
+         */
+        uint64 lzNonce;
     }
 
     function encodeOrder(Order memory _o) internal pure returns (bytes memory) {
@@ -89,13 +109,13 @@ library SwapTypes {
     }
 
     function encodeSettlement(Settlement memory _s) internal pure returns (bytes memory) {
-        return abi.encode(_s.requestId, _s.status, _s.reason, _s.amountIn, _s.amountOut);
+        return abi.encode(_s.requestId, _s.status, _s.reason, _s.amountIn, _s.amountOut, _s.lzNonce);
     }
 
     function decodeSettlement(bytes memory _b) internal pure returns (Settlement memory s) {
-        (s.requestId, s.status, s.reason, s.amountIn, s.amountOut) = abi.decode(
+        (s.requestId, s.status, s.reason, s.amountIn, s.amountOut, s.lzNonce) = abi.decode(
             _b,
-            (uint64, uint8, uint8, uint256, uint256)
+            (uint64, uint8, uint8, uint256, uint256, uint64)
         );
     }
 }

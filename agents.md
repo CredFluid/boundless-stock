@@ -355,11 +355,16 @@ Ordered by severity. Full discussion in [`REPORT.md`](REPORT.md) §6.
    terminal state instead of sitting `PENDING` forever. `SwapRequest` also pays out
    late-arriving settlements to the recorded user rather than keeping them.
 
-   **What is still open:** an *undelivered* packet — burned on the source, never delivered
-   anywhere. LayerZero V2 has no message expiry, so the funds remain in flight indefinitely and
-   nothing at the application layer can reclaim them without risking a double-spend if the
-   message later lands. That case is a property of the bridge, not of this design, and is
-   visible in the supply accounting via `bridgedOut − bridgedIn`.
+   **The undelivered-packet case is also now handled**, via `SwapRelay.cancelStuckInbound`.
+   The earlier assessment — that reclaiming it risks a double spend — was only true of a
+   *unilateral source-side refund*. LayerZero lets the OApp's delegate make an inbound nonce
+   permanently unexecutable (`skip`, and `burn` if it was verified), so the safe sequence is
+   **kill on the destination, then authorise the restoration on the source**. Reversing those
+   two steps is the double spend; performing them in this order cannot be.
+
+   The remaining gap is *policy*, not mechanism: cancellation is owner-gated, so a user depends
+   on the operator to trigger it. A production version wants a timeout after which anyone can,
+   and the delegate role behind a timelock.
 2. **A failed swap costs the protocol, not the user.** The refund is a second LayerZero message
    paid from `SwapRelay`'s balance. At scale, deliberately-failing orders could drain the relay's
    gas buffer.

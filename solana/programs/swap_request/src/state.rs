@@ -14,6 +14,9 @@ pub enum Status {
     /// `SwapRelay.claimStranded`. Numbered to match `SwapTypes.Status` exactly; the two VMs
     /// read each other's settlements, so a divergence here is a silent misinterpretation.
     Stranded = 4,
+    /// The outbound message was never delivered and has been permanently killed on the
+    /// destination, so the input is restored here rather than bridged back.
+    Cancelled = 5,
 }
 
 /// Direction, from the mirror-chain user's point of view. Mirrors `SwapTypes.Direction`.

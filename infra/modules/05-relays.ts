@@ -91,6 +91,27 @@ export async function deployRelays(
     log.groupEnd();
   }
 
+  // ---------------------------------------------------------------- recovery roles
+
+  // The relay must be each mirror OFT's recoveryMinter so it can restore an input whose
+  // outbound message was killed, and the home OFTs' LayerZero delegate so it is authorised to
+  // do the killing. Both are trusted roles; see agents.md §9.
+  const tokenArtifact = forgeArtifact("TokenizedStock");
+  for (const mc of cfg.mirrorChains) {
+    const chain = chains.get(mc.key)!;
+    for (const asset of ["TokenizedStock", "QuoteAsset"] as const) {
+      await chain.write(getContract(manifest, mc.key, asset) as Address, tokenArtifact.abi, "setRecoveryMinter", [
+        requests[mc.key],
+      ]);
+    }
+  }
+  log.ok("mirror OFTs will accept recovery credits from their SwapRequest");
+
+  for (const asset of ["TokenizedStockOft", "QuoteAssetOft"] as const) {
+    await home.write(getContract(manifest, home.key, asset) as Address, tokenArtifact.abi, "setDelegate", [relay]);
+  }
+  log.ok("SwapRelay set as the home OFTs' LayerZero delegate (can cancel stuck inbound messages)");
+
   // ---------------------------------------------------------------- return gas per mirror
 
   for (const mc of cfg.mirrorChains) {

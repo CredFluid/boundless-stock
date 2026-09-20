@@ -5,7 +5,13 @@ import { OApp, Origin } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
 import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 import { IOAppComposer } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppComposer.sol";
 import { OFTComposeMsgCodec } from "@layerzerolabs/oft-evm/contracts/libs/OFTComposeMsgCodec.sol";
-import { IOFT, SendParam, MessagingFee, OFTReceipt } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
+import {
+    IOFT,
+    SendParam,
+    MessagingFee,
+    MessagingReceipt,
+    OFTReceipt
+} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -40,6 +46,11 @@ import { SwapTypes } from "./SwapTypes.sol";
  *      own wallet balance. Nobody on this chain quotes a price or takes the other side of the
  *      trade; all of that happens on the home chain's pool.
  */
+/// @dev The narrow slice of {OmniToken} this contract needs in order to restore a cancelled input.
+interface IOmniRecovery {
+    function recoveryCredit(address to, uint256 amount) external;
+}
+
 contract SwapRequest is OApp, IOAppComposer {
     using SafeERC20 for IERC20;
     using OptionsBuilder for bytes;
@@ -57,6 +68,15 @@ contract SwapRequest is OApp, IOAppComposer {
         uint64 settledAt;
         SwapTypes.Status status;
         uint8 failureReason;
+        /**
+         * LayerZero nonce of the outbound message carrying this request.
+         *
+         * Recorded because it is the *only* handle by which a message that never arrived can
+         * later be identified and killed on the destination. Without it a stuck request is not
+         * merely unrecovered, it is unrecoverable — there is nothing to point at. Cheap to
+         * store and impossible to reconstruct afterwards.
+         */
+        uint64 lzNonce;
     }
 
     /// @notice The stock, as an ERC-20, on this chain.
@@ -79,6 +99,14 @@ contract SwapRequest is OApp, IOAppComposer {
     uint64 public nextRequestId = 1;
     mapping(uint64 => Request) public requests;
     uint64[] public requestIds;
+    /**
+     * @notice Outbound LayerZero nonce -> request id.
+     * @dev A cancellation arrives knowing only the nonce: the home chain killed a message whose
+     *      payload it never saw, so it cannot name the request. This mapping is what lets the
+     *      mirror resolve it, and is why the mirror — not the message — is the source of truth
+     *      for the amount being restored.
+     */
+    mapping(uint64 lzNonce => uint64 requestId) public requestIdByNonce;
 
     /// @notice Gas for the OFT's `lzReceive` on the home chain.
     uint128 public homeLzReceiveGas = 250_000;
@@ -104,6 +132,14 @@ contract SwapRequest is OApp, IOAppComposer {
     event DustReturned(uint64 indexed requestId, address indexed user, uint256 amount);
     /// @notice The result exists on the home chain but cannot be bridged back; claim it there.
     event SwapStranded(uint64 indexed requestId, address indexed user, uint256 amount);
+    /// @notice The outbound message was killed on the destination and the input restored here.
+    event SwapCancelled(
+        uint64 indexed requestId,
+        address indexed user,
+        address token,
+        uint256 amount,
+        uint64 lzNonce
+    );
     /// @notice Tokens arrived for an already-settled request and were paid to its owner anyway.
     event LateSettlementPaid(uint64 indexed requestId, address indexed user, address token, uint256 amount);
 
@@ -166,24 +202,9 @@ contract SwapRequest is OApp, IOAppComposer {
 
         tokenIn.safeTransferFrom(msg.sender, address(this), _amountIn);
 
-        SendParam memory sendParam = _buildSendParam(requestId, _direction, _amountIn, _minAmountOut, msg.sender);
-
-        IOFT oft = _oftFor(tokenIn);
-
-        // An adapter pulls with transferFrom rather than burning, so it needs an allowance.
-        // A native OmniToken reports false and needs none.
-        if (oft.approvalRequired()) {
-            tokenIn.forceApprove(address(oft), _amountIn);
-        }
-
-        MessagingFee memory fee = oft.quoteSend(sendParam, false);
-        if (msg.value < fee.nativeFee) revert InsufficientFee(fee.nativeFee, msg.value);
-
-        (, OFTReceipt memory oftReceipt) = oft.send{ value: msg.value }(sendParam, fee, msg.sender);
-
-        // The OFT quantises to shared decimals (6) before bridging, so anything finer never
-        // leaves this chain. Hand it straight back rather than letting it accumulate here.
-        uint256 sent = oftReceipt.amountSentLD;
+        // Dispatched in its own frame: the send needs several locals that are dead afterwards,
+        // and keeping them alive here puts this function over the stack limit.
+        (uint256 sent, uint64 lzNonce) = _dispatch(requestId, _direction, tokenIn, _amountIn, _minAmountOut);
 
         // An input entirely below the OFT's precision floor bridges as zero. The home chain
         // would then have nothing to swap and nothing to send back, leaving the request
@@ -210,10 +231,45 @@ contract SwapRequest is OApp, IOAppComposer {
             createdAt: uint64(block.timestamp),
             settledAt: 0,
             status: SwapTypes.Status.PENDING,
-            failureReason: uint8(SwapTypes.FailureReason.NONE)
+            failureReason: uint8(SwapTypes.FailureReason.NONE),
+            lzNonce: lzNonce
         });
+        requestIdByNonce[lzNonce] = requestId;
 
         emit SwapRequested(requestId, msg.sender, uint8(_direction), address(tokenIn), sent, _minAmountOut);
+    }
+
+    /**
+     * @dev Builds and sends the outbound OFT message.
+     * @return sent    Amount that actually crossed, after the OFT's precision floor.
+     * @return lzNonce LayerZero nonce of the message — the handle by which it can later be
+     *                 identified and, if it never arrives, killed on the destination.
+     */
+    function _dispatch(
+        uint64 _requestId,
+        SwapTypes.Direction _direction,
+        IERC20 _tokenIn,
+        uint256 _amountIn,
+        uint256 _minAmountOut
+    ) internal returns (uint256 sent, uint64 lzNonce) {
+        SendParam memory sendParam = _buildSendParam(_requestId, _direction, _amountIn, _minAmountOut, msg.sender);
+        IOFT oft = _oftFor(_tokenIn);
+
+        // An adapter pulls with transferFrom rather than burning, so it needs an allowance.
+        // A native OmniToken reports false and needs none.
+        if (oft.approvalRequired()) {
+            _tokenIn.forceApprove(address(oft), _amountIn);
+        }
+
+        MessagingFee memory fee = oft.quoteSend(sendParam, false);
+        if (msg.value < fee.nativeFee) revert InsufficientFee(fee.nativeFee, msg.value);
+
+        (MessagingReceipt memory msgReceipt, OFTReceipt memory oftReceipt) = oft.send{ value: msg.value }(
+            sendParam,
+            fee,
+            msg.sender
+        );
+        return (oftReceipt.amountSentLD, msgReceipt.nonce);
     }
 
     /// @notice Native fee required to submit a trade with these arguments.
@@ -357,6 +413,11 @@ contract SwapRequest is OApp, IOAppComposer {
         if (_origin.srcEid != homeEid) revert UnexpectedOrigin(_origin.srcEid, _origin.sender);
 
         SwapTypes.Settlement memory s = SwapTypes.decodeSettlement(_message);
+
+        if (s.status == uint8(SwapTypes.Status.CANCELLED)) {
+            _applyCancellation(s.lzNonce);
+            return;
+        }
         if (s.status != uint8(SwapTypes.Status.STRANDED)) return;
 
         Request storage r = requests[s.requestId];
@@ -366,6 +427,35 @@ contract SwapRequest is OApp, IOAppComposer {
         r.failureReason = s.reason;
         r.settledAt = uint64(block.timestamp);
         emit SwapStranded(s.requestId, r.user, s.amountIn);
+    }
+
+    /**
+     * @notice Restore the input for a message the home chain has permanently killed.
+     *
+     * @dev Reached only through `_lzReceive`, so the authority is LayerZero's peer check: this
+     *      instruction came from the registered SwapRelay and nowhere else. That relay sends it
+     *      only *after* proving on its own chain that the original message can never execute,
+     *      which is what makes re-creating the amount safe rather than a double spend.
+     *
+     *      The amount comes from this contract's own record, never from the message. The home
+     *      chain never saw the payload — it killed a nonce, not a request — so it cannot state
+     *      an amount, and accepting one from the wire would be accepting an unverifiable claim.
+     */
+    function _applyCancellation(uint64 _lzNonce) internal {
+        uint64 requestId = requestIdByNonce[_lzNonce];
+        if (requestId == 0) return; // nothing here matches that nonce
+
+        Request storage r = requests[requestId];
+        if (r.status != SwapTypes.Status.PENDING) return; // already settled; nothing owed
+
+        r.status = SwapTypes.Status.CANCELLED;
+        r.settledAt = uint64(block.timestamp);
+
+        // The tokens were burned to leave this chain and now exist nowhere, so making the user
+        // whole means re-creating them. Counted as an arrival rather than as new supply — see
+        // OmniToken.recoveryCredit.
+        IOmniRecovery(address(_oftFor(IERC20(r.tokenIn)))).recoveryCredit(r.user, r.amountIn);
+        emit SwapCancelled(requestId, r.user, r.tokenIn, r.amountIn, _lzNonce);
     }
 
     // ------------------------------------------------------------------ views

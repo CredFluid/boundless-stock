@@ -26,11 +26,14 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
  *      conversion rate of exactly 1 and loses nothing. An 18-decimal token quantises away its
  *      bottom 12 decimal places on every hop — see NOTES.md.
  *
- *      NO MINT FUNCTION, DELIBERATELY. Supply is fixed at deployment and can afterwards only
- *      move between chains, never grow. An owner-callable `mint` existed here as a testnet
+ *      NO GENERAL MINT FUNCTION, DELIBERATELY. Supply is fixed at deployment and can
+ *      afterwards only move between chains. An owner-callable `mint` existed here as a testnet
  *      faucet and was removed: it made the entire omnichain supply invariant contingent on a
- *      single private key, which is precisely the property this asset should not have. Tests
- *      that need to conjure supply use `MintableOmniToken` in `test/helpers/`.
+ *      single private key. Tests that need to conjure supply use `MintableOmniToken`.
+ *
+ *      The one exception is {recoveryCredit} — see its documentation. It exists because
+ *      refunding a killed bridge message has no other possible implementation, and it is
+ *      counted as an arrival rather than as new supply, so the invariant survives it.
  */
 contract OmniToken is OFTCore, ERC20 {
     uint8 private immutable _decimals;
@@ -53,6 +56,27 @@ contract OmniToken is OFTCore, ERC20 {
     /// @notice Cumulative amount this chain has ever minted from an inbound bridge message.
     uint256 public bridgedIn;
 
+    /**
+     * @notice The only contract permitted to restore supply for a cancelled bridge message.
+     *
+     * @dev This is the single exception to "no mint function", and it is deliberately narrow.
+     *      Refunding a message that was burned here and then permanently killed on the
+     *      destination *requires* re-creating the amount — there is no other way to make the
+     *      user whole, because the tokens exist nowhere. What makes that safe is not the
+     *      absence of a mint but the ordering around it: the destination proves the original
+     *      message can never execute before any refund is authorised.
+     *
+     *      Set once at deployment to the relay contract, which only acts on an authenticated
+     *      cross-chain cancellation. A production deployment should put this behind a timelock
+     *      — it is the remaining path by which supply can grow.
+     */
+    address public recoveryMinter;
+
+    event RecoveryMinterSet(address indexed minter);
+    event RecoveryCredit(address indexed to, uint256 amount);
+
+    error OnlyRecoveryMinter(address caller);
+
     /// @param _initialSupply Full supply on the home chain; 0 on every mirror chain.
     constructor(
         string memory _name,
@@ -70,6 +94,30 @@ contract OmniToken is OFTCore, ERC20 {
 
     function decimals() public view override returns (uint8) {
         return _decimals;
+    }
+
+    function setRecoveryMinter(address _minter) external onlyOwner {
+        recoveryMinter = _minter;
+        emit RecoveryMinterSet(_minter);
+    }
+
+    /**
+     * @notice Restore an amount that was burned to leave this chain and can never arrive.
+     *
+     * @dev Counted as `bridgedIn`, not as new supply, and that is the point. The omnichain
+     *      invariant is `Σ totalSupply + Σ bridgedOut − Σ bridgedIn == minted`; this amount was
+     *      already counted in `bridgedOut` when it left. Recording the restoration as an
+     *      arrival closes the pair, so the invariant holds across a cancellation exactly as it
+     *      does across a normal delivery — the tokens simply arrived back where they started
+     *      rather than at their destination.
+     */
+    function recoveryCredit(address _to, uint256 _amount) external {
+        if (msg.sender != recoveryMinter || recoveryMinter == address(0)) {
+            revert OnlyRecoveryMinter(msg.sender);
+        }
+        _mint(_to, _amount);
+        bridgedIn += _amount;
+        emit RecoveryCredit(_to, _amount);
     }
 
     /// @dev The OFT is the token itself, so no separate ERC-20 and no approval to send.

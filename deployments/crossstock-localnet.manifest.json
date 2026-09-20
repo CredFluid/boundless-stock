@@ -1,8 +1,8 @@
 {
   "name": "crossstock-localnet",
   "version": "1",
-  "createdAt": "2026-09-19T22:06:30.018Z",
-  "updatedAt": "2026-09-19T22:06:30.754Z",
+  "createdAt": "2026-09-20T22:49:57.948Z",
+  "updatedAt": "2026-09-20T22:49:58.734Z",
   "environment": "local",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "token": {
@@ -41,8 +41,8 @@
         "SwapRelay": "0x59b670e9fa9d0a427751af201d676719a970857b"
       },
       "deploymentGas": {
-        "gasUsed": "35016320",
-        "txCount": 29
+        "gasUsed": "35444885",
+        "txCount": 31
       }
     },
     "arbitrum-sepolia": {
@@ -62,8 +62,8 @@
         "SwapRequest": "0x0dcd1bf9a1b36ce34237eeafef220932846bcd82"
       },
       "deploymentGas": {
-        "gasUsed": "15044201",
-        "txCount": 16
+        "gasUsed": "15482147",
+        "txCount": 18
       }
     },
     "optimism-sepolia": {
@@ -83,8 +83,8 @@
         "SwapRequest": "0x0dcd1bf9a1b36ce34237eeafef220932846bcd82"
       },
       "deploymentGas": {
-        "gasUsed": "15044201",
-        "txCount": 16
+        "gasUsed": "15482147",
+        "txCount": 18
       }
     }
   },
@@ -98,7 +98,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0x200a119ad206d3c8e8419146e0b7a23303e4e2309695cec3aff828c5f8bbb7ca"
+      "txHash": "0xde73ec61e1b6d038b40e8b39573e99e84b7d7ef500bcdda89631a21ecb137173"
     },
     {
       "kind": "oft",
@@ -109,7 +109,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0x5a32425d5cca1c3b4e5845f45f5c0035df1dcc349f4747c3cb41c5eb5ebe2f65"
+      "txHash": "0x07485b6c2aa5a848e3129739b5290ecff180a295664db55d23f28bf114837286"
     },
     {
       "kind": "oft",
@@ -120,7 +120,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0x11f92820c906c1de107225b7aed050c3bb99abc9fb958c515d88e08c92616389"
+      "txHash": "0xfb1eba2b1b31cf738718d6e925a384b6f75a73a02d89f30120d1dd1a329a2587"
     },
     {
       "kind": "oft",
@@ -131,7 +131,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0xadcc39ded4980d60dc75b9250f5d0884c2142791de2efcf49975b86f45449668"
+      "txHash": "0x8934be2713d9868567eb72b6114dd07f773b0b23af0be5fc55fc5e41fd512d8b"
     },
     {
       "kind": "oft",
@@ -142,7 +142,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0x41e272b84e881871d4cf9275f79216bfad2e15ba76fa372b98b5f7111656dc68"
+      "txHash": "0xbeca65e516df608bcb7c2c91c7c530823164af71f2b37c39dc1c1c53d83c7b56"
     },
     {
       "kind": "oft",
@@ -153,7 +153,7 @@
       "expected": "0x000000000000000000000000a513E6E4b8f2a923D98304ec87F64353C4D5C853",
       "actual": "0x000000000000000000000000a513e6e4b8f2a923d98304ec87f64353c4d5c853",
       "verified": true,
-      "txHash": "0x1d9bbe8168615945e12b3a6b4332fea03be9b54575da4d0d6976820bc25a1951"
+      "txHash": "0x572f12a6fb9400d2264c141bc437ad9ba5ad4b5a804882053bf8875fc9eccb73"
     },
     {
       "kind": "oft",
@@ -164,7 +164,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0xf54fa94403018472bbaf40423cec77b860cb3f9baf3e928719c2f7f4531346ad"
+      "txHash": "0xab72563cc0ddd8a67c519420d4d797ba0e5917a560474b8b38acf7846b717e42"
     },
     {
       "kind": "oft",
@@ -175,7 +175,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0xd629a84fdccb2725eaf807a7f1134417f4620b245007202da154f73b17d68598"
+      "txHash": "0xd3f8600ae47481e09b9839d6ad63c6485a00747efb5fbdb24c4c5a39b3dfa216"
     },
     {
       "kind": "oft",
@@ -186,7 +186,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0xe9452ac24e40e37329e62be609fab498a17916f1e4f73bd9726dde34edbee403"
+      "txHash": "0x99a07ec4eaa08c287f4b139a0353cd9b3411370f8d2fb7c161c33660829e77e8"
     },
     {
       "kind": "oft",
@@ -197,7 +197,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0x2b0e342b18807554e30607e28cb0d2855cd5ddd93f78484095a68c2ff67f7664"
+      "txHash": "0x2751b9f4f25073ae65b222a4d26c238fd1ff8b5555edc279597fb46fe0d90c03"
     },
     {
       "kind": "oft",
@@ -208,7 +208,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0x417dd882125eb2724e7931c6c2d46dc4f0877795a6a7288e237a2ec094dc16de"
+      "txHash": "0xa375df4f7d0b98a72cf4dc162401bd6aa5eac84ca27566027d465f80701d474f"
     },
     {
       "kind": "oft",
@@ -219,7 +219,7 @@
       "expected": "0x0000000000000000000000002279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
       "actual": "0x0000000000000000000000002279b7a0a67db372996a5fab50d91eaa73d2ebe6",
       "verified": true,
-      "txHash": "0xa5b22af902de03fed2d3793e9fa23c9dfa1e15b1d9a78e7035291c276e22078e"
+      "txHash": "0x93786567d4648136041aa929185743c5787a5af202988132425a04d203265d37"
     },
     {
       "kind": "relay",
@@ -230,7 +230,7 @@
       "expected": "0x0000000000000000000000000DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
       "actual": "0x0000000000000000000000000dcd1bf9a1b36ce34237eeafef220932846bcd82",
       "verified": true,
-      "txHash": "0xb0a115b29b44e7a8f86039888a33099b53b1f55654ec992146e5d6d5d57053d1"
+      "txHash": "0xe6881070f03015621b8bf492076682fba9f93b71adc3ace84023df52f3bddf11"
     },
     {
       "kind": "relay",
@@ -241,7 +241,7 @@
       "expected": "0x00000000000000000000000059b670e9fA9D0A427751Af201D676719a970857b",
       "actual": "0x00000000000000000000000059b670e9fa9d0a427751af201d676719a970857b",
       "verified": true,
-      "txHash": "0xdfeef22889106b5475b3b48c24d42f0b293784dca74bf19b50377c5eca0952ee"
+      "txHash": "0xbb59da6c1218af1d51674c521daad60c4f2cd7ff523e5029807fadae2e9f452f"
     },
     {
       "kind": "relay",
@@ -252,7 +252,7 @@
       "expected": "0x0000000000000000000000000DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
       "actual": "0x0000000000000000000000000dcd1bf9a1b36ce34237eeafef220932846bcd82",
       "verified": true,
-      "txHash": "0xfdabf068fcc30508204ea1818f5b30733902680be81ccb338a26ee1d1bd94b61"
+      "txHash": "0xcb3e4c3c84f600b0e7cdb84265c7ab78a209f54db876fdfdda4f04b20fadae73"
     },
     {
       "kind": "relay",
@@ -263,62 +263,62 @@
       "expected": "0x00000000000000000000000059b670e9fA9D0A427751Af201D676719a970857b",
       "actual": "0x00000000000000000000000059b670e9fa9d0a427751af201d676719a970857b",
       "verified": true,
-      "txHash": "0xcb0259212b9ebdf1a29b8e0edffec3fe8c3ec310cd61a1b6361032f127490890"
+      "txHash": "0x2ba46b26a836fa941cb9794918091af547dce4cfdc00712a2f637bba8699d25a"
     }
   ],
   "steps": [
     {
       "module": "00-endpoints",
       "status": "ok",
-      "at": "2026-09-19T22:06:30.296Z",
+      "at": "2026-09-20T22:49:58.233Z",
       "detail": "3 chains"
     },
     {
       "module": "01-token",
       "status": "ok",
-      "at": "2026-09-19T22:06:30.336Z",
+      "at": "2026-09-20T22:49:58.270Z",
       "detail": "tAAPL + USDC on base-sepolia (launch)"
     },
     {
       "module": "02-mirrors",
       "status": "ok",
-      "at": "2026-09-19T22:06:30.399Z",
+      "at": "2026-09-20T22:49:58.330Z",
       "detail": "2 mirrors × 2 assets"
     },
     {
       "module": "03-peers:TokenizedStockOft",
       "status": "ok",
-      "at": "2026-09-19T22:06:30.462Z",
+      "at": "2026-09-20T22:49:58.393Z",
       "detail": "6/6 verified"
     },
     {
       "module": "03-peers:QuoteAssetOft",
       "status": "ok",
-      "at": "2026-09-19T22:06:30.520Z",
+      "at": "2026-09-20T22:49:58.454Z",
       "detail": "6/6 verified"
     },
     {
       "module": "04-pool",
       "status": "ok",
-      "at": "2026-09-19T22:06:30.631Z",
+      "at": "2026-09-20T22:49:58.556Z",
       "detail": "L=1288875159409035126"
     },
     {
       "module": "03-peers:SwapRelay↔SwapRequest",
       "status": "ok",
-      "at": "2026-09-19T22:06:30.753Z",
+      "at": "2026-09-20T22:49:58.733Z",
       "detail": "4/4 verified"
     },
     {
       "module": "05-relays",
       "status": "ok",
-      "at": "2026-09-19T22:06:30.753Z",
+      "at": "2026-09-20T22:49:58.733Z",
       "detail": "relay + 2 requests, 4 links"
     },
     {
       "module": "06-manifest",
       "status": "ok",
-      "at": "2026-09-19T22:06:30.754Z",
+      "at": "2026-09-20T22:49:58.734Z",
       "detail": "0 problems"
     }
   ],
