@@ -17,6 +17,14 @@ pragma solidity ^0.8.22;
  *
  *      Coupling tokens to the instruction is the core safety property. Neither side can ever
  *      be asked to act on a message whose funds have not already arrived.
+ *
+ *      **Every amount on the wire is in SHARED decimals** — the OFT's cross-chain precision,
+ *      identical on every chain — never in a chain's local decimals. The two ends of a trade
+ *      need not agree on local decimals: an 18-decimal ERC-20 on the home chain can back a
+ *      9-decimal SPL mint on Solana, where a u64 cannot hold 18-decimal amounts at all. A
+ *      local-decimal figure would be read at the wrong scale on the other side; for
+ *      `minAmountOut` that silently removes the user's slippage protection. Each side converts
+ *      at its own edge, with the OFT's own conversion rate.
  */
 library SwapTypes {
     /// @notice Which way the trade goes, from the mirror-chain user's point of view.
@@ -65,7 +73,7 @@ library SwapTypes {
     struct Order {
         uint64 requestId; // unique per (mirror chain, SwapRequest) pair
         uint8 direction; // SwapTypes.Direction, declared by the sender
-        uint256 minAmountOut; // slippage floor, in output-asset units
+        uint256 minAmountOut; // slippage floor, output asset, SHARED decimals (rounded up)
         /**
          * Who receives the result, ON THE MIRROR CHAIN.
          *
@@ -83,8 +91,8 @@ library SwapTypes {
         uint64 requestId;
         uint8 status; // SwapTypes.Status
         uint8 reason; // SwapTypes.FailureReason, NONE when filled
-        uint256 amountIn; // input actually executed (post bridge-dust removal)
-        uint256 amountOut; // output produced on the home chain pool
+        uint256 amountIn; // input executed or returned, SHARED decimals (rounded down)
+        uint256 amountOut; // output delivered, SHARED decimals (rounded down)
         /**
          * LayerZero nonce of the *outbound* message this settles.
          *
@@ -95,6 +103,16 @@ library SwapTypes {
          * that do carry a request id.
          */
         uint64 lzNonce;
+        /**
+         * Who the returned tokens are for, on the mirror chain — copied from the order.
+         *
+         * An EVM mirror can look the user up from its own request record at delivery time, so
+         * it does not need this. A Solana mirror cannot: every account a delivery touches must
+         * be named BEFORE it runs, from the message alone, and the user's token account is one
+         * of them. The mirror still checks it against its own record rather than trusting it.
+         * Zero on a CANCELLED settlement, which carries no tokens and no request id.
+         */
+        bytes32 recipient;
     }
 
     function encodeOrder(Order memory _o) internal pure returns (bytes memory) {
@@ -109,13 +127,13 @@ library SwapTypes {
     }
 
     function encodeSettlement(Settlement memory _s) internal pure returns (bytes memory) {
-        return abi.encode(_s.requestId, _s.status, _s.reason, _s.amountIn, _s.amountOut, _s.lzNonce);
+        return abi.encode(_s.requestId, _s.status, _s.reason, _s.amountIn, _s.amountOut, _s.lzNonce, _s.recipient);
     }
 
     function decodeSettlement(bytes memory _b) internal pure returns (Settlement memory s) {
-        (s.requestId, s.status, s.reason, s.amountIn, s.amountOut, s.lzNonce) = abi.decode(
+        (s.requestId, s.status, s.reason, s.amountIn, s.amountOut, s.lzNonce, s.recipient) = abi.decode(
             _b,
-            (uint64, uint8, uint8, uint256, uint256, uint64)
+            (uint64, uint8, uint8, uint256, uint256, uint64, bytes32)
         );
     }
 }

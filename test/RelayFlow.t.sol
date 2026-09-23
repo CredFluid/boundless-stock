@@ -129,6 +129,26 @@ contract RelayFlow is RelayFixture {
         assertEq(mirrorStock.balanceOf(user), 0, "no stock on a failed buy");
     }
 
+    /**
+     * @notice With matching 18-decimal tokens, a floor one wei above the output still refunds.
+     * @dev The floor crosses in shared decimals (6). Rounded down, 100e18 + 1 would arrive as
+     *      exactly 100 and the swap would fill below what the user asked for.
+     */
+    function test_floorFinerThanSharedPrecisionRoundsUp() public {
+        uint256 spend = 15_000e6;
+        _fundUserOnMirror(spend);
+
+        vm.startPrank(user);
+        mirrorQuote.approve(address(request), spend);
+        MessagingFee memory fee = request.quoteTrade(SwapTypes.Direction.BUY, spend, 100e18 + 1);
+        uint64 id = request.buy{ value: fee.nativeFee }(spend, 100e18 + 1);
+        vm.stopPrank();
+        deliverAll();
+
+        assertEq(uint8(_getRequest(id).status), uint8(SwapTypes.Status.REFUNDED), "must not fill below the floor");
+        assertEq(mirrorQuote.balanceOf(user), spend, "refunded in full");
+    }
+
     /// @dev Helper mirroring SwapRequest.Request, since structs don't cross the ABI cleanly.
     struct SwapRequest_Request {
         address user;

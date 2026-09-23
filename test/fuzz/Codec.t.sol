@@ -61,7 +61,8 @@ contract CodecFuzz is Test {
         uint8 reason,
         uint256 amountIn,
         uint256 amountOut,
-        uint64 lzNonce
+        uint64 lzNonce,
+        bytes32 recipient
     ) public pure {
         SwapTypes.Settlement memory s = SwapTypes.Settlement({
             requestId: requestId,
@@ -69,7 +70,8 @@ contract CodecFuzz is Test {
             reason: reason,
             amountIn: amountIn,
             amountOut: amountOut,
-            lzNonce: lzNonce
+            lzNonce: lzNonce,
+            recipient: recipient
         });
 
         SwapTypes.Settlement memory back = SwapTypes.decodeSettlement(SwapTypes.encodeSettlement(s));
@@ -80,6 +82,7 @@ contract CodecFuzz is Test {
         assertEq(back.amountIn, amountIn, "amountIn must survive the wire");
         assertEq(back.amountOut, amountOut, "amountOut must survive the wire");
         assertEq(back.lzNonce, lzNonce, "the LayerZero nonce must survive the wire");
+        assertEq(back.recipient, recipient, "the recipient must survive the wire");
     }
 
     /// @dev The two payloads must never be confusable. They travel on the same channel, so a
@@ -95,7 +98,8 @@ contract CodecFuzz is Test {
                 reason: 0,
                 amountIn: amount,
                 amountOut: amount,
-                lzNonce: 0
+                lzNonce: 0,
+                recipient: bytes32(uint256(0xBEEF))
             })
         );
         assertTrue(order.length != settlement.length, "payload lengths must differ so a mis-decode reverts");

@@ -296,12 +296,18 @@ contract SwapRequest is OApp, IOAppComposer {
         uint256 _minAmountOut,
         address _recipient
     ) internal view returns (SendParam memory) {
+        // The floor crosses in shared decimals, rounded UP: rounding down would let the home
+        // chain accept up to one quantum less than the user asked for. See SwapTypes.
+        IERC20 tokenOut = _direction == SwapTypes.Direction.BUY ? baseToken : quoteToken;
+        uint256 quantum = _bridgeQuantum(tokenOut);
+        uint256 minOutSD = _minAmountOut / quantum + (_minAmountOut % quantum == 0 ? 0 : 1);
+
         // Widened to bytes32 on the wire so a non-EVM mirror can name its own account format.
         bytes memory composeMsg = SwapTypes.encodeOrder(
             SwapTypes.Order({
                 requestId: _requestId,
                 direction: uint8(_direction),
-                minAmountOut: _minAmountOut,
+                minAmountOut: minOutSD,
                 recipient: bytes32(uint256(uint160(_recipient)))
             })
         );
