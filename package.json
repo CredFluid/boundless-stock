@@ -2,7 +2,7 @@
   "name": "crossstock-infra",
   "version": "0.1.0",
   "private": true,
-  "description": "CrossStock \u2014 config-driven omnichain token deployment infrastructure (LayerZero V2)",
+  "description": "CrossStock — config-driven omnichain token deployment infrastructure (LayerZero V2)",
   "type": "module",
   "scripts": {
     "build": "forge build",
@@ -16,6 +16,7 @@
     "test:invariant": "forge test --match-path 'test/invariant/*'",
     "test:fuzz": "forge test --match-path 'test/fuzz/*'",
     "deploy:legacy": "tsx infra/deploy-legacy-token.ts",
+    "solana:lz-build": "tsx infra/solana/lz-build.ts",
     "solana:up": "tsx infra/solana/localnet.ts up",
     "solana:down": "tsx infra/solana/localnet.ts down",
     "solana:build": "cd solana && cargo build-sbf --manifest-path programs/swap_request/Cargo.toml",
@@ -32,15 +33,24 @@
     "@layerzerolabs/lz-evm-messagelib-v2": "^3.0.168",
     "@layerzerolabs/lz-evm-protocol-v2": "^3.0.168",
     "@layerzerolabs/lz-evm-v1-0.7": "^3.0.168",
+    "@layerzerolabs/lz-solana-sdk-v2": "^3.0.168",
     "@layerzerolabs/oapp-evm": "^0.3.3",
     "@layerzerolabs/oft-evm": "^3.2.1",
+    "@layerzerolabs/oft-v2-solana-sdk": "^3.0.168",
     "@layerzerolabs/test-devtools-evm-foundry": "^6.0.3",
+    "@metaplex-foundation/umi": "^0.9.2",
+    "@metaplex-foundation/umi-rpc-web3js": "^0.9.2",
+    "@metaplex-foundation/umi-web3js-adapters": "^0.9.2",
     "@openzeppelin/contracts": "^5.6.1",
     "@openzeppelin/contracts-upgradeable": "^5.6.1",
-    "@solana/web3.js": "^1.99.0",
+    "@solana/web3.js": "1.95.8",
     "@uniswap/v3-core": "^1.0.1",
     "@uniswap/v3-periphery": "^1.4.4",
+    "got": "^11.8.6",
     "solidity-bytes-utils": "^0.8.4",
     "viem": "^2.21.55"
+  },
+  "overrides": {
+    "@solana/web3.js": "1.95.8"
   }
 }

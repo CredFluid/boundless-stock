@@ -3,7 +3,7 @@ import type { DeploymentConfig, Manifest } from "../lib/types.js";
 import { Chain } from "../lib/chains.js";
 import { forgeArtifact } from "../lib/artifacts.js";
 import { upsertChain, recordStep } from "../lib/manifest.js";
-import { allChains } from "../lib/config.js";
+import { allChains, vmOf } from "../lib/config.js";
 import { reuseAddress } from "../lib/reuse.js";
 import { log } from "../lib/logger.js";
 
@@ -28,7 +28,9 @@ export async function ensureEndpoints(
   const configs = allChains(cfg);
   const baseFee = parseEther(cfg.localMessageLibFee ?? "0.0001");
 
-  for (const cc of configs) {
+  // Only EVM chains get an endpoint stack from here; a Solana chain's is set up by its own
+  // backend. Every chain, whatever its VM, still needs a ROUTE from each EVM endpoint.
+  for (const cc of configs.filter((c) => vmOf(c) === "evm")) {
     const chain = chains.get(cc.key)!;
     const role = cc.key === cfg.homeChain.key ? "home" : "mirror";
 

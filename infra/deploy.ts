@@ -20,6 +20,8 @@ import { deployPool } from "./modules/04-pool.js";
 import { deployRelays } from "./modules/05-relays.js";
 import { finalizeManifest, printManifest } from "./modules/06-manifest.js";
 import { log } from "./lib/logger.js";
+import { setupSolanaMirror, remotesFromManifest } from "./solana/setup.js";
+import { PublicKey } from "@solana/web3.js";
 import type { Address } from "viem";
 
 function arg(name: string, fallback?: string): string {
@@ -44,23 +46,21 @@ async function main(): Promise<void> {
   log.kv("home chain", `${cfg.homeChain.name} — eid ${cfg.homeChain.eid}`);
   log.kv("mirror chains", cfg.mirrorChains.map((c) => `${c.name} (${c.eid})`).join(", "));
 
-  // Route by VM before touching anything. A Solana chain reaching the EVM backend produces a
-  // confusing viem error several layers down; naming the gap here is far more useful.
+  // Route by VM. The EVM modules see only the EVM chains; each Solana chain is set up by its
+  // own backend once the EVM side exists, because its peers are the EVM contracts' addresses.
   const svmChains = allChains(cfg).filter((c) => vmOf(c) === "svm");
+  if (vmOf(cfg.homeChain) !== "evm") {
+    throw new Error(
+      `${cfg.homeChain.name} is a Solana chain. Solana as the HOME chain needs a swap_relay program ` +
+        "and a Solana pool module, which do not exist yet — see agents.md section 12."
+    );
+  }
+  const evmCfg = { ...cfg, mirrorChains: cfg.mirrorChains.filter((c) => vmOf(c) === "evm") };
   if (svmChains.length > 0) {
-    log.step("VM routing");
-    for (const c of svmChains) {
-      log.warn(`${c.name} (eid ${c.eid}) is a Solana chain — the SVM backend is not implemented yet.`);
-    }
-    log.fail("Solana chains are configured but cannot be deployed to yet.");
-    log.info("");
-    log.info("The multi-VM config schema, validation and local validator harness are in place");
-    log.info("(`npm run solana:up` clones LayerZero's real EndpointV2 onto a local validator).");
-    log.info("What remains is the SVM backend itself — see agents.md §12 for the exact list.");
-    process.exit(1);
+    log.kv("Solana chains", svmChains.map((c) => `${c.name} (${c.eid})`).join(", "));
   }
 
-  const chains = buildChains(allChains(cfg));
+  const chains = buildChains(allChains(evmCfg));
 
   // Preflight every chain before writing anything anywhere. A partial deployment caused by an
   // unreachable third chain is far more annoying than a refusal up front.
@@ -79,10 +79,10 @@ async function main(): Promise<void> {
   await ensureEndpoints(cfg, chains, manifest);
   saveManifest(manifest);
 
-  await deployHomeToken(cfg, chains, manifest);
+  await deployHomeToken(evmCfg, chains, manifest);
   saveManifest(manifest);
 
-  await deployMirrorTokens(cfg, chains, manifest);
+  await deployMirrorTokens(evmCfg, chains, manifest);
   saveManifest(manifest);
 
   // Two omnichain assets means two independent peer meshes. The module is called twice with
@@ -99,7 +99,7 @@ async function main(): Promise<void> {
     [cfg.quoteAsset.symbol, "QuoteAssetOft"],
   ] as const) {
     log.group(`${assetLabel} mesh`);
-    const nodes: PeerNode[] = allChains(cfg).map((c) => ({
+    const nodes: PeerNode[] = allChains(evmCfg).map((c) => ({
       chainKey: c.key,
       chainName: c.name,
       eid: c.eid,
@@ -123,11 +123,64 @@ async function main(): Promise<void> {
   }
   log.ok(`OFT meshes: ${totalVerified}/${totalLinks} links verified bidirectionally across 2 assets`);
 
-  await deployPool(cfg, chains, manifest);
+  await deployPool(evmCfg, chains, manifest);
   saveManifest(manifest);
 
-  await deployRelays(cfg, chains, manifest);
+  await deployRelays(evmCfg, chains, manifest);
   saveManifest(manifest);
+
+  // ------------------------------------------------------------------ Solana chains
+  for (const sc of svmChains) {
+    const sol = await setupSolanaMirror(cfg, sc, remotesFromManifest(manifest));
+
+    // The EVM half of each link: every EVM chain's OFT for an asset peers with that asset's
+    // OFT store on Solana, and the home relay with the Solana request store. Same module,
+    // same read-back verification; the Solana half was written by its own backend above.
+    log.step(`EVM peers → ${sc.name}`);
+    const svmNode = (address: string) => ({
+      chainKey: sc.key,
+      chainName: sc.name,
+      eid: sc.eid,
+      address: solanaPeerId(address),
+      vm: "svm" as const,
+    });
+    for (const [contractName, store] of [
+      ["TokenizedStockOft", sol.assets.base.oftStore],
+      ["QuoteAssetOft", sol.assets.quote.oftStore],
+    ] as const) {
+      const nodes: PeerNode[] = [
+        ...allChains(evmCfg).map((c) => ({
+          chainKey: c.key,
+          chainName: c.name,
+          eid: c.eid,
+          address: getContract(manifest, c.key, contractName) as Address,
+        })),
+        svmNode(store),
+      ];
+      const w = await wirePeers({ kind: "oft", nodes, chains, manifest, topology: "mesh", label: contractName });
+      if (w.failures.length > 0) throw new Error(`${contractName} → ${sc.name} peer wiring failed verification.`);
+    }
+    const relayNodes: PeerNode[] = [
+      {
+        chainKey: evmCfg.homeChain.key,
+        chainName: evmCfg.homeChain.name,
+        eid: evmCfg.homeChain.eid,
+        address: getContract(manifest, evmCfg.homeChain.key, "SwapRelay") as Address,
+      },
+      svmNode(sol.swapRequest.store),
+    ];
+    const r = await wirePeers({
+      kind: "relay",
+      nodes: relayNodes,
+      chains,
+      manifest,
+      topology: "star",
+      hubKey: evmCfg.homeChain.key,
+      label: "SwapRelay",
+    });
+    if (r.failures.length > 0) throw new Error(`SwapRelay → ${sc.name} peer wiring failed verification.`);
+    saveManifest(manifest);
+  }
 
   const result = finalizeManifest(manifest, chains);
   printManifest(manifest);
@@ -147,3 +200,8 @@ main().catch((e) => {
   if (process.env.DEBUG) console.error(e);
   process.exit(1);
 });
+
+/** A Solana pubkey as LayerZero addresses it on an EVM chain: its 32 bytes, as hex. */
+function solanaPeerId(base58: string): `0x${string}` {
+  return `0x${Buffer.from(new PublicKey(base58).toBytes()).toString("hex")}`;
+}

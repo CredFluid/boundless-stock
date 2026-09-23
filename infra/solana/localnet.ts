@@ -1,24 +1,24 @@
 #!/usr/bin/env tsx
 /**
- * Local Solana validator with LayerZero's EndpointV2 cloned onto it.
+ * Local Solana validator with LayerZero's EndpointV2 and test message library loaded onto it.
  *
- * The Solana counterpart to `infra/localnet.ts`. Where an EVM chain gets an endpoint the infra
- * deploys itself, LayerZero's Solana endpoint is a single canonical program that cannot be
- * meaningfully redeployed — so the local validator **clones it from devnet** instead. That is
- * the same trick LayerZero's own examples use, and it means local Solana testing runs against
- * the real endpoint bytecode rather than a stand-in.
+ * The Solana counterpart to `infra/localnet.ts`. LayerZero's Solana endpoint is a single
+ * canonical program, so rather than deploying a stand-in the validator loads the real one at
+ * its real id — built from the vendored LayerZero commit by `npm run solana:lz-build`, together
+ * with LayerZero's `simple-messagelib`, the Solana counterpart of the EVM `LocalMessageLib`.
+ * `--clone-devnet` copies the endpoint from devnet instead, as the original setup did.
  *
- *   npm run solana:up      # start, with the endpoint cloned
+ *   npm run solana:lz-build   # once
+ *   npm run solana:up
  *   npm run solana:down
- *
- * Verified working: the endpoint lands as a 1,639,888-byte upgradeable program owned by
- * BPFLoaderUpgradeab1e, queryable at the program id below.
  */
 import { spawn } from "node:child_process";
 import { writeFileSync, readFileSync, existsSync, mkdirSync, openSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { log } from "../lib/logger.js";
+import { LZ_PROGRAMS_DIR } from "./lz-build.js";
+import { SIMPLE_MESSAGELIB_PROGRAM_ID } from "./lz-local.js";
 
 /** LayerZero EndpointV2 on Solana. Same program id on mainnet and devnet. */
 export const LZ_ENDPOINT_PROGRAM_ID = "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6";
@@ -78,18 +78,37 @@ async function up(): Promise<void> {
   const logFile = resolve(STATE_DIR, "validator.log");
   const fd = openSync(logFile, "a");
 
-  // --clone-upgradeable-program pulls the real endpoint bytecode AND its programdata account.
-  // Cloning with plain --clone gives an account the loader cannot execute.
+  // Two ways to get LayerZero's programs onto the validator:
+  //
+  //   from source (default) — load the endpoint AND simple-messagelib, built by
+  //     `npm run solana:lz-build` from the vendored commit, at their canonical ids. No network
+  //     needed, and the message library is what lets the local relayer verify packets.
+  //   --clone-devnet — copy the endpoint from devnet (the original M16 approach). No message
+  //     library comes with it, so nothing can be verified locally; kept for inspecting devnet's
+  //     exact build.
+  //
+  // --clone-upgradeable-program pulls the bytecode AND its programdata account; plain --clone
+  // gives an account the loader cannot execute.
+  const cloneDevnet = process.argv.includes("--clone-devnet");
+  const programArgs: string[] = [];
+  if (cloneDevnet) {
+    programArgs.push("--url", "https://api.devnet.solana.com", "--clone-upgradeable-program", LZ_ENDPOINT_PROGRAM_ID);
+  } else {
+    for (const [id, so] of [
+      [LZ_ENDPOINT_PROGRAM_ID, "endpoint.so"],
+      [SIMPLE_MESSAGELIB_PROGRAM_ID, "simple_messagelib.so"],
+    ]) {
+      const path = resolve(LZ_PROGRAMS_DIR, so);
+      if (!existsSync(path)) {
+        throw new Error(`${path} is missing. Build LayerZero's programs first: npm run solana:lz-build`);
+      }
+      programArgs.push("--upgradeable-program", id, path, payer);
+    }
+  }
+
   const child = spawn(
     "solana-test-validator",
-    [
-      "--reset",
-      "--quiet",
-      "--ledger", LEDGER_DIR,
-      "--rpc-port", String(RPC_PORT),
-      "--url", "https://api.devnet.solana.com",
-      "--clone-upgradeable-program", LZ_ENDPOINT_PROGRAM_ID,
-    ],
+    ["--reset", "--quiet", "--ledger", LEDGER_DIR, "--rpc-port", String(RPC_PORT), ...programArgs],
     { detached: true, stdio: ["ignore", fd, fd] }
   );
   child.unref();
@@ -114,13 +133,17 @@ async function up(): Promise<void> {
     pid: child.pid!,
     rpc: LOCAL_RPC,
     payer,
-    clonedPrograms: [LZ_ENDPOINT_PROGRAM_ID],
+    clonedPrograms: cloneDevnet ? [LZ_ENDPOINT_PROGRAM_ID] : [LZ_ENDPOINT_PROGRAM_ID, SIMPLE_MESSAGELIB_PROGRAM_ID],
   };
   writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
   log.ok(`validator running on ${LOCAL_RPC} (pid ${child.pid})`);
   log.kv("payer", payer);
-  log.kv("LayerZero EndpointV2", `${LZ_ENDPOINT_PROGRAM_ID} (cloned from devnet, executable)`);
+  log.kv(
+    "LayerZero EndpointV2",
+    `${LZ_ENDPOINT_PROGRAM_ID} (${cloneDevnet ? "cloned from devnet" : "built from source"}, executable)`
+  );
+  if (!cloneDevnet) log.kv("simple-messagelib", `${SIMPLE_MESSAGELIB_PROGRAM_ID} (built from source)`);
   log.info(`\nState: ${STATE_FILE}`);
 }
 

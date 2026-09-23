@@ -231,7 +231,13 @@ pub mod swap_request {
     /// The first call LayerZero's Executor makes before delivering a composed message. Version
     /// 2 means "call `lz_compose_types_v2` with these accounts and it will return the complete
     /// set of instructions to execute".
-    pub fn lz_compose_types_info(ctx: Context<LzComposeTypes>) -> Result<(u8, LzComposeTypesV2Accounts)> {
+    ///
+    /// Takes the compose params because LayerZero's Executor sends them (see the SDK's
+    /// `getLzComposeTypesInfo`); this composer's answer does not depend on them.
+    pub fn lz_compose_types_info(
+        ctx: Context<LzComposeTypes>,
+        _params: LzComposeParams,
+    ) -> Result<(u8, LzComposeTypesV2Accounts)> {
         Ok((
             LZ_COMPOSE_TYPES_VERSION,
             LzComposeTypesV2Accounts {
