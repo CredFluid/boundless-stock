@@ -1280,3 +1280,129 @@ endpoint charges and the executor forwards; a revert there means a quote that fa
 the caller cannot act on. The local message library is not production code, but the same parsing
 shape appears in anything that reads LayerZero options, and "the header fits" is not the same
 check as "the option fits".
+
+---
+
+### [2026-09-23] Wire amounts were in local decimals, which a Solana mirror cannot share
+**Milestone:** M24 — any chain as home, part 1
+
+**What happened / what to know:** `Order.minAmountOut` and the settlement amounts crossed the
+wire in each chain's *local* decimals. That only worked because every chain happened to use the
+same decimals. A Solana mirror cannot: an SPL amount is a u64, which holds at most ~18.4 whole
+units of an 18-decimal token, and `infra/solana/setup.ts` was creating the tAAPL mint at 18
+decimals — so any delivery above ~18 tAAPL would have overflowed. Once the mirror uses, say, 9
+decimals, a floor of `101e9` ("101 stock") arrives on the home chain and is read as `101e9` at 18
+decimals — 0.000000101 stock — and an unsatisfiable order fills. No error, just no slippage
+protection.
+
+Every wire amount is now in **shared decimals** (6), the OFT's own cross-chain unit, and each
+side converts at its edge using the OFT's conversion rate. The floor rounds **up** on the way
+out (rounding down would let the home chain accept up to one quantum less than asked); the relay
+**saturates** rather than overflowing when scaling it back, because a revert inside `lzCompose`
+leaves the compose permanently failing with the input stuck, whereas an unreachable floor just
+refunds. Solana mints now take per-chain decimals (`svm.decimals`, default
+`min(asset decimals, 9)`), and config loading refuses a u64 overflow or sub-shared decimals
+before anything is deployed.
+
+**Why it matters / what breaks if ignored:** `test/MixedDecimals.t.sol` runs the relay with an
+18-decimal home and a 9-decimal mirror. `test_slippageFloorIsHonouredAcrossDecimals` and
+`test_subQuantumFloorRoundsUpNotDown` **fail on the previous contracts** — checked by stashing
+the change and re-running, not assumed. The whole suite already passed before this fix, because
+every test used matching decimals on both ends: the property was never exercised.
+
+The full local pipeline was re-run afterwards — `chains:up`, `deploy --fresh`, `validate` — and
+passes 6/6, with the core buy delivering 99.605634 tAAPL, identical to the pre-change figure.
+
+---
+
+### [2026-09-23] The Solana mirror had never been able to close a trade
+**Milestone:** M24
+
+**What happened / what to know:** Reading `swap_request::lz_compose` against the vendored OFT's
+`compose_msg_codec.rs` turned up five defects, any one of which blocks the mirror:
+
+1. **It decoded the wrong bytes.** The OFT wraps a composed message as
+   `nonce (8) | src_eid (4) | amount_ld (8) | compose_from (32) | msg`. `lz_compose` decoded
+   that whole frame as the Settlement; the nonce in the first word fails the u64 range check, so
+   **every** settlement delivered to Solana would have been rejected. (The EVM frame differs
+   too: its `amountLD` is 32 bytes, Solana's is 8.)
+2. **It never paid the user.** Tokens are minted into the store's token account; the handler
+   recorded FILLED and left them there.
+3. **It did not authenticate the sender.** `UnauthorizedSource` and `UnexpectedOrigin` existed
+   in the error enum but nothing raised them. Anyone can bridge the stock to the store with a
+   compose message attached; only the home relay's are settlements.
+4. **It did not bind the request.** The Executor is permissionless and chooses the accounts;
+   `request` was `#[account(mut)]` with no seed check, so a settlement for request 7 could close
+   request 8. `RequestMismatch` also existed unused.
+5. **The planning instructions were the wrong protocol version.** `lz_compose_types_v2`
+   returned a V1-style `Vec<LzAccount>`, and `lz_compose_types_info` (the Executor's first call,
+   version discovery) did not exist.
+
+All fixed. Paying the user needs their token account named *before* delivery, from the message
+alone — the planning instruction cannot read the request to find the user — so **Settlement now
+carries `recipient`**, copied from the order by the relay. The handler checks it against the
+request's own record rather than trusting it, derives both token accounts rather than accepting
+them (a submitter who could name the destination could take the payout), and the plan creates
+the user's token account idempotently first, paid by the Executor.
+
+**Why it matters / what breaks if ignored:** The checks live in `verify_settlement`, a pure
+function, specifically so they can be tested without a Solana runtime.
+`src/verify_tests.rs` starts from one valid delivery and breaks one thing per test; the baseline
+test asserts the valid case passes, so none of the rejections can be vacuous. The Rust codec
+also now pins Solidity's actual bytes (generated with `cast abi-encode`) rather than only
+round-tripping itself — a round-trip passes happily if both directions drift together.
+
+**What remains open on the mirror:** STRANDED and CANCELLED notices are plain OApp messages from
+the relay, not composes, and the program has **no `lz_receive`** — so a Solana request cannot
+yet reach those states, and restoring a cancelled input needs a mint path through the OFT.
+
+---
+
+### [2026-09-23] Relayer spike: the local Solana endpoint is uninitialised, and that is the way in
+**Milestone:** M24
+
+**What happened / what to know:** `solana:up` clones only the endpoint **program** from devnet —
+none of its state. There is no `EndpointSettings` PDA, no registered message library and no
+default send/receive library locally. `register_oapp` works without any of that (it only writes
+the OApp's registry PDA), which is why M17 succeeded; but no message can be sent or verified.
+
+Reading the endpoint source at the vendored commit (`9c741e7`) settles how to proceed:
+
+- `init_endpoint` has **no access control** — it `init`s the `[b"Endpoint"]` PDA and records
+  whatever `admin` the caller passes. On a fresh local validator the setup script becomes the
+  endpoint's admin, and can then `register_library` and set default libraries per remote eid.
+- LayerZero ships **`simple-messagelib`**, whose `validate_packet` lets a whitelisted caller
+  verify a packet directly into the endpoint. It is the exact counterpart of this repo's EVM
+  `LocalMessageLib`, so the local relayer keeps doing what it does on EVM: observe, verify via
+  the test library, execute.
+- It lives in LayerZero's **anchor 0.29** program tree (`programs/simple-messagelib`), not the
+  interface-only `anchor-latest` one. Vendor and build it the way `vendor/oft-solana` was: its own
+  lock and toolchain pin.
+
+The relayer's Solana side then needs: packet observation (the endpoint emits `PacketSent` as an
+Anchor event CPI, so it is read from the transaction's inner instructions, not a log topic);
+verification via `validate_packet`; and execution as the Executor does it — `*_types_info` →
+`*_types_v2` → run the returned instructions, substituting the relayer for `Payer`.
+
+**Why it matters / what breaks if ignored:** None of this is needed against real devnet/testnet,
+where LayerZero's own DVNs and Executor deliver. It is purely what the local environment needs
+to exercise Solana end to end — the same role `LocalMessageLib` and `infra/relayer.ts` play on
+EVM.
+
+---
+
+### [2026-09-23] This session's toolchain: what is reachable and how it was installed
+**Milestone:** M24
+
+**What happened / what to know:** The cloud environment used for M24 blocks GitHub release
+downloads, `binaries.soliditylang.org`, the Solana/Anza installer and Solana devnet. What works:
+`forge` and `anvil` from npm (`@foundry-rs/forge`, `@foundry-rs/anvil`), and solc 0.8.22 from
+`raw.githubusercontent.com/ethereum/solc-bin` (sha256 checked against its `list.json`), copied to
+`~/.svm/0.8.22/solc-0.8.22` so `forge --offline` finds it. The Solana program's host-side tests
+run with plain `cargo` (crates.io is reachable). `cargo build-sbf` and `solana-test-validator`
+could not be installed, so **the Solana changes in M24 are compiled and unit-tested on the host
+but have not been built to SBF or run on a validator.**
+
+**Why it matters / what breaks if ignored:** Before trusting the Solana half end to end, build it
+with `npm run solana:build` on a machine with the Solana toolchain and run it against a local
+validator. The host tests cover the codec and every `lz_compose` rejection, but not the CPIs.

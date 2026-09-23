@@ -27,6 +27,7 @@ import { loadConfig, allChains, vmOf } from "../lib/config.js";
 import type { DeploymentConfig, ChainConfig } from "../lib/types.js";
 import { SolanaChain } from "./chain.js";
 import { log } from "../lib/logger.js";
+import { SHARED_DECIMALS, localDecimals } from "../lib/decimals.js";
 
 /** Anchor discriminators: first eight bytes of sha256("global:<name>"). */
 const DISC = {
@@ -47,8 +48,6 @@ const SEEDS = {
 };
 
 const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-/** LayerZero bridges at this precision on every chain, whatever a token's own decimals are. */
-const SHARED_DECIMALS = 6;
 
 const ZERO_EVM = "0x0000000000000000000000000000000000000000";
 
@@ -262,6 +261,7 @@ async function initStore(
       new PublicKey(quote.oftStore).toBuffer(),
       chain.endpointProgramId.toBuffer(),
       chain.payer.publicKey.toBuffer(),
+      Buffer.from([SHARED_DECIMALS]),
     ]);
 
     const keys = [
@@ -346,8 +346,14 @@ async function main(): Promise<void> {
   log.kv("home chain", `${cfg.homeChain.name} (eid ${cfg.homeChain.eid})`);
   log.kv("home relay", homeRelay === ZERO_EVM ? "not set — pass --home-relay" : homeRelay);
 
-  const base = await initOft(chain, chainConfig, oftProgram, { symbol: cfg.token.symbol, decimals: cfg.token.decimals }, cfg.homeChain.eid, homeRelay);
-  const quote = await initOft(chain, chainConfig, oftProgram, { symbol: cfg.quoteAsset.symbol, decimals: cfg.quoteAsset.decimals }, cfg.homeChain.eid, homeRelay);
+  // Each mint takes THIS chain's decimals, not the home chain's: an 18-decimal supply does not
+  // fit a u64. Amounts cross in shared decimals, so the two ends need not agree.
+  const baseDecimals = localDecimals(cfg, chainConfig, "base");
+  const quoteDecimals = localDecimals(cfg, chainConfig, "quote");
+  log.kv("local decimals", `${cfg.token.symbol} ${baseDecimals}, ${cfg.quoteAsset.symbol} ${quoteDecimals} (shared ${SHARED_DECIMALS})`);
+
+  const base = await initOft(chain, chainConfig, oftProgram, { symbol: cfg.token.symbol, decimals: baseDecimals }, cfg.homeChain.eid, homeRelay);
+  const quote = await initOft(chain, chainConfig, oftProgram, { symbol: cfg.quoteAsset.symbol, decimals: quoteDecimals }, cfg.homeChain.eid, homeRelay);
   const store = await initStore(chain, swapRequestProgram, cfg, base, quote, homeRelay);
 
   // ---- manifest

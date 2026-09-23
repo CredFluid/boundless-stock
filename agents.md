@@ -409,7 +409,11 @@ Two layers, deliberately non-overlapping.
 | **Foundry** (`test/`) | The *contracts* are correct, including under adversarial inputs no sensible scenario would pick | `npm test` |
 | **TypeScript** (`infra/validation/`) | The *deployment* works across separate chains with a real relayer | `npm run validate -- --config config/localnet.json` |
 
-40 Foundry tests: 16 fuzz (512 runs each) and 12 invariants (48 runs × 160 calls).
+63 Foundry tests, including 16 fuzz (512 runs each) and 12 invariants (48 runs × 160 calls), plus
+23 Rust tests in `solana/` (`npm run solana:test`).
+
+`test/MixedDecimals.t.sol` runs the relay with an 18-decimal home and a 9-decimal mirror — the
+shape of a Solana mirror — and is what proves wire amounts are decimal-independent.
 
 ```bash
 npm test                # everything
@@ -450,17 +454,15 @@ zero-output swaps and whether delivery completes:
 ## 12. Solana support — status and what remains
 
 **Status: the mirror-chain program is live on a local validator and registered with LayerZero
-as an OApp.** Trades cannot round-trip yet — the OFT still has to be deployed and peer wiring
-and relayer support are missing — but the program itself builds, deploys, executes, and CPIs
-into the genuine EndpointV2.
+as an OApp, and (as of M24) its settlement handling is correct in code.** Trades cannot
+round-trip yet: the local endpoint has no message library, and the relayer does not speak SVM.
 
 ```bash
 npm run solana:up       # validator + real EndpointV2 cloned from devnet
 npm run solana:build    # -> solana/target/deploy/swap_request.so (361 KB)
 npm run solana:deploy   # deploys BOTH LayerZero's OFT and swap_request
-npm run solana:init     # init_store: creates the store PDA and registers the OApp
-npm run solana:oft      # init_oft per asset, mint authority, peer wiring (read-back verified)
-npm run solana:test     # wire-format codec tests
+npm run solana:setup    # mints, init_oft, mint authority, peers, init_store -> manifest
+npm run solana:test     # codec + lz_compose verification tests (23)
 ```
 
 Verified on a local validator:
@@ -507,28 +509,60 @@ everything around it — deployment, addressing, and what a "pool" is.
 - **LayerZero already ships a complete Solana OFT program** (`programs/oft` in that repo), so
   the token side does not need to be written — only deployed and initialised.
 
+### Fixed in M24 (see `NOTES.md`, 2026-09-23)
+
+- **Wire amounts are in shared decimals** on both VMs, so a mirror may use different local
+  decimals than the home chain. Solana mints default to `min(asset decimals, 9)` via
+  `svm.decimals`; config loading refuses a u64 overflow. Previously an 18-decimal tAAPL mint was
+  being created on Solana, and a mirror's slippage floor would have been read at the wrong scale.
+- **`swap_request::lz_compose` now works.** It parses the OFT's compose frame, authenticates the
+  home relay, binds the request to the settlement, checks the recipient and both token accounts,
+  and pays the user. It could not close a single trade before. The checks are
+  `verify_settlement`, unit-tested case by case.
+- **Compose planning speaks V2**: `lz_compose_types_info` added, `lz_compose_types_v2` returns
+  the instruction plan (create the user's token account, then `lz_compose`).
+- **Settlement carries `recipient`**, which Solana needs to name the user's token account
+  before delivery.
+
+**Not yet verified on a validator:** M24's Solana changes are compiled and unit-tested on the
+host but were not built to SBF in that session (toolchain unavailable). Run `solana:build` and
+exercise them locally before relying on them.
+
 ### What remains, in dependency order
 
-**Solana as a mirror chain** (the smaller half):
+**Solana as a mirror chain:**
 
-1. ~~Anchor workspace~~ **done.** Builds against `anchor-latest/libs/oapp`.
-2. ~~Deploy LayerZero's OFT program and initialise the mint + its PDAs~~ **done.** Vendored,
-   deployed, `init_oft` run per asset, mint authority handed to the OFT store, and peers wired
-   with read-back verification.
-3. ~~A `swap_request` Anchor program~~ **done.** Store and request PDAs, SPL escrow,
-   `lz_compose_types_v2` and `lz_compose`, and an OFT `send` CPI. Registered as an OApp.
-4. ~~A `SolanaChain` backend~~ **done for deployment and reads.** Peer configuration still to
-   come — Solana peers are PDAs on the OFT, not a `setPeer` mapping.
-5. Relayer support for the SVM delivery path. **This is the next step** — without it a packet
-   sent from Solana has nothing to deliver it locally.
+1. **Local verification path.** `solana:up` clones only the endpoint *program*; none of its
+   state exists locally, so nothing can be sent or verified yet. `init_endpoint` is permissionless
+   on a fresh validator, so setup becomes the endpoint admin, vendors and deploys LayerZero's
+   `simple-messagelib` (anchor 0.29 tree, built like `vendor/oft-solana`), registers it and sets
+   it as the default library for each remote eid. It is the counterpart of EVM `LocalMessageLib`.
+2. **Relayer support for SVM**, both directions: read `PacketSent` from the endpoint's event
+   CPIs, verify via `simple-messagelib::validate_packet`, and execute as the Executor does
+   (`*_types_info` → `*_types_v2` → run the plan, substituting the relayer for `Payer`).
+3. **`lz_receive` on `swap_request`**, so STRANDED and CANCELLED notices (plain OApp messages,
+   not composes) reach a Solana request; plus a mint path through the OFT to restore a cancelled
+   input.
+4. **Full peer mesh.** Solana OFTs are peered only to the home chain today; wire every chain.
+5. **Fold `solana/setup.ts` into `npm run deploy`** behind a per-VM backend interface, so one
+   config deploys every chain whatever its VM.
 
-**Solana as the base chain** (the larger half, and what makes trades *happen* on Solana):
+**Solana as the base chain:**
 
-6. A `swap_relay` program equivalent, executing swaps by CPI into **Orca Whirlpools or Raydium
-   CLMM** — Uniswap V3 does not exist on Solana, so this is a genuinely different venue
-   integration, not a port.
-7. A pool-deployment module for that venue: create the pool, seed liquidity, read reserves.
-8. Reformulating `infra/supply.ts` and the supply invariants for SPL mint semantics.
+6. **Home token on Solana**: mint the full supply before handing mint authority to the OFT
+   store; `init_adapter_oft` for bring-your-own-token.
+7. **Pool module** for Orca Whirlpools (closest to Uniswap V3; clone the program onto the local
+   validator): create, initialise tick arrays, seed from config.
+8. **`swap_relay` program**: receive orders from both OFTs, swap by CPI into Whirlpools, return
+   the result with a Settlement; refund, strand, claim, retry and cancel paths. Planning names
+   the three tick arrays around the current price; a move beyond them fails the swap into the
+   refund path.
+9. **EVM mirrors pointed at a Solana relay**, with per-VM executor options (compute units and
+   lamports rather than EVM gas).
+10. **VM-neutral claims**: a stranded amount on a Solana home belongs to an EVM user who has no
+    Solana account; orders need an explicit home-chain beneficiary.
+11. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
+    `infra/supply.ts` plus the supply invariants extended to it.
 
 ### The real difficulties
 

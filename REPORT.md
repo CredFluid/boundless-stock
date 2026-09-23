@@ -325,9 +325,9 @@ Two non-overlapping layers, because they prove different things.
 
 | Layer | Proves | Scale |
 |---|---|---|
-| **Foundry** (`test/`) | The *contracts* are correct under adversarial input | 39 tests: 16 fuzz at 512 runs, 12 invariants at 48×160 calls |
+| **Foundry** (`test/`) | The *contracts* are correct under adversarial input | 63 tests: 16 fuzz at 512 runs, 12 invariants at 48×160 calls |
 | **TypeScript** (`infra/validation/`) | The *deployment* works across separate chains with a real relayer | 6 scenarios |
-| **Rust** (`solana/`) | The Solana wire format matches Solidity's byte for byte | 5 codec tests |
+| **Rust** (`solana/`) | The Solana wire format matches Solidity byte for byte, and `lz_compose` refuses every tampered delivery | 23 tests |
 
 ### The invariant suite found two real bugs
 
@@ -405,9 +405,30 @@ implements `init_adapter_oft`, giving bring-your-own-token a direct Solana count
 originating on Solana would have been undecodable on the home chain. Now `bytes32`, with the
 codec fuzzed over the full domain rather than just left-padded addresses.
 
+### Fixed in M24
+
+Reading the mirror program against LayerZero's actual Solana OFT showed it could never have
+closed a trade: it decoded the OFT's compose frame as though it were the settlement (so every
+delivery was rejected), never paid the user, did not authenticate the home relay, did not bind
+the request account to the settlement, and spoke the wrong version of the Executor's planning
+protocol. All five are fixed, with the checks in a pure `verify_settlement` unit-tested one
+rejection at a time.
+
+Separately, wire amounts were in each chain's local decimals. A Solana mint cannot use 18
+decimals — a u64 holds ~18.4 whole units at that precision — and once decimals differ, a
+mirror's slippage floor is read at the wrong scale and an unmet floor fills. Wire amounts are
+now in shared decimals on both VMs; `test/MixedDecimals.t.sol` fails on the previous contracts.
+
+These Solana changes are compiled and unit-tested on the host but were not built to SBF in that
+session; see `NOTES.md`.
+
 ### What remains
 
+- A local verification path: the cloned endpoint has no state, so the setup must initialise it
+  (permissionless on a fresh validator) and register LayerZero's `simple-messagelib` — the
+  Solana counterpart of the EVM `LocalMessageLib`.
 - Relayer support for the SVM delivery path.
+- `lz_receive` on the mirror program, so STRANDED and CANCELLED notices reach Solana requests.
 - **Solana as the base chain**, which needs a `swap_relay` CPI-ing into Orca Whirlpools or
   Raydium CLMM. Uniswap V3 has no Solana deployment, so this is a new venue integration rather
   than a port — and account pre-declaration makes a concentrated-liquidity swap materially
@@ -430,8 +451,8 @@ environment variable at build time; and the endpoint CPI account ordering.
 | Deployment infra | 6 modules, fully config-driven, one command, no manual follow-up |
 | Peer wiring | Automated, bidirectional, **read back and verified** on every link |
 | Add-a-chain flow | **Confirmed** to reuse the same modules; verified by doing it on a live deployment |
-| Validation | 6/6 scenarios, 39/39 Foundry tests, 5/5 Rust codec tests |
-| Solana | Mirror-chain stack built, deployed and initialised; trades not yet round-tripping |
+| Validation | 6/6 scenarios, 63/63 Foundry tests, 23/23 Rust tests |
+| Solana | Mirror-chain stack built and deployed; settlement handling fixed in M24; trades not yet round-tripping (no local message library or SVM relayer) |
 | Biggest gap | No timeout/refund for a stalled message — funds recoverable but never automatically |
 
 The repo carries its own findings: `agents.md` for current state and architecture, `NOTES.md`

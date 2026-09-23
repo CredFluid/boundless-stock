@@ -26,4 +26,12 @@ pub enum SwapRequestError {
     Unauthorized,
     #[msg("Settlement status is not a recognised terminal state")]
     UnknownSettlementStatus,
+    #[msg("A mint's local decimals are below the shared decimals, so its amounts cannot cross")]
+    UnsupportedDecimals,
+    #[msg("Mint does not match the one this store uses for that side of the trade")]
+    WrongMint,
+    #[msg("Settlement names a different recipient than the request records")]
+    RecipientMismatch,
+    #[msg("Token account is not the expected associated token account")]
+    WrongTokenAccount,
 }

@@ -38,6 +38,15 @@ export interface SvmConfig {
   keypairPath?: string;
   /** Commitment level for reads. */
   commitment?: "processed" | "confirmed" | "finalized";
+  /**
+   * Local decimals of each asset's SPL mint on this chain. Default: the asset's configured
+   * decimals, capped at 9.
+   *
+   * Solana amounts are u64, which holds at most ~18.4 whole units of an 18-decimal token, so a
+   * Solana mint generally cannot use the home chain's precision. It does not have to: amounts
+   * cross the wire in shared decimals, so each chain picks its own. See `lib/decimals.ts`.
+   */
+  decimals?: { base?: number; quote?: number };
 }
 
 export interface ChainConfig {

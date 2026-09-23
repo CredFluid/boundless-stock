@@ -51,12 +51,16 @@ pub struct Store {
     /// Monotonic, so a request id is never reused.
     pub next_request_id: u64,
     pub bump: u8,
+    /// The OFTs' cross-chain precision. Wire amounts are in these units, so a floor typed in
+    /// this chain's local decimals is converted before it leaves. See `SwapTypes.sol`.
+    pub shared_decimals: u8,
 }
 
 impl Store {
     pub const SEED: &'static [u8] = b"Store";
-    /// discriminator + 4 pubkeys + 3 × [u8;32]/pubkey + eid + id + bump, rounded up.
-    pub const SIZE: usize = 8 + 32 + 4 + 32 + 32 + 32 + 32 + 32 + 32 + 8 + 1 + 64;
+    /// discriminator + 4 pubkeys + 3 × [u8;32]/pubkey + eid + id + bump + shared decimals,
+    /// plus headroom.
+    pub const SIZE: usize = 8 + 32 + 4 + 32 + 32 + 32 + 32 + 32 + 32 + 8 + 1 + 1 + 64;
 }
 
 /// One user's trade. The Solana counterpart to `SwapRequest.Request`.

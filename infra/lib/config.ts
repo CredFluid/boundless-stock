@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { DeploymentConfig, ChainConfig } from "./types.js";
+import { validateDecimals } from "./decimals.js";
 
 /**
  * Loads a deployment config and substitutes ${ENV_VAR} references.
@@ -96,6 +97,10 @@ export function loadConfig(path: string): DeploymentConfig {
     if (seen) throw new Error(`Duplicate eid ${c.eid} used by both "${seen}" and "${c.key}".`);
     eids.set(c.eid, c.key);
   }
+
+  // Per-chain decimals are validated here, with the rest of the config, so a Solana mint that
+  // could not hold the supply is refused before any chain is touched.
+  validateDecimals(cfg, allChains(cfg));
 
   const keys = new Set<string>();
   for (const c of [cfg.homeChain, ...cfg.mirrorChains]) {
