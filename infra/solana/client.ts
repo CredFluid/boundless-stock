@@ -52,6 +52,8 @@ export interface SolanaRequest {
   amountOut: bigint;
   status: SolanaStatus;
   failureReason: number;
+  /** Nonce of the outbound message, on the path of the input asset's OFT. */
+  lzNonce: bigint;
 }
 
 export const ataOf = (owner: PublicKey, mint: PublicKey): PublicKey =>
@@ -137,6 +139,25 @@ export class SolanaSwapClient {
     return data.readBigUInt64LE(8 + 32 + 4 + 32 * 6);
   }
 
+  /**
+   * The nonce the next message on an OFT's path home will carry: the endpoint's
+   * `outbound_nonce` + 1. `open_request` records the request under it, and the index account's
+   * address depends on it, so the transaction has to name it in advance.
+   */
+  async nextOutboundNonce(oftStore: PublicKey, homeOft: Buffer): Promise<bigint> {
+    const endpoint = new PublicKey(this.deployment.programs.endpoint);
+    const eid = Buffer.alloc(4);
+    eid.writeUInt32BE(this.deployment.homeChain.eid);
+    const [nonce] = PublicKey.findProgramAddressSync([Buffer.from("Nonce"), oftStore.toBuffer(), eid, homeOft], endpoint);
+    const info = await this.chain.connection.getAccountInfo(nonce);
+    // discriminator (8) | bump (1) | outbound_nonce (8) | inbound_nonce (8)
+    return (info ? info.data.readBigUInt64LE(9) : 0n) + 1n;
+  }
+
+  nonceIndexAddress(oftStore: PublicKey, nonce: bigint): PublicKey {
+    return PublicKey.findProgramAddressSync([Buffer.from("Nonce"), oftStore.toBuffer(), u64be(nonce)], this.program)[0];
+  }
+
   requestAddress(id: bigint): PublicKey {
     return PublicKey.findProgramAddressSync([Buffer.from("Request"), u64be(id)], this.program)[0];
   }
@@ -153,7 +174,10 @@ export class SolanaSwapClient {
     const minAmountOut = d.readBigUInt64LE(o + 8);
     const amountOut = d.readBigUInt64LE(o + 16);
     o += 24 + 16; // amounts, created_at, settled_at
-    return { user, direction, amountIn, minAmountOut, amountOut, status: d[o] as SolanaStatus, failureReason: d[o + 1] };
+    const status = d[o] as SolanaStatus;
+    const failureReason = d[o + 1];
+    const lzNonce = d.readBigUInt64LE(o + 3); // after status, failure_reason, bump
+    return { user, direction, amountIn, minAmountOut, amountOut, status, failureReason, lzNonce };
   }
 
   /**
@@ -178,6 +202,9 @@ export class SolanaSwapClient {
 
     const requestId = await this.nextRequestId();
     const optionBytes = Buffer.from(options.slice(2), "hex");
+    const inOftStore = new PublicKey(inAsset.oftStore);
+    const homePeer = Buffer.from(inAsset.peers.find((p) => p.remoteEid === this.deployment.homeChain.eid)!.address.slice(2), "hex");
+    const nonceIndex = this.nonceIndexAddress(inOftStore, await this.nextOutboundNonce(inOftStore, homePeer));
     const storeEscrow = ataOf(this.store, tokenIn);
     const homeRelay = Buffer.from(this.deployment.homeChain.relay.slice(2).padStart(64, "0"), "hex");
 
@@ -228,6 +255,7 @@ export class SolanaSwapClient {
         { pubkey: user.publicKey, isSigner: true, isWritable: true },
         { pubkey: this.store, isSigner: false, isWritable: true },
         { pubkey: this.requestAddress(requestId), isSigner: false, isWritable: true },
+        { pubkey: nonceIndex, isSigner: false, isWritable: true },
         { pubkey: tokenIn, isSigner: false, isWritable: false },
         { pubkey: tokenOut, isSigner: false, isWritable: false },
         { pubkey: ataOf(user.publicKey, tokenIn), isSigner: false, isWritable: true },

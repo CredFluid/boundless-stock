@@ -1457,3 +1457,43 @@ once `lz_compose_types_info` accepted the params the Executor sends.
 **Why it matters / what breaks if ignored:** All three passed every host-side test. Unit tests
 proved the logic; only the runtime could prove the accounts. Re-run scenario 7 after any change
 to `swap_request`, `setup.ts` or the relayer.
+
+---
+
+### [2026-09-24] Cancellation named a message by nonce alone — a double spend on EVM too
+**Milestone:** M25 — recovery on Solana
+
+**What happened / what to know:** Building CANCELLED handling for Solana meant asking how a
+notice that carries only a nonce finds its request. On EVM, `SwapRequest.requestIdByNonce` was
+keyed by nonce alone — but nonces are **per path**. A buy leaves through the quote OFT and a sell
+through the stock OFT, so the first of each is nonce 1, and the second overwrote the first.
+Cancelling a stuck buy then restored the input of a pending **sell** while that sell was still
+deliverable: the exact double spend the kill-then-authorise ordering exists to prevent.
+`test_aBuyAndASellWithTheSameNonceAreNotConfused` fails on the M23 contracts.
+
+Fixed by carrying `cancelledPath` in the settlement — the mirror-side OFT that sent the killed
+message, which `cancelStuckInbound` already receives as `_sender` — and keying the lookup by
+(OFT, nonce) on both VMs.
+
+**Solana recovery, as built.**
+- `open_request` reads the outbound nonce from the OFT `send`'s return data and creates a
+  `NonceIndex` PDA at `[b"Nonce", oft_store, nonce]` holding the request id, user and input mint.
+  The address depends on the nonce, so the client predicts it (`outbound_nonce + 1`) and the
+  program verifies it.
+- `lz_receive_types_info` derives that index from the notice and passes it to planning, which
+  reads the user and mint from it — planning cannot read the request itself. The plan creates the
+  user's token account if needed; `lz_receive` checks every account (`verify_notice`,
+  `verify_cancellation`, 11 unit tests), `clear`s the message, and mints back.
+- Minting needs the OFT: a native Solana OFT burns what it sends and only its store can mint. The
+  vendored OFT gains `set_recovery_minter` / `recovery_credit` (see `LOCAL_CHANGES.md`), with the
+  request store as the sole minter — the Solana counterpart of `OmniToken.recoveryCredit`.
+
+**A second security bug, found while adding the minter.** `open_request` CPI'd into whatever
+`oft_program` the caller passed, signed as the store. Any caller could hand the store's signature
+to their own program — enough to send as the CrossStock OApp, and once the store is a recovery
+minter, to mint without limit. The OFT program is now pinned in the store at init.
+
+**Why it matters / what breaks if ignored:** Scenario 7 now strands a return (by unpeering the
+home stock OFT, so the return cannot even be quoted) and cancels an order the relayer never
+delivers; both reach the Solana request, the retry and the mint-back each pay exactly once, and
+supply stays exact across VMs. 7/7 on the mixed deployment; Foundry 64/64; Rust 34/34.

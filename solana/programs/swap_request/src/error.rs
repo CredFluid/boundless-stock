@@ -34,4 +34,6 @@ pub enum SwapRequestError {
     RecipientMismatch,
     #[msg("Token account is not the expected associated token account")]
     WrongTokenAccount,
+    #[msg("Only the OFT program recorded at initialisation may be called")]
+    WrongOftProgram,
 }

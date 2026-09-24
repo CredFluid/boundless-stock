@@ -424,6 +424,15 @@ now in shared decimals on both VMs; `test/MixedDecimals.t.sol` fails on the prev
 These Solana changes are compiled and unit-tested on the host but were not built to SBF in that
 session; see `NOTES.md`.
 
+### Recovery on Solana (M25)
+
+STRANDED and CANCELLED notices now reach Solana requests, and a cancelled input is minted back
+through a gated `recovery_credit` added to the vendored OFT. Building it exposed a double spend in
+the EVM contracts: cancellations were keyed by nonce alone, and a buy and a sell routinely share a
+nonce on their different paths. Fixed on both VMs by carrying the path in the notice. It also
+exposed that `open_request` would CPI any caller-supplied program signed as the store; the OFT
+program is now pinned.
+
 ### Found by running it
 
 Three more defects passed every host-side test and failed only on the runtime: `open_request`
@@ -433,7 +442,6 @@ transfer from the home chain; and a PDA cannot pay fees in the SDK's simulation.
 
 ### What remains
 
-- `lz_receive` on the mirror program, so STRANDED and CANCELLED notices reach Solana requests.
 - Live-cluster concerns the local run cannot show: LayerZero's messaging fee on the OFT `send`
   inside `open_request`, and executor options for a Solana destination expressed in compute
   units and lamports rather than EVM gas.
@@ -459,8 +467,8 @@ environment variable at build time; and the endpoint CPI account ordering.
 | Deployment infra | 6 modules, fully config-driven, one command, no manual follow-up |
 | Peer wiring | Automated, bidirectional, **read back and verified** on every link |
 | Add-a-chain flow | **Confirmed** to reuse the same modules; verified by doing it on a live deployment |
-| Validation | 7/7 scenarios (incl. a Solana mirror), 63/63 Foundry tests, 23/23 Rust tests |
-| Solana | **Works as a mirror**: buy, refund, sell and cross-VM supply conservation verified on a local validator. Not yet a home chain |
+| Validation | 7/7 scenarios (incl. a Solana mirror with strand and cancel), 64/64 Foundry tests, 34/34 Rust tests |
+| Solana | **Works as a mirror**: buy, refund, sell, strand-and-retry, cancel, and cross-VM supply conservation verified on a local validator. Not yet a home chain |
 | Biggest gap | No timeout/refund for a stalled message — funds recoverable but never automatically |
 
 The repo carries its own findings: `agents.md` for current state and architecture, `NOTES.md`

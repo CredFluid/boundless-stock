@@ -62,6 +62,17 @@ pub mod oft {
         WithdrawFee::apply(&mut ctx, &params)
     }
 
+    // ============================== CrossStock recovery ==============================
+    // Not part of LayerZero's OFT; see LOCAL_CHANGES.md.
+
+    pub fn set_recovery_minter(mut ctx: Context<SetRecoveryMinter>, minter: Pubkey) -> Result<()> {
+        SetRecoveryMinter::apply(&mut ctx, minter)
+    }
+
+    pub fn recovery_credit(mut ctx: Context<RecoveryCredit>, amount_ld: u64) -> Result<()> {
+        RecoveryCredit::apply(&mut ctx, amount_ld)
+    }
+
     // ============================== Public ==============================
 
     pub fn quote_oft(ctx: Context<QuoteOFT>, params: QuoteOFTParams) -> Result<QuoteOFTResult> {

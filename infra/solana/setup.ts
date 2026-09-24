@@ -13,6 +13,7 @@
  * program ids instead would reject every settlement as an unexpected source.
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import {
@@ -37,6 +38,8 @@ const DISC = {
   set_peer_config: Buffer.from([79, 187, 168, 57, 139, 140, 93, 47]),
   init_store: Buffer.from([250, 74, 6, 95, 163, 188, 19, 181]),
   set_home_relay: Buffer.from([236, 206, 33, 70, 35, 57, 110, 13]),
+  // CrossStock's addition to the vendored OFT; see solana/vendor/oft-solana/LOCAL_CHANGES.md.
+  set_recovery_minter: Buffer.from(createHash("sha256").update("global:set_recovery_minter").digest().subarray(0, 8)),
 };
 
 const SEEDS = {
@@ -259,7 +262,8 @@ async function initStore(
   cfg: DeploymentConfig,
   base: OftDeployment,
   quote: OftDeployment,
-  homeRelay: string
+  homeRelay: string,
+  oftProgram: PublicKey
 ): Promise<{ store: string; lzComposeTypes: string }> {
   log.step("swap_request store");
 
@@ -288,6 +292,8 @@ async function initStore(
       chain.endpointProgramId.toBuffer(),
       chain.payer.publicKey.toBuffer(),
       Buffer.from([SHARED_DECIMALS]),
+      // Pinned so open_request can never CPI a caller-chosen program with the store's signature.
+      oftProgram.toBuffer(),
     ]);
 
     const keys = [
@@ -327,6 +333,31 @@ async function initStore(
   log.ok("registered with LayerZero as an OApp");
 
   return { store: store.toBase58(), lzComposeTypes: lzComposeTypes.toBase58() };
+}
+
+/** Names the one account allowed to mint by recovery on an OFT. Idempotent. */
+async function setRecoveryMinter(
+  chain: SolanaChain,
+  oftProgram: PublicKey,
+  oftStore: PublicKey,
+  minter: PublicKey
+): Promise<void> {
+  const [record] = PublicKey.findProgramAddressSync([Buffer.from("RecoveryMinter"), oftStore.toBuffer()], oftProgram);
+  const tx = new Transaction().add(
+    new TransactionInstruction({
+      programId: oftProgram,
+      keys: [
+        { pubkey: chain.payer.publicKey, isSigner: true, isWritable: true },
+        { pubkey: oftStore, isSigner: false, isWritable: false },
+        { pubkey: record, isSigner: false, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: Buffer.concat([DISC.set_recovery_minter, minter.toBuffer()]),
+    })
+  );
+  await chain.connection.confirmTransaction(await chain.connection.sendTransaction(tx, [chain.payer]), chain.commitment);
+  const stored = (await chain.accountInfo(record.toBase58()))?.data.subarray(8, 40);
+  if (!stored || !new PublicKey(stored).equals(minter)) throw new Error(`recovery minter did not land on ${oftStore.toBase58()}`);
 }
 
 /** Points the store at the home-chain SwapRelay. Idempotent. */
@@ -435,7 +466,7 @@ export async function setupSolanaMirror(
       remotes.map((r) => ({ eid: r.eid, oft: r.baseOft })));
     const quote = await initOft(chain, chainConfig, oftProgram, { symbol: cfg.quoteAsset.symbol, decimals: quoteDecimals },
       remotes.map((r) => ({ eid: r.eid, oft: r.quoteOft })));
-    const store = await initStore(chain, swapRequestProgram, cfg, base, quote, home.relay);
+    const store = await initStore(chain, swapRequestProgram, cfg, base, quote, home.relay, oftProgram);
 
     deployment = {
       name: cfg.name,
@@ -453,6 +484,13 @@ export async function setupSolanaMirror(
       swapRequest: store,
     };
   }
+
+  // The request store is the only account that may restore a cancelled input on either OFT —
+  // the Solana counterpart of `setRecoveryMinter` on an EVM mirror.
+  for (const asset of [deployment.assets.base, deployment.assets.quote]) {
+    await setRecoveryMinter(chain, oftProgram, new PublicKey(asset.oftStore), new PublicKey(deployment.swapRequest.store));
+  }
+  log.ok("request store is the recovery minter on both OFTs");
 
   // Messaging paths for every OApp on this chain, to its counterpart on every remote. An OApp
   // without these can neither send nor receive on that path.

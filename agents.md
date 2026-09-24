@@ -413,8 +413,8 @@ Two layers, deliberately non-overlapping.
 | **Foundry** (`test/`) | The *contracts* are correct, including under adversarial inputs no sensible scenario would pick | `npm test` |
 | **TypeScript** (`infra/validation/`) | The *deployment* works across separate chains with a real relayer | `npm run validate -- --config config/localnet.json` |
 
-63 Foundry tests, including 16 fuzz (512 runs each) and 12 invariants (48 runs × 160 calls), plus
-23 Rust tests in `solana/` (`npm run solana:test`).
+64 Foundry tests, including 16 fuzz (512 runs each) and 12 invariants (48 runs × 160 calls), plus
+34 Rust tests in `solana/` (`npm run solana:test`).
 
 `test/MixedDecimals.t.sol` runs the relay with an 18-decimal home and a 9-decimal mirror — the
 shape of a Solana mirror — and is what proves wire amounts are decimal-independent.
@@ -466,6 +466,8 @@ VMs. Validation scenario 7, run 2026-09-23 on three anvils + a local validator:
 | Buy | 15,000 USDC on Solana → **99.605634 tAAPL** in the user's Solana wallet (fresh deployment; identical to the EVM mirrors' figure), ~1.6 s locally |
 | Refund | unsatisfiable floor → 5,000 USDC returned in full |
 | Sell | 20 tAAPL on Solana → ~3,000 USDC on Solana |
+| Stranded | return leg unsendable → STRANDED notice reaches the Solana request; permissionless `retryReturn` later delivers the result |
+| Cancelled | order never delivered → killed on the home chain → the input is minted back on Solana, exactly once |
 | Supply | EVM Σ + Solana mint (rescaled 9 → 18 decimals) = exactly what was minted, both assets |
 
 Full suite on the mixed deployment: **7/7**. EVM-only regression: 6/6 with unchanged figures.
@@ -553,6 +555,11 @@ All of the above is now exercised on a local validator by scenario 7, not only h
   delivers into Solana via `init_verify` → `validate_packet` → the receiver's own
   `lz_receive`/`lz_compose` plan, executed by LayerZero's SDK Executor helpers. So a program that
   plans a delivery wrongly fails here as it would under LayerZero's real Executor.
+- **`lz_receive` on `swap_request`** (M25): STRANDED and CANCELLED notices reach Solana
+  requests. A CANCELLED input is minted back through `recovery_credit`, a gated instruction
+  CrossStock adds to the vendored OFT (`solana/vendor/oft-solana/LOCAL_CHANGES.md`), callable
+  only by the request store. Each request records its outbound nonce in a `NonceIndex` PDA keyed
+  by (OFT store, nonce), which is how a notice naming only a killed message finds its request.
 - **A Solana user client** (`infra/solana/client.ts`) for `open_request`, deriving the forwarded
   OFT `send` accounts with LayerZero's OFT SDK.
 
@@ -560,29 +567,26 @@ All of the above is now exercised on a local validator by scenario 7, not only h
 
 **Solana as a mirror chain:**
 
-1. **`lz_receive` on `swap_request`**, so STRANDED and CANCELLED notices (plain OApp messages,
-   not composes) reach a Solana request; plus a mint path through the OFT to restore a cancelled
-   input.
-2. **Messaging fees on live clusters.** Locally the message library charges nothing. On devnet
+1. **Messaging fees on live clusters.** Locally the message library charges nothing. On devnet
    the OFT `send` inside `open_request` must pay LayerZero's fee; check which account the ULN
    debits when the sender is a program-owned PDA, and have the user fund it.
-3. **Executor options for a Solana destination.** The relay's return leg to Solana uses EVM-gas
+2. **Executor options for a Solana destination.** The relay's return leg to Solana uses EVM-gas
    figures (`setReturnGas`); a Solana destination wants compute units and lamports (rent for the
    user's token account). Irrelevant to the local relayer, which ignores options for Solana.
 
 **Solana as the home chain:**
 
-4. **Home token on Solana**: mint the full supply before handing mint authority to the OFT
+3. **Home token on Solana**: mint the full supply before handing mint authority to the OFT
    store; `init_adapter_oft` for bring-your-own-token.
-5. **Pool module** for Orca Whirlpools (closest to Uniswap V3; load the program onto the local
+4. **Pool module** for Orca Whirlpools (closest to Uniswap V3; load the program onto the local
    validator): create, initialise tick arrays, seed from config.
-6. **`swap_relay` program**: receive orders from both OFTs, swap by CPI into Whirlpools, return
+5. **`swap_relay` program**: receive orders from both OFTs, swap by CPI into Whirlpools, return
    the result with a Settlement; refund, strand, claim, retry and cancel paths. Planning names
    the three tick arrays around the current price; a move beyond them fails into the refund path.
-7. **EVM mirrors pointed at a Solana relay**, with per-VM executor options.
-8. **VM-neutral claims**: a stranded amount on a Solana home belongs to an EVM user who has no
+6. **EVM mirrors pointed at a Solana relay**, with per-VM executor options.
+7. **VM-neutral claims**: a stranded amount on a Solana home belongs to an EVM user who has no
    Solana account; orders need an explicit home-chain beneficiary.
-9. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
+8. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
    `infra/supply.ts` plus the supply invariants extended to it. (Scenario 7 already checks
    conservation across VMs from mint supplies.)
 

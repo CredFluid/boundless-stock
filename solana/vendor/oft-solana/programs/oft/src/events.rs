@@ -16,3 +16,11 @@ pub struct OFTReceived {
     pub to: Pubkey,
     pub amount_received_ld: u64,
 }
+
+/// CrossStock addition: a cancelled input restored by the designated recovery minter.
+#[event]
+pub struct RecoveryCredited {
+    pub oft_store: Pubkey,
+    pub to: Pubkey,
+    pub amount_ld: u64,
+}

@@ -39,9 +39,13 @@ use oapp::endpoint_cpi;
 use oapp::lz_compose_types_v2::{
     self, Instruction as PlannedIx, LzComposeTypesV2Accounts, LzComposeTypesV2Result, LZ_COMPOSE_TYPES_VERSION,
 };
-use oapp::{LzComposeParams, LZ_COMPOSE_TYPES_SEED};
+use oapp::lz_receive_types_v2::{
+    self, Instruction as ReceiveIx, LzReceiveTypesV2Accounts, LzReceiveTypesV2Result, LZ_RECEIVE_TYPES_VERSION,
+};
+use oapp::{LzComposeParams, LzReceiveParams, LZ_COMPOSE_TYPES_SEED, LZ_RECEIVE_TYPES_SEED};
 use endpoint_interface::instructions::RegisterOAppParams;
 use endpoint_interface::instructions::oapp::clear_compose::ClearComposeParams;
+use endpoint_interface::instructions::oapp::clear::ClearParams;
 
 pub mod abi;
 pub mod error;
@@ -53,7 +57,7 @@ mod verify_tests;
 
 use abi::{ComposeFrame, Order, Settlement};
 use error::SwapRequestError;
-use state::{Direction, LzComposeTypesAccounts, Request, Status, Store};
+use state::{Direction, LzComposeTypesAccounts, NonceIndex, Request, Status, Store};
 
 declare_id!("6cMiunhoxEcYYT29Cp4PgDT97FjtqsuqZ27ChTbr41vL");
 
@@ -89,6 +93,7 @@ pub mod swap_request {
         store.next_request_id = 1;
         store.bump = ctx.bumps.store;
         store.shared_decimals = params.shared_decimals;
+        store.oft_program = params.oft_program;
 
         let types = &mut ctx.accounts.lz_compose_types_accounts;
         types.store = store.key();
@@ -129,6 +134,13 @@ pub mod swap_request {
     pub fn open_request(ctx: Context<OpenRequest>, params: OpenRequestParams) -> Result<()> {
         require!(params.amount_in > 0, SwapRequestError::ZeroAmount);
         require!(ctx.accounts.store.home_relay != [0u8; 32], SwapRequestError::PeerNotSet);
+        // The OFT send below is signed as the store. A caller-chosen program would receive that
+        // signature — and with it the power to send as this OApp and to mint by recovery.
+        require_keys_eq!(
+            ctx.accounts.oft_program.key(),
+            ctx.accounts.store.oft_program,
+            SwapRequestError::WrongOftProgram
+        );
 
         let store = &mut ctx.accounts.store;
         let (expected_in, expected_out) = match params.direction {
@@ -198,6 +210,10 @@ pub mod swap_request {
 
         let store_bump = store.bump;
         let store_key = store.key();
+        let oft_store = match params.direction {
+            Direction::Buy => store.quote_oft,
+            Direction::Sell => store.base_oft,
+        };
         dispatch_oft_send(
             &ctx.accounts.oft_program.key(),
             ctx.remaining_accounts,
@@ -215,6 +231,21 @@ pub mod swap_request {
             },
         )?;
 
+        // Record the message's nonce against the request. Without it a message that never
+        // arrives cannot even be named, so it could never be cancelled; it is also the only
+        // moment it can be learned — `send` returns it and nothing stores it.
+        let lz_nonce = sent_nonce(&ctx.accounts.oft_program.key())?;
+        ctx.accounts.request.lz_nonce = lz_nonce;
+        create_nonce_index(
+            &ctx.accounts.nonce_index,
+            &ctx.accounts.user,
+            &ctx.accounts.system_program,
+            ctx.program_id,
+            &oft_store,
+            lz_nonce,
+            NonceIndex { request_id, user: ctx.accounts.user.key(), token_in },
+        )?;
+
         emit!(SwapRequested {
             request_id,
             user: ctx.accounts.user.key(),
@@ -226,6 +257,171 @@ pub mod swap_request {
     }
 
     // ------------------------------------------------------------------ LayerZero composer
+
+    // ------------------------------------------------------------------ LayerZero receiver
+
+    /// Version discovery for plain OApp messages — the home chain's STRANDED and CANCELLED
+    /// notices, which carry no tokens and so arrive by `lz_receive`, not by compose.
+    ///
+    /// Also where a CANCELLED notice's lookup starts: the notice names a killed message by
+    /// path and nonce, so the planning step needs the [`NonceIndex`] for it, derived here from
+    /// the message and passed along.
+    pub fn lz_receive_types_info(
+        ctx: Context<LzReceiveTypes>,
+        params: LzReceiveParams,
+    ) -> Result<(u8, LzReceiveTypesV2Accounts)> {
+        let mut accounts = vec![ctx.accounts.store.key(), ctx.accounts.lz_receive_types_accounts.key()];
+        let notice = Settlement::decode(&params.message)?;
+        if notice.status == Status::Cancelled as u8 {
+            accounts.push(nonce_index_address(ctx.program_id, &notice));
+        }
+        Ok((LZ_RECEIVE_TYPES_VERSION, LzReceiveTypesV2Accounts { accounts }))
+    }
+
+    /// Plans a notice delivery. A CANCELLED one mints the input back to the user through the
+    /// OFT's recovery path, so it names the OFT's accounts and the user's token account — the
+    /// user and mint come from the [`NonceIndex`], since the request itself cannot be read here.
+    pub fn lz_receive_types_v2(
+        ctx: Context<LzReceiveTypes>,
+        params: LzReceiveParams,
+    ) -> Result<LzReceiveTypesV2Result> {
+        let store = &ctx.accounts.store;
+        let notice = Settlement::decode(&params.message)?;
+
+        let mut instructions = vec![];
+        let mut accounts = vec![AccountMetaRef { pubkey: store.key().into(), is_writable: true }];
+
+        let mut extras: Vec<AccountMetaRef> = vec![];
+        if notice.status == Status::Cancelled as u8 {
+            let index_info = ctx.remaining_accounts.first().ok_or(SwapRequestError::RequestMismatch)?;
+            require_keys_eq!(index_info.key(), nonce_index_address(ctx.program_id, &notice), SwapRequestError::RequestMismatch);
+            let index = NonceIndex::try_deserialize(&mut &index_info.try_borrow_data()?[..])?;
+            let (request, _) = Pubkey::find_program_address(&[Request::SEED, &index.request_id.to_be_bytes()], ctx.program_id);
+            accounts.push(AccountMetaRef { pubkey: request.into(), is_writable: true });
+
+            let oft_store = Pubkey::new_from_array(notice.cancelled_path);
+            let user_ata = spl::associated_token_address(&index.user, &index.token_in);
+            instructions.push(ReceiveIx::Standard {
+                program_id: spl::ASSOCIATED_TOKEN_PROGRAM_ID,
+                accounts: vec![
+                    AccountMetaRef { pubkey: AddressLocator::Payer, is_writable: true },
+                    AccountMetaRef { pubkey: user_ata.into(), is_writable: true },
+                    AccountMetaRef { pubkey: index.user.into(), is_writable: false },
+                    AccountMetaRef { pubkey: index.token_in.into(), is_writable: false },
+                    AccountMetaRef { pubkey: System::id().into(), is_writable: false },
+                    AccountMetaRef { pubkey: spl::TOKEN_PROGRAM_ID.into(), is_writable: false },
+                ],
+                data: vec![spl::ATA_CREATE_IDEMPOTENT_TAG],
+            });
+            extras = vec![
+                AccountMetaRef { pubkey: index_info.key().into(), is_writable: false },
+                AccountMetaRef { pubkey: store.oft_program.into(), is_writable: false },
+                AccountMetaRef { pubkey: recovery_minter_address(&store.oft_program, &oft_store).into(), is_writable: false },
+                AccountMetaRef { pubkey: oft_store.into(), is_writable: false },
+                AccountMetaRef { pubkey: index.token_in.into(), is_writable: true },
+                AccountMetaRef { pubkey: user_ata.into(), is_writable: true },
+                AccountMetaRef { pubkey: spl::TOKEN_PROGRAM_ID.into(), is_writable: false },
+            ];
+        } else {
+            let (request, _) = Pubkey::find_program_address(&[Request::SEED, &notice.request_id.to_be_bytes()], ctx.program_id);
+            accounts.push(AccountMetaRef { pubkey: request.into(), is_writable: true });
+        }
+
+        // `clear`'s accounts first in `remaining_accounts`, then the recovery accounts.
+        accounts.extend(lz_receive_types_v2::get_accounts_for_clear(
+            store.endpoint_program,
+            &store.key(),
+            params.src_eid,
+            &params.sender,
+            params.nonce,
+        ));
+        accounts.extend(extras);
+        instructions.push(ReceiveIx::LzReceive { accounts });
+
+        Ok(LzReceiveTypesV2Result { context_version: EXECUTION_CONTEXT_VERSION_1, alts: vec![], instructions })
+    }
+
+    /// Applies a STRANDED or CANCELLED notice from the home chain.
+    ///
+    /// STRANDED: the result exists on the home chain but cannot cross; the request becomes
+    /// terminal so the user knows to claim it there. CANCELLED: the outbound message was killed
+    /// on the home chain — never delivered, never to be — so the input, burned when it left,
+    /// is minted back to the user for exactly the amount this chain recorded.
+    pub fn lz_receive<'info>(
+        ctx: Context<'_, '_, 'info, 'info, LzReceive<'info>>,
+        params: LzReceiveParams,
+    ) -> Result<()> {
+        let store = &ctx.accounts.store;
+        let notice = verify_notice(store, &params)?;
+        let clear_len = CLEAR_ACCOUNTS;
+        require!(ctx.remaining_accounts.len() >= clear_len, SwapRequestError::MalformedPayload);
+
+        // Every submitter-chosen account is proven before anything happens.
+        let recovery = if notice.status == Status::Cancelled as u8 {
+            let extra = &ctx.remaining_accounts[clear_len..];
+            require!(extra.len() >= 7, SwapRequestError::MalformedPayload);
+            let index = NonceIndex::try_deserialize(&mut &extra[0].try_borrow_data()?[..])?;
+            verify_cancellation(
+                store,
+                ctx.program_id,
+                &notice,
+                &ctx.accounts.request.key(),
+                &ctx.accounts.request.user,
+                &CancellationAccounts {
+                    nonce_index: extra[0].key(),
+                    index: &index,
+                    oft_program: extra[1].key(),
+                    oft_store: extra[3].key(),
+                    token_mint: extra[4].key(),
+                    token_dest: extra[5].key(),
+                },
+            )?;
+            Some((extra, index.request_id))
+        } else {
+            let (expected, _) = Pubkey::find_program_address(&[Request::SEED, &notice.request_id.to_be_bytes()], ctx.program_id);
+            require_keys_eq!(ctx.accounts.request.key(), expected, SwapRequestError::RequestMismatch);
+            None
+        };
+
+        // Consume the message: authenticates it and makes replay impossible.
+        let store_bump = store.bump;
+        endpoint_cpi::clear(
+            store.endpoint_program,
+            store.key(),
+            &ctx.remaining_accounts[..clear_len],
+            &[Store::SEED, &[store_bump]],
+            ClearParams {
+                receiver: store.key(),
+                src_eid: params.src_eid,
+                sender: params.sender,
+                nonce: params.nonce,
+                guid: params.guid,
+                message: params.message.clone(),
+            },
+        )?;
+
+        let store_info = ctx.accounts.store.to_account_info();
+        let request = &mut ctx.accounts.request;
+        if request.status != Status::Pending {
+            return Ok(()); // already settled; nothing owed, and a replay pays nothing
+        }
+        request.settled_at = Clock::get()?.unix_timestamp;
+
+        match recovery {
+            Some((extra, request_id)) => {
+                request.status = Status::Cancelled;
+                let (user, amount) = (request.user, request.amount_in);
+                recovery_credit(extra, &store_info, &[Store::SEED, &[store_bump]], amount)?;
+                emit!(SwapCancelled { request_id, user, lz_nonce: notice.lz_nonce, amount });
+            }
+            None => {
+                request.status = Status::Stranded;
+                request.failure_reason = notice.reason;
+                emit!(SwapStranded { request_id: notice.request_id, user: request.user, amount_sd: notice.amount_in as u64 });
+            }
+        }
+        Ok(())
+    }
 
     /// Version discovery for the Executor: which planning protocol this composer speaks, and
     /// which accounts to pass when asking it for a plan.
@@ -477,6 +673,164 @@ pub fn verify_settlement(
     Ok(VerifiedSettlement { mint, frame, settlement })
 }
 
+/// Accounts `endpoint::clear` takes, which lead `lz_receive`'s `remaining_accounts`.
+pub const CLEAR_ACCOUNTS: usize = 8;
+
+/// Anchor discriminator of the OFT's `recovery_credit` — a CrossStock addition to the vendored
+/// OFT (`solana/vendor/oft-solana/LOCAL_CHANGES.md`). sha256("global:recovery_credit")[..8].
+const OFT_RECOVERY_CREDIT_DISCRIMINATOR: [u8; 8] = [0x89, 0x84, 0xe7, 0xcd, 0x39, 0x4d, 0x2b, 0x3d];
+
+/// The [`NonceIndex`] a CANCELLED notice points at: `[b"Nonce", oft_store, nonce]`.
+pub fn nonce_index_address(program_id: &Pubkey, notice: &Settlement) -> Pubkey {
+    Pubkey::find_program_address(
+        &[NonceIndex::SEED, &notice.cancelled_path, &notice.lz_nonce.to_be_bytes()],
+        program_id,
+    )
+    .0
+}
+
+/// The OFT's record of who may mint by recovery: `[b"RecoveryMinter", oft_store]`.
+pub fn recovery_minter_address(oft_program: &Pubkey, oft_store: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[b"RecoveryMinter", oft_store.as_ref()], oft_program).0
+}
+
+/// The nonce of the message the OFT `send` just dispatched, from its return data:
+/// `(MessagingReceipt { guid: [u8; 32], nonce: u64, fee }, OFTReceipt)`, Borsh-encoded.
+fn sent_nonce(oft_program: &Pubkey) -> Result<u64> {
+    let (program, data) = anchor_lang::solana_program::program::get_return_data()
+        .ok_or(SwapRequestError::MalformedPayload)?;
+    require_keys_eq!(program, *oft_program, SwapRequestError::WrongOftProgram);
+    require!(data.len() >= 40, SwapRequestError::MalformedPayload);
+    Ok(u64::from_le_bytes(data[32..40].try_into().unwrap()))
+}
+
+/// Creates the [`NonceIndex`] PDA for a just-sent message. The address depends on the nonce,
+/// which is only known after the send, so it is created here rather than by an Anchor `init`.
+fn create_nonce_index<'info>(
+    account: &AccountInfo<'info>,
+    payer: &Signer<'info>,
+    system_program: &Program<'info, System>,
+    program_id: &Pubkey,
+    oft_store: &Pubkey,
+    nonce: u64,
+    index: NonceIndex,
+) -> Result<()> {
+    let nonce_be = nonce.to_be_bytes();
+    let (expected, bump) =
+        Pubkey::find_program_address(&[NonceIndex::SEED, oft_store.as_ref(), &nonce_be], program_id);
+    require_keys_eq!(account.key(), expected, SwapRequestError::RequestMismatch);
+
+    let rent = Rent::get()?.minimum_balance(NonceIndex::SIZE);
+    anchor_lang::system_program::create_account(
+        CpiContext::new(
+            system_program.to_account_info(),
+            anchor_lang::system_program::CreateAccount { from: payer.to_account_info(), to: account.clone() },
+        )
+        .with_signer(&[&[NonceIndex::SEED, oft_store.as_ref(), &nonce_be, &[bump]]]),
+        rent,
+        NonceIndex::SIZE as u64,
+        program_id,
+    )?;
+    index.try_serialize(&mut &mut account.try_borrow_mut_data()?[..])
+}
+
+/// Every check `lz_receive` makes on the message itself: it came from the home relay, on the
+/// home chain, and is a notice this program handles.
+pub fn verify_notice(store: &Store, params: &LzReceiveParams) -> Result<Settlement> {
+    require!(params.src_eid == store.home_eid, SwapRequestError::UnexpectedOrigin);
+    require!(
+        store.home_relay != [0u8; 32] && params.sender == store.home_relay,
+        SwapRequestError::UnauthorizedSource
+    );
+    let notice = Settlement::decode(&params.message)?;
+    require!(
+        notice.status == Status::Stranded as u8 || notice.status == Status::Cancelled as u8,
+        SwapRequestError::UnknownSettlementStatus
+    );
+    Ok(notice)
+}
+
+/// The accounts a CANCELLED delivery names, as the submitter supplied them.
+pub struct CancellationAccounts<'a> {
+    pub nonce_index: Pubkey,
+    pub index: &'a NonceIndex,
+    pub oft_program: Pubkey,
+    pub oft_store: Pubkey,
+    pub token_mint: Pubkey,
+    pub token_dest: Pubkey,
+}
+
+/// Every check before a cancellation mints anything. The mint is real supply, so each account
+/// the submitter chose is proven: the index is the one the notice names, the request is the
+/// one the index names, and the mint goes to that request's user, of the asset they paid in,
+/// through this store's own OFT.
+pub fn verify_cancellation(
+    store: &Store,
+    program_id: &Pubkey,
+    notice: &Settlement,
+    request_key: &Pubkey,
+    request_user: &Pubkey,
+    a: &CancellationAccounts,
+) -> Result<()> {
+    require_keys_eq!(a.nonce_index, nonce_index_address(program_id, notice), SwapRequestError::RequestMismatch);
+    let (request, _) =
+        Pubkey::find_program_address(&[Request::SEED, &a.index.request_id.to_be_bytes()], program_id);
+    require_keys_eq!(*request_key, request, SwapRequestError::RequestMismatch);
+    require_keys_eq!(*request_user, a.index.user, SwapRequestError::RecipientMismatch);
+
+    require_keys_eq!(a.oft_program, store.oft_program, SwapRequestError::WrongOftProgram);
+    let path = Pubkey::new_from_array(notice.cancelled_path);
+    require_keys_eq!(a.oft_store, path, SwapRequestError::UnexpectedComposeSource);
+    require_keys_eq!(a.token_mint, delivered_mint(store, &path)?, SwapRequestError::WrongMint);
+    require_keys_eq!(a.token_mint, a.index.token_in, SwapRequestError::WrongMint);
+    require_keys_eq!(
+        a.token_dest,
+        spl::associated_token_address(&a.index.user, &a.token_mint),
+        SwapRequestError::WrongTokenAccount
+    );
+    Ok(())
+}
+
+/// Mints `amount` back to the user through the OFT's recovery path, signed as the store.
+///
+/// `extra` is the recovery tail of `lz_receive`'s accounts: index, OFT program, recovery-minter
+/// record, OFT store, mint, destination, token program — already verified by the caller.
+fn recovery_credit<'info>(
+    extra: &[AccountInfo<'info>],
+    store: &AccountInfo<'info>,
+    signer_seeds: &[&[u8]],
+    amount: u64,
+) -> Result<()> {
+    let mut data = OFT_RECOVERY_CREDIT_DISCRIMINATOR.to_vec();
+    data.extend_from_slice(&amount.to_le_bytes());
+    let ix = SolInstruction {
+        program_id: *extra[1].key,
+        accounts: vec![
+            AccountMeta::new_readonly(*store.key, true),
+            AccountMeta::new_readonly(*extra[2].key, false),
+            AccountMeta::new_readonly(*extra[3].key, false),
+            AccountMeta::new(*extra[4].key, false),
+            AccountMeta::new(*extra[5].key, false),
+            AccountMeta::new_readonly(*extra[6].key, false),
+        ],
+        data,
+    };
+    invoke_signed(
+        &ix,
+        &[
+            store.clone(),
+            extra[2].clone(),
+            extra[3].clone(),
+            extra[4].clone(),
+            extra[5].clone(),
+            extra[6].clone(),
+            extra[1].clone(),
+        ],
+        &[signer_seeds],
+    )
+    .map_err(Into::into)
+}
+
 /// The mint an OFT delivers, identified by its store PDA as the endpoint reports it.
 fn delivered_mint(store: &Store, from: &Pubkey) -> Result<Pubkey> {
     if *from == store.base_oft {
@@ -568,6 +922,8 @@ pub struct InitStoreParams {
     pub delegate: Pubkey,
     /// The OFTs' cross-chain precision — 6 for every CrossStock asset.
     pub shared_decimals: u8,
+    /// LayerZero's OFT program, pinned so `open_request` can never CPI anywhere else.
+    pub oft_program: Pubkey,
 }
 
 #[derive(Accounts)]
@@ -631,6 +987,10 @@ pub struct OpenRequest<'info> {
         bump
     )]
     pub request: Account<'info, Request>,
+    /// CHECK: the [`NonceIndex`] PDA for the message this request sends. Its address depends on
+    /// the nonce, known only after the send, so it is verified and created in the handler.
+    #[account(mut)]
+    pub nonce_index: UncheckedAccount<'info>,
     /// CHECK: checked against the store's mint for this direction, then by the SPL Token
     /// program during the checked transfer.
     pub token_in_mint: UncheckedAccount<'info>,
@@ -647,6 +1007,26 @@ pub struct OpenRequest<'info> {
     /// CHECK: the SPL Token program; it validates every account passed to it.
     pub token_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct LzReceiveTypes<'info> {
+    #[account(seeds = [Store::SEED], bump = store.bump)]
+    pub store: Account<'info, Store>,
+    /// CHECK: address only. LayerZero's Executor passes this PDA by convention; nothing is
+    /// stored in it, because planning derives everything from the message.
+    #[account(seeds = [LZ_RECEIVE_TYPES_SEED, store.key().as_ref()], bump)]
+    pub lz_receive_types_accounts: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct LzReceive<'info> {
+    #[account(mut, seeds = [Store::SEED], bump = store.bump)]
+    pub store: Account<'info, Store>,
+    /// Bound to the notice in the handler: by request id (STRANDED) or via the nonce index
+    /// (CANCELLED).
+    #[account(mut)]
+    pub request: Account<'info, Request>,
 }
 
 #[derive(Accounts)]
@@ -695,6 +1075,24 @@ pub struct SwapFilled {
     pub request_id: u64,
     pub user: Pubkey,
     pub amount_out: u64,
+}
+
+/// The outbound message was killed on the home chain; the input was minted back here.
+#[event]
+pub struct SwapCancelled {
+    pub request_id: u64,
+    pub user: Pubkey,
+    pub lz_nonce: u64,
+    pub amount: u64,
+}
+
+/// The result exists on the home chain but cannot be bridged back; claim it there.
+#[event]
+pub struct SwapStranded {
+    pub request_id: u64,
+    pub user: Pubkey,
+    /// In shared decimals, as the notice carries it; the exact figure is on the home chain.
+    pub amount_sd: u64,
 }
 
 /// A settlement arrived for a request that was already closed; its tokens went to the user.
