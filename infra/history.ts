@@ -47,7 +47,7 @@ export interface HistoryRecord {
   status: RequestStatus;
   failureReason: number;
   lzNonce: string;
-  /** Unix seconds; 0 while pending. */
+  /** Unix seconds. `settledAt` is 0 while pending. */
   createdAt: number;
   settledAt: number;
   /** For a stranded request: what the home chain still holds for it (whole units), or "0" once recovered. */

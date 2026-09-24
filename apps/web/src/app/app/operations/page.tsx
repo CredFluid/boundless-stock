@@ -1,28 +1,8 @@
-import { Clock, RotateCcw, Ban, Anchor } from "lucide-react";
-import { Badge, Card, CardHeader, PageHeader, PreviewNote } from "@/components/ui";
+import { RotateCcw, Ban, Anchor } from "lucide-react";
+import { Badge, Card, PageHeader } from "@/components/ui";
+import { OperationsLive } from "@/components/live/operations-live";
 
 export const metadata = { title: "Operations" };
-
-const QUEUES = [
-  {
-    title: "Pending requests",
-    icon: Clock,
-    body: "Orders sent from a mirror that have not settled yet. Normally seconds; anything older is worth a look.",
-    columns: ["Request", "Mirror", "Direction", "Amount", "Age"],
-  },
-  {
-    title: "Stranded returns",
-    icon: Anchor,
-    body: "Results the home relay holds because the return leg could not be sent. The mirror shows STRANDED; the funds are safe on the home chain.",
-    columns: ["Request", "To mirror", "Asset", "Amount", "Stranded since"],
-  },
-  {
-    title: "Stuck inbound messages",
-    icon: Ban,
-    body: "Orders whose message never reached the home chain. Cancelling kills the message there, then restores the user's input on the mirror.",
-    columns: ["Mirror", "Path", "Nonce", "Verified?", "Age"],
-  },
-];
 
 const ACTIONS = [
   {
@@ -60,37 +40,13 @@ export default function Operations() {
         description="Where an operator sees what needs attention and acts on it. Funds are never lost in these states — every one has a recovery path."
       />
 
-      <PreviewNote>
-        The queues fill from the read API and indexer (phase 2). Until then, the same states surface in the validation suite
-        and the relayer's logs; the actions below exist on chain today.
-      </PreviewNote>
-
-      <div className="grid gap-6">
-        {QUEUES.map((q) => (
-          <Card key={q.title}>
-            <CardHeader title={q.title} subtitle={q.body} action={<q.icon size={18} className="text-muted" aria-hidden />} />
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs uppercase tracking-wide text-muted">
-                  <tr className="border-b border-line">
-                    {q.columns.map((c) => <th key={c} className="px-5 py-2 font-medium">{c}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colSpan={q.columns.length} className="px-5 py-8 text-center text-muted">
-                      Nothing to show until a live data source is connected.
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        ))}
-      </div>
+      <OperationsLive />
 
       <div>
         <h2 className="text-lg font-semibold">Recovery actions</h2>
+        <p className="mt-1 text-sm text-muted">
+          Each exists on chain today; running them from this console, with role checks, is phase 3.
+        </p>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           {ACTIONS.map((a) => (
             <Card key={a.title} className="flex flex-col p-5">
