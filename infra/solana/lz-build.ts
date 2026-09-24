@@ -20,12 +20,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, copyFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { log } from "../lib/logger.js";
+import { repoRoot } from "../lib/root.js";
 
 const COMMIT = readFileSync(resolve("solana/vendor/layerzero/COMMIT"), "utf8").trim();
 const REPO = "https://github.com/LayerZero-Labs/LayerZero-v2";
 const TREE = "packages/layerzero-v2/solana/programs";
-const SRC = resolve(".localnet-solana/lz-src");
-export const LZ_PROGRAMS_DIR = resolve(".localnet-solana/lz-programs");
+const SRC = resolve(repoRoot(), ".localnet-solana/lz-src");
+export const LZ_PROGRAMS_DIR = resolve(repoRoot(), ".localnet-solana/lz-programs");
 const PLATFORM_TOOLS = "v1.41";
 
 /** Program crate → the `.so` name `cargo build-sbf` produces. */

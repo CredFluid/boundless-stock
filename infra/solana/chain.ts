@@ -11,6 +11,7 @@ import {
 
 import type { ChainConfig } from "../lib/types.js";
 import { log } from "../lib/logger.js";
+import { repoRoot } from "../lib/root.js";
 
 /**
  * The **SVM** backend, alongside the EVM `Chain` in `infra/lib/chains.ts`.
@@ -124,8 +125,8 @@ export class SolanaChain {
    * @param keypairPath Program keypair, so the id is stable across redeploys.
    */
   async deployProgram(soPath: string, keypairPath: string): Promise<string> {
-    const so = resolve(process.cwd(), soPath);
-    const kp = resolve(process.cwd(), keypairPath);
+    const so = resolve(repoRoot(), soPath);
+    const kp = resolve(repoRoot(), keypairPath);
     if (!existsSync(so)) {
       throw new Error(`Program binary not found: ${so}\nRun \`npm run solana:build\` first.`);
     }
@@ -189,7 +190,7 @@ export function loadKeypair(configuredPath?: string): Keypair {
   ].filter(Boolean) as string[];
 
   for (const path of candidates) {
-    const abs = resolve(process.cwd(), path);
+    const abs = resolve(repoRoot(), path);
     if (existsSync(abs)) {
       return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(abs, "utf8"))));
     }

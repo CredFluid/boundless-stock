@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CheckCircle2, CircleAlert, Terminal } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CircleAlert } from "lucide-react";
 import { getDeployment, type ChainView } from "@/lib/deployments";
-import { Address, Badge, Card, CardHeader, PageHeader, PreviewNote, Stat, VmBadge } from "@/components/ui";
+import { Address, Badge, Card, CardHeader, PageHeader, Stat, VmBadge } from "@/components/ui";
+import { DeploymentLive } from "@/components/live/deployment-live";
+import { RequestHistory } from "@/components/live/requests";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +64,22 @@ export default async function DeploymentPage({ params }: { params: Promise<{ nam
         />
       </div>
 
+      <DeploymentLive
+        name={d.name}
+        recorded={{
+          base: d.token.symbol,
+          quote: d.quoteAsset.symbol,
+          venue: d.venue,
+          initialPrice: d.pool?.initialPrice,
+          feeTierPct: d.pool ? d.pool.feeTier / 10_000 : undefined,
+          seeded: d.pool?.reserves,
+          pool: d.pool?.address,
+          genesis: Number(d.token.initialSupply).toLocaleString(),
+        }}
+      />
+
+      <RequestHistory name={d.name} />
+
       {/* ---------------------------------------------------------------- topology */}
       <Card>
         <CardHeader title="Topology" subtitle="One home market; every mirror reaches it over LayerZero, and each other directly." />
@@ -83,74 +101,34 @@ export default async function DeploymentPage({ params }: { params: Promise<{ nam
         </div>
       </Card>
 
-      <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
-        {/* ---------------------------------------------------------------- chains */}
-        <Card>
-          <CardHeader title="Chains and contracts" subtitle="Everything the pipeline deployed or initialised, per chain." />
-          <div className="divide-y divide-line">
-            {chains.map((c) => (
-              <details key={c.key} className="group px-5 py-3" open={c.role === "home"}>
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-                  <span className="flex items-center gap-2 text-sm font-medium">
-                    {c.name}
-                    <VmBadge vm={c.vm} />
-                    {c.role === "home" && <Badge tone="accent">home</Badge>}
-                  </span>
-                  <span className="text-xs text-muted">{c.contracts.length} entries</span>
-                </summary>
-                <dl className="mt-3 grid gap-x-4 gap-y-1.5 sm:grid-cols-[180px_1fr]">
-                  {c.contracts.map((k) => (
-                    <div key={k.label} className="contents">
-                      <dt className="text-sm text-muted">{k.label}</dt>
-                      <dd className="min-w-0 truncate">
-                        <Address value={k.address} className="text-fg" />
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              </details>
-            ))}
-          </div>
-        </Card>
-
-        <div className="space-y-8">
-          {/* ---------------------------------------------------------------- market */}
-          <Card>
-            <CardHeader title="Home market" subtitle={d.venue} />
-            <dl className="grid grid-cols-2 gap-y-3 p-5 text-sm">
-              <dt className="text-muted">Initial price</dt>
-              <dd className="text-right tabular-nums">{d.pool?.initialPrice ?? "—"} {d.quoteAsset.symbol}</dd>
-              <dt className="text-muted">Fee tier</dt>
-              <dd className="text-right tabular-nums">{d.pool ? `${d.pool.feeTier / 10_000}%` : "—"}</dd>
-              <dt className="text-muted">Seeded {d.token.symbol}</dt>
-              <dd className="text-right tabular-nums">{d.pool ? Number(d.pool.reserves.base).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</dd>
-              <dt className="text-muted">Seeded {d.quoteAsset.symbol}</dt>
-              <dd className="text-right tabular-nums">{d.pool ? Number(d.pool.reserves.quote).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</dd>
-              {d.pool && (
-                <>
-                  <dt className="text-muted">Pool</dt>
-                  <dd className="text-right"><Address value={d.pool.address} /></dd>
-                </>
-              )}
-            </dl>
-          </Card>
-
-          {/* ---------------------------------------------------------------- supply */}
-          <Card>
-            <CardHeader title="Supply across chains" />
-            <div className="space-y-3 p-5 text-sm">
-              <PreviewNote>
-                Live figures arrive with the read API (phase 2). The same numbers are available today from the CLI, across
-                every chain and VM, in-flight transfers included.
-              </PreviewNote>
-              <div className="flex items-start gap-2 rounded-lg bg-surface-2 p-3 font-mono text-xs">
-                <Terminal size={14} className="mt-0.5 shrink-0 text-muted" aria-hidden />
-                <span className="break-all">npm run supply -- --config &lt;the config that deployed {d.name}&gt;</span>
-              </div>
-            </div>
-          </Card>
+      {/* ---------------------------------------------------------------- chains */}
+      <Card>
+        <CardHeader title="Chains and contracts" subtitle="Everything the pipeline deployed or initialised, per chain." />
+        <div className="divide-y divide-line">
+          {chains.map((c) => (
+            <details key={c.key} className="group px-5 py-3" open={c.role === "home"}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  {c.name}
+                  <VmBadge vm={c.vm} />
+                  {c.role === "home" && <Badge tone="accent">home</Badge>}
+                </span>
+                <span className="text-xs text-muted">{c.contracts.length} entries</span>
+              </summary>
+              <dl className="mt-3 grid gap-x-4 gap-y-1.5 sm:grid-cols-[180px_1fr]">
+                {c.contracts.map((k) => (
+                  <div key={k.label} className="contents">
+                    <dt className="text-sm text-muted">{k.label}</dt>
+                    <dd className="min-w-0 truncate">
+                      <Address value={k.address} className="text-fg" />
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          ))}
         </div>
-      </div>
+      </Card>
 
       {/* ---------------------------------------------------------------- peers */}
       <Card>

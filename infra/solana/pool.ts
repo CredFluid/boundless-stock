@@ -17,7 +17,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Keypair, PublicKey } from "@solana/web3.js";
 // Anchor is CommonJS and re-exports BN through a getter that ESM named imports cannot see.
-import anchor from "@coral-xyz/anchor";
+// Under Node ESM the exports object is the default import; a bundler (the web app) exposes it
+// as the namespace instead, so take whichever carries it.
+import * as anchorNs from "@coral-xyz/anchor";
+const anchor = ((anchorNs as { default?: typeof anchorNs }).default ?? anchorNs) as typeof anchorNs;
 const { AnchorProvider, BN, Wallet } = anchor;
 import Decimal from "decimal.js";
 import {
@@ -36,6 +39,7 @@ import type { DeploymentConfig } from "../lib/types.js";
 import type { SolanaChain } from "./chain.js";
 import { WHIRLPOOL_PROGRAM_ID } from "./ids.js";
 import { log } from "../lib/logger.js";
+import { repoRoot } from "../lib/root.js";
 
 export interface SolanaPoolDeployment {
   whirlpool: string;
@@ -55,7 +59,7 @@ export interface SolanaPoolDeployment {
 const TICK_SPACING = 64;
 
 /** Orca's published localnet admin key, from the vendored program source. */
-const ORCA_LOCALNET_ADMIN = resolve(process.cwd(), "solana/vendor/whirlpool/src/auth/localnet/localnet-admin-keypair-0.json");
+const ORCA_LOCALNET_ADMIN = resolve(repoRoot(), "solana/vendor/whirlpool/src/auth/localnet/localnet-admin-keypair-0.json");
 
 export async function deploySolanaPool(
   cfg: DeploymentConfig,

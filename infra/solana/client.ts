@@ -54,6 +54,9 @@ export interface SolanaRequest {
   failureReason: number;
   /** Nonce of the outbound message, on the path of the input asset's OFT. */
   lzNonce: bigint;
+  /** Unix seconds; `settledAt` is zero while pending. */
+  createdAt: bigint;
+  settledAt: bigint;
 }
 
 export const ataOf = (owner: PublicKey, mint: PublicKey): PublicKey =>
@@ -173,11 +176,13 @@ export class SolanaSwapClient {
     const amountIn = d.readBigUInt64LE(o);
     const minAmountOut = d.readBigUInt64LE(o + 8);
     const amountOut = d.readBigUInt64LE(o + 16);
+    const createdAt = d.readBigInt64LE(o + 24);
+    const settledAt = d.readBigInt64LE(o + 32);
     o += 24 + 16; // amounts, created_at, settled_at
     const status = d[o] as SolanaStatus;
     const failureReason = d[o + 1];
     const lzNonce = d.readBigUInt64LE(o + 3); // after status, failure_reason, bump
-    return { user, direction, amountIn, minAmountOut, amountOut, status, failureReason, lzNonce };
+    return { user, direction, amountIn, minAmountOut, amountOut, status, failureReason, lzNonce, createdAt, settledAt };
   }
 
   /**

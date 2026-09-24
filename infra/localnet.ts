@@ -13,8 +13,9 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync, openSync, unlinkSyn
 import { resolve } from "node:path";
 import { loadConfig, allChains } from "./lib/config.js";
 import { log } from "./lib/logger.js";
+import { repoRoot } from "./lib/root.js";
 
-const STATE_DIR = resolve(process.cwd(), ".localnet");
+const STATE_DIR = resolve(repoRoot(), ".localnet");
 const STATE_FILE = resolve(STATE_DIR, "nodes.json");
 
 interface NodeState {

@@ -57,12 +57,23 @@ npm run deploy -- --config config/localnet-add-chain.json
 
 The repo is an npm-workspaces monorepo: the web app lives in `apps/web` (landing page, issuer
 dashboard, trading app) and shared types in `packages/shared`. The dashboard reads the deployment
-records in `deployments/`.
+records in `deployments/`, and reads live state from each deployment's chains: supply on every
+chain, the home market, relay health, trade history and the operations queues. It does this through
+a read API (`/api/...`) that reuses the infra's own code.
 
 ```bash
 npm install
 npm run web:dev    # http://localhost:3000
+
+# With local chains running and a deployment on them, the dashboard goes live:
+npm run chains:up && npm run deploy -- --config config/localnet.json
+npm run validate -- --config config/localnet.json   # places real trades to look at
+npm run history -- --config config/localnet.json    # the same trade history, from the CLI
 ```
+
+CI (`.github/workflows/ci.yml`) runs the Foundry tests, the Solana programs' unit tests, the
+TypeScript typecheck and the web build on every pull request and every push to main. The local end-to-end
+suite runs nightly and on demand.
 
 See [`FRONTEND.md`](FRONTEND.md) for the plan and phases.
 

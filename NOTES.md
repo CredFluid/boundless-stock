@@ -1756,3 +1756,46 @@ unsatisfiable) fails as it must; 15 consecutive suites with fresh seeds all pass
 **Why it matters / what breaks if ignored:** with CI, a one-in-five false failure trains people
 to re-run instead of read. If a coverage assertion ever fails again, clear
 `cache/invariant/failures` before re-running, or Foundry replays the same sequence.
+
+---
+
+### [2026-09-24] Reusing the infra from the web server: bundler, interop and stale local deployments
+**Milestone:** frontend phase 2a/2b (read API, live dashboard, trade history, CI)
+
+**What happened / what to know:** the read API imports the infra directly rather than
+reimplementing it, which surfaced four things.
+
+- **Turbopack cannot build the infra.**
+  - The infra is NodeNext-style TypeScript: `import "./config.js"` means `./config.ts`.
+  - Turbopack failed on every such import, with `moduleResolution` set to `bundler` and to
+    `NodeNext` alike.
+  - The web app now builds and runs dev with webpack (`--webpack`), using
+    `resolve.extensionAlias` (`.js` → `.ts`).
+- **Anchor's default import is undefined under webpack.**
+  - `import anchor from "@coral-xyz/anchor"` works under tsx/Node ESM: the CommonJS exports
+    object is the default import.
+  - Webpack's interop for an externalised package gives a namespace with no `default`, so
+    `const { AnchorProvider } = anchor` threw while the build collected page data.
+  - `infra/solana/pool.ts` now takes `anchorNs.default ?? anchorNs`, which works under both.
+- **Paths no longer assume the working directory.**
+  - `next start` runs in `apps/web`, while every infra path was `process.cwd()`-relative.
+  - All of them now go through `repoRoot()` (`infra/lib/root.ts`), which reads `CROSSSTOCK_ROOT`.
+  - The web server sets `CROSSSTOCK_ROOT` in `instrumentation.ts`.
+- **An old local deployment can read as a live one.**
+  - Anvil hands out the same addresses on every `chains:up`, so a stale local manifest can
+    point at contracts belonging to a newer deployment.
+  - A local deployment is therefore only read live when its manifest's `updatedAt` is later
+    than the start of the chains it needs: the modification time of `.localnet/nodes.json`, and
+    of `.localnet-solana/validators.json` when it has Solana chains.
+  - Otherwise it is reported `not-running`.
+
+**Why it matters / what breaks if ignored:**
+
+- Switching the web app back to Turbopack breaks the build until Turbopack supports extension
+  aliasing.
+- A new default import of a CommonJS package in the infra needs the same interop guard.
+- Without the staleness check, the dashboard would show one deployment's supply and trades
+  under another deployment's name, and nothing would look wrong.
+- The trade history in `.crossstock/history/` is a derived cache, safe to delete. After
+  `chains:up` it describes chains that no longer exist; the API stops reading it live, but the
+  file stays until deleted.

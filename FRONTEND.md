@@ -1,8 +1,17 @@
 # CrossStock frontend — plan
 
-Status: **phase 1 built** on branch `feature/frontend-monorepo`. It is a high-level UI: every
-page exists and the issuer dashboard shows real deployment data, but nothing yet connects a
-wallet or reads live chain state. This document is the plan for the rest.
+Status:
+
+- **Phase 1 is built and merged.** Every page exists, and the issuer dashboard shows real
+  deployment data.
+- **Phase 2a/2b are built** on branch `feature/live-dashboard-and-ci`:
+  - the read API;
+  - the live issuer dashboard;
+  - trade history;
+  - CI.
+- **Wallets and live trading (phase 2c) are next,** on their own branch.
+
+This document is the plan for the rest.
 
 ## Who it is for
 
@@ -24,6 +33,13 @@ wallet or reads live chain state. This document is the plan for the rest.
                            emits a deployment config the pipeline runs as-is
 /app/operations            Pending requests, stranded returns, stuck messages;
                            the recovery actions, who may run them and where
+
+/api/deployments                    Every recorded deployment (the same view as /app)
+/api/deployments/[name]             One deployment, as recorded
+/api/deployments/[name]/live        Live: supply per chain + in flight + conserved,
+                                    home market, relay health
+/api/deployments/[name]/requests    Trade history (?status=filled|pending|…&limit=1..1000)
+/api/operations                     Queues across every live deployment
 ```
 
 Later additions, in the phases below: `/app/deployments/[name]/supply`, `/app/deployments/[name]/activity`,
@@ -46,9 +62,9 @@ Later additions, in the phases below: `/app/deployments/[name]/supply`, `/app/de
     drifting.
 - **A launch wizard that produces a working config.** Its chain presets come from the repo's
   `config/*.json`, and its output is a `DeploymentConfig` for `npm run deploy -- --config`.
-- **Honest placeholders.** Where live data or signing is not wired yet — live supply, the operations
-  queues, wallet connection, live quotes — the page says so ("Preview") and names the phase that
-  delivers it.
+- **Honest placeholders.** Where something is not wired yet, the page says so ("Preview") and
+  names the phase that delivers it. Live supply and the operations queues have since arrived in
+  phase 2b. Wallet connection and live quotes are still to come.
 - **Design system.** Colours are CSS-variable tokens with a dark mode. There are no external
   fonts or scripts, and the layout is responsive (checked at 390px wide with no horizontal
   scroll). Evidence and chain types get consistent badges.
@@ -63,16 +79,69 @@ npm run web:build
 
 ### Phase 2 — live read API and wallets
 
-- **Read API** (`apps/api` or Next route handlers). It serves live state per deployment by reusing
-  the infra rather than reimplementing it:
-  - `measureSupply` for supply across chains, in-flight amounts included;
-  - request status from SwapRequest (EVM) and `swap_request` (Solana);
-  - pool price and depth from Uniswap V3 and Orca;
-  - stranded amounts and relay balances.
-- **Indexer** for anything event-shaped: a trade history per user and per deployment, and the
-  operations queues (pending, stranded, stuck). This could be something off the shelf (e.g. Ponder
-  or Envio on EVM; Helius webhooks or a Geyser plugin on Solana), or a small poller over the same
-  RPCs the local relayer already uses.
+#### Delivered: 2a (read API and CI) and 2b (live dashboard and trade history)
+
+- **Read API: Next route handlers that import the infra directly** (`apps/web/src/lib/live.ts`).
+  - Supply is `measureSupply`, the function behind `npm run supply`.
+  - The home market and relay health come from `infra/lib/market.ts`:
+    - Uniswap V3 `slot0` and liquidity, or the Whirlpool account;
+    - the relay's native balance and token holdings.
+  - Each deployment's RPC endpoints come from the `config/*.json` that produced it
+    (`infra/lib/deployment-config.ts`).
+  - Reads are cached for 4 s, so any number of viewers polling one deployment cost one set of
+    RPC reads per interval. Each read times out after 8 s.
+  - A deployment is reported as one of:
+    - `live`;
+    - `no-config`: no config names it, so its RPCs are unknown;
+    - `not-running`: a local deployment older than the chains now running. Anvil reuses
+      addresses, so reading it would describe a different deployment.
+    - `unreachable`.
+- **Trade history: a small poller, not a hosted indexer** (`infra/history.ts`, which is also
+  `npm run history`).
+  - It reads `nextRequestId` and each request from every mirror's SwapRequest (EVM) or
+    `swap_request` (Solana).
+  - It re-reads only what can still change:
+    - requests that are still pending;
+    - stranded requests while the home relay still holds their amount.
+  - The stranded amount comes from `SwapRelay.stranded` on an EVM home, and from the
+    Stranded PDA on a Solana home.
+  - The history is stored in `.crossstock/history/<deployment>.json`. It is git-ignored, and a
+    derived cache: it can be deleted at any time.
+- **Live dashboard.** Client components poll the API every 5 s, pausing while the tab is
+  hidden.
+  - A deployment page shows:
+    - the live price against launch;
+    - omnichain supply per chain with in-flight amounts and the conservation check;
+    - pool depth, relay gas and holdings;
+    - the trade history, filterable by status.
+  - Operations shows the queues across every live deployment:
+    - needs attention: pending over 10 minutes, usually a stuck inbound message;
+    - pending;
+    - stranded, with the amount held;
+    - recovered;
+    - cancelled;
+    - and which deployments cannot be read, with the reason.
+  - Offline deployments fall back to the recorded figures and say why.
+- **CI** (`.github/workflows/ci.yml`):
+  - On every pull request and every push to main:
+    - Foundry build and tests;
+    - the Solana programs' unit tests;
+    - the infra and web typechecks;
+    - the web build.
+  - Nightly and on demand: the local EVM end-to-end run (deploy, validate, supply).
+- **Build note.** The web app builds with webpack (`next build --webpack`). The infra is
+  NodeNext-style TypeScript that imports `./x.js` to mean `./x.ts`, and Turbopack has no
+  equivalent of webpack's `resolve.extensionAlias` yet.
+
+What the poller does not see yet:
+
+- A stuck message is only inferred from age. Reading the LayerZero endpoint's inbound nonces
+  would confirm it.
+- History lives on the one server that polls. A hosted indexer (Ponder, Envio, Helius) becomes
+  worth it with many deployments or many servers.
+
+#### Still to do: 2c (wallets and trading)
+
 - **Wallets.** wagmi + viem on EVM, and Solana wallet adapter on Solana, behind one "connect"
   control that shows the chain the user is on.
 - **Trading app goes live.**
@@ -81,8 +150,7 @@ npm run web:build
   - Messaging fee from `quoteTrade` / the OFT quote.
   - Approve and submit, then a request tracker (sent → priced at home → settled back), and a
     user-facing refund/stranded/cancelled state with what happens next.
-- **Supply page.** The same figures as `npm run supply`: per chain, in flight, conserved, and when
-  last checked.
+- **Supply page.** Delivered in 2b, on the deployment page.
 
 ### Phase 3 — issuer operations from the browser
 
@@ -131,10 +199,15 @@ packages/shared
 config/  deployments/   (stay at the root: they describe deployments, not code)
 ```
 
-The backend was not moved in phase 1, on purpose. The infra resolves most of its paths from the
-repo root: `deployments/`, `config/`, `solana/keys`, forge's `out/`, the vendored programs. Moving
-it means making every path configurable, then rerunning the whole validation suite on every
-topology. That is its own milestone, best done before the read API starts importing infra code.
+The backend was not moved in phase 1, on purpose. The infra resolves its paths from the repo root:
+`deployments/`, `config/`, `solana/keys`, forge's `out/` and the vendored programs.
+
+- **Phase 2a** routed every one of those paths through `repoRoot()` (`infra/lib/root.ts`). That is
+  `CROSSSTOCK_ROOT` when set, and the working directory otherwise.
+- **The web server** sets `CROSSSTOCK_ROOT` at startup (`apps/web/src/instrumentation.ts`), so it can
+  run the infra from `apps/web`.
+- **Moving the backend into `packages/`** is now a matter of setting that root. It still means
+  rerunning the whole validation suite on every topology.
 
 ## Decisions to make
 

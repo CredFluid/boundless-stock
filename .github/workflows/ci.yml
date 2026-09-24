@@ -1,0 +1,108 @@
+# CrossStock CI.
+#
+# On every pull request and push to main: the fast checks a contributor runs locally —
+# contracts, Solana programs' host tests, TypeScript, and the web build.
+#
+# Nightly and on demand: the end-to-end suite on a local EVM chain set (deploy, then every
+# validation scenario, then the supply check). It needs live local chains and takes ~15
+# minutes, so it does not gate each PR.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Contracts (Foundry)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # The LayerZero Solidity libraries are npm packages that forge resolves from node_modules.
+      - run: npm ci
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - run: forge build
+      - run: forge test
+        # Invariant failures are saved and replayed; a fresh runner never has stale ones.
+
+  solana:
+    name: Solana programs (host tests)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.1"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            solana
+            solana/relay
+      - name: swap_request
+        working-directory: solana
+        run: cargo test -p swap-request --lib
+      - name: swap_relay
+        working-directory: solana/relay
+        run: cargo test -p swap-relay --lib
+
+  typescript:
+    name: TypeScript (infra + web)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Infra typecheck
+        run: npm run typecheck
+      - name: Web typecheck
+        run: npm run typecheck -w @crossstock/web
+      - name: Web build
+        run: npm run web:build
+
+  e2e-evm:
+    name: End to end (local EVM chains)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - run: forge build
+      - run: npm run chains:up
+      - run: npm run deploy -- --config config/localnet.json --fresh
+      - run: npm run validate -- --config config/localnet.json
+      - run: npm run supply -- --config config/localnet.json
+      - if: always()
+        run: npm run chains:down
