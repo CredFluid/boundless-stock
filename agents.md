@@ -535,6 +535,13 @@ How `swap_relay` differs from `SwapRelay.sol`, and why (details in `NOTES.md`, 2
   message is `skip`ped — which needs its payload-hash account, created first with the
   permissionless `init_verify` — and a verified one `burn`ed; either way `init_verify` refuses the
   nonce afterwards. Then the CANCELLED notice, exactly as on EVM.
+- **Bring-your-own SPL token** (M29). `token.existingToken` (or `quoteAsset.existingToken`) may
+  name an SPL mint on a Solana home: the OFT is initialised as an **adapter** that locks it in
+  escrow, the mint and its authority stay with the issuer, and nothing is minted. The mint is
+  checked before any contract is deployed (classic SPL Token, decimals as configured).
+  `npm run deploy:legacy -- --config config/localnet-solana-home.json` creates a stand-in;
+  `config/localnet-solana-home-adapter.json` deploys against it. Scenario 8 then checks the
+  adapter's invariant — escrow = Σ mirror supply, issuer's supply untouched, authority kept.
 - **Its own Cargo workspace** (`solana/relay/`), seeded from Orca's lock: under the main
   workspace's lock, Orca's dependency tree needs Rust edition 2024, which the SBF cargo cannot
   parse. Orca's program is vendored (`solana/vendor/whirlpool`, two recorded local changes).
@@ -630,9 +637,8 @@ but the default `svm.executor` figures are local guesses and want measuring on d
 
 **Solana as the home chain:**
 
-1. **Bring-your-own SPL token** on a Solana home: `init_adapter_oft` instead of a native OFT.
-2. **Several Solana chains in one deployment** (a Solana home with Solana mirrors) — refused today.
-3. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
+1. **Several Solana chains in one deployment** (a Solana home with Solana mirrors) — refused today.
+2. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
    `infra/supply.ts` plus the supply invariants extended to it. (Scenarios 7 and 8 already check
    conservation across VMs from mint supplies.)
 

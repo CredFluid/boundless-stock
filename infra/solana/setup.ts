@@ -84,7 +84,7 @@ export function evmAddressToBytes32(address: string): Buffer {
   return Buffer.from(address.replace(/^0x/, "").padStart(64, "0"), "hex");
 }
 
-function createMint(rpcUrl: string, keypairPath: string, decimals: number): PublicKey {
+export function createMint(rpcUrl: string, keypairPath: string, decimals: number): PublicKey {
   const out = execFileSync(
     "spl-token",
     ["create-token", "--decimals", String(decimals), "--url", rpcUrl, "--fee-payer", keypairPath, "--owner", keypairPath],
@@ -104,6 +104,36 @@ interface OftDeployment {
   oftStore: string;
   escrow: string;
   peers: PeerLink[];
+  /**
+   * "launch": a mint created here, whose supply the OFT mints and burns. "adapt": a mint that
+   * already existed, whose tokens the OFT locks in `escrow` — the SPL counterpart of
+   * `OmniTokenAdapter`. Absent in files written before adapt mode existed: launch.
+   */
+  mode?: "launch" | "adapt";
+}
+
+/**
+ * Checks an existing mint before adapting it: that it is a classic SPL Token mint and has the
+ * decimals the config expects. Bridging maths depends on the decimals, so a mismatch is refused
+ * rather than guessed at — as on EVM.
+ */
+export async function checkExistingMint(chain: SolanaChain, mint: PublicKey, symbol: string, decimals: number): Promise<void> {
+  const info = await chain.accountInfo(mint.toBase58());
+  if (!info) throw new Error(`${symbol}: config names an existing mint ${mint.toBase58()} but no account exists there.`);
+  if (!info.owner.equals(TOKEN_PROGRAM) || info.data.length !== 82) {
+    throw new Error(
+      `${symbol}: ${mint.toBase58()} is not a classic SPL Token mint (owner ${info.owner.toBase58()}). ` +
+        "Token-2022 mints are not supported by this deployment's OFT build."
+    );
+  }
+  // Mint layout: mint_authority COption 36 | supply 8 | decimals 1
+  const onChain = info.data[44];
+  if (onChain !== decimals) {
+    throw new Error(
+      `${symbol}: config expects ${decimals} decimals on ${chain.name} but ${mint.toBase58()} has ${onChain}. ` +
+        `Set svm.decimals for this asset to ${onChain}.`
+    );
+  }
 }
 
 /** One remote chain this chain's OApps talk to, and each OApp's counterpart there. */
@@ -126,18 +156,28 @@ export async function initOft(
   chain: SolanaChain,
   chainConfig: ChainConfig,
   oftProgram: PublicKey,
-  asset: { symbol: string; decimals: number; genesisSupply?: string },
+  asset: { symbol: string; decimals: number; genesisSupply?: string; existingMint?: string },
   remotes: { eid: number; oft: string }[]
 ): Promise<OftDeployment> {
-  log.step(`${asset.symbol} — OFT`);
+  const adapt = asset.existingMint !== undefined;
+  log.step(`${asset.symbol} — OFT${adapt ? " adapter (existing mint)" : ""}`);
 
   const keypairPath = chainConfig.svm!.keypairPath!;
-  const mint = createMint(chainConfig.rpcUrl, keypairPath, asset.decimals);
+  let mint: PublicKey;
+  if (adapt) {
+    // ADAPT: the issuer brought their own mint. Nothing is minted and its authority is not
+    // touched; the OFT locks tokens leaving this chain and releases them on return.
+    mint = new PublicKey(asset.existingMint!);
+    await checkExistingMint(chain, mint, asset.symbol, asset.decimals);
+    log.kv("mode", "ADAPT — existing mint locked, not replaced");
+  } else {
+    mint = createMint(chainConfig.rpcUrl, keypairPath, asset.decimals);
+  }
 
   // On the HOME chain the whole supply exists at genesis, in the deployer's wallet — minted
   // now, while the deployer still holds mint authority. After the handover below only the OFT
   // can mint, and only for arrivals from other chains, exactly as `OmniToken` on EVM.
-  if (asset.genesisSupply) {
+  if (asset.genesisSupply && !adapt) {
     const url = ["--url", chainConfig.rpcUrl, "--fee-payer", keypairPath, "--owner", keypairPath];
     execFileSync("spl-token", ["create-account", mint.toBase58(), ...url], { stdio: "pipe" });
     execFileSync("spl-token", ["mint", mint.toBase58(), asset.genesisSupply, ...url], { stdio: "pipe" });
@@ -167,7 +207,7 @@ export async function initOft(
 
   const data = Buffer.concat([
     DISC.init_oft,
-    Buffer.from([0]), // OFTType::Native
+    Buffer.from([adapt ? 1 : 0]), // OFTType::Adapter locks an existing mint; Native mints and burns
     chain.payer.publicKey.toBuffer(),
     Buffer.from([SHARED_DECIMALS]),
     Buffer.from([1]), // Some(endpoint_program)
@@ -200,13 +240,16 @@ export async function initOft(
   log.ok("init_oft confirmed");
 
   // A native OFT mints on inbound delivery, so the store must hold mint authority. Skip this
-  // and setup looks complete while the first inbound bridge fails at the mint.
-  execFileSync(
-    "spl-token",
-    ["authorize", mint.toBase58(), "mint", oftStore.toBase58(), "--url", chainConfig.rpcUrl, "--fee-payer", keypairPath, "--owner", keypairPath],
-    { stdio: "pipe" }
-  );
-  log.ok("mint authority transferred to the OFT store");
+  // and setup looks complete while the first inbound bridge fails at the mint. An adapter
+  // releases from escrow instead and never mints, so the issuer keeps their authority.
+  if (!adapt) {
+    execFileSync(
+      "spl-token",
+      ["authorize", mint.toBase58(), "mint", oftStore.toBase58(), "--url", chainConfig.rpcUrl, "--fee-payer", keypairPath, "--owner", keypairPath],
+      { stdio: "pipe" }
+    );
+    log.ok("mint authority transferred to the OFT store");
+  }
 
   // ---- peer wiring: this asset's OFT on every other chain. The peer is that chain's OFT for
   // the SAME asset — never the relay, which an earlier version wired here by mistake, so the
@@ -221,6 +264,7 @@ export async function initOft(
     oftStore: oftStore.toBase58(),
     escrow: escrow.publicKey.toBase58(),
     peers,
+    mode: adapt ? "adapt" : "launch",
   };
 }
 

@@ -31,7 +31,7 @@ import { SolanaChain } from "./chain.js";
 import { ataOf, createAtaIdempotent, TOKEN_PROGRAM } from "./client.js";
 import { initLocalEndpoint, initOAppPath, lzLocal } from "./lz-local.js";
 import { deploySolanaPool, type SolanaPoolDeployment } from "./pool.js";
-import { evmAddressToBytes32, initOft, programIdFrom, type OftDeployment } from "./setup.js";
+import { checkExistingMint, evmAddressToBytes32, initOft, programIdFrom, type OftDeployment } from "./setup.js";
 import { localDecimals, SHARED_DECIMALS } from "../lib/decimals.js";
 import { WHIRLPOOL_PROGRAM_ID } from "./ids.js";
 import { maxReturnFee } from "../lib/svm-executor.js";
@@ -79,6 +79,21 @@ async function send(chain: SolanaChain, ...ixs: TransactionInstruction[]): Promi
 // ---------------------------------------------------------------------------- 1. the asset
 
 /**
+ * Refuses, before any CrossStock contract is deployed, a Solana home the pipeline would fail on
+ * halfway: an existing mint to adapt that is missing, not SPL Token, or has other decimals.
+ */
+export async function preflightSolanaHome(cfg: DeploymentConfig, chainConfig: ChainConfig): Promise<void> {
+  const chain = new SolanaChain(chainConfig);
+  await chain.preflight();
+  for (const [side, asset] of [["base", cfg.token], ["quote", cfg.quoteAsset]] as const) {
+    if (asset.existingToken) {
+      await checkExistingMint(chain, new PublicKey(asset.existingToken), asset.symbol, localDecimals(cfg, chainConfig, side));
+      log.ok(`${asset.symbol}: existing mint ${asset.existingToken} checked — will be adapted, not replaced`);
+    }
+  }
+}
+
+/**
  * Genesis on Solana: both mints, the full supply to the deployer, the OFTs, and peers to every
  * mirror's OFTs.
  */
@@ -99,14 +114,24 @@ export async function setupSolanaHomeAssets(
     chain,
     chainConfig,
     oftProgram,
-    { symbol: cfg.token.symbol, decimals: localDecimals(cfg, chainConfig, "base"), genesisSupply: cfg.token.initialSupply },
+    {
+      symbol: cfg.token.symbol,
+      decimals: localDecimals(cfg, chainConfig, "base"),
+      genesisSupply: cfg.token.initialSupply,
+      existingMint: cfg.token.existingToken,
+    },
     mirrors.map((m) => ({ eid: m.eid, oft: m.baseOft }))
   );
   const quote = await initOft(
     chain,
     chainConfig,
     oftProgram,
-    { symbol: cfg.quoteAsset.symbol, decimals: localDecimals(cfg, chainConfig, "quote"), genesisSupply: cfg.quoteAsset.initialSupply },
+    {
+      symbol: cfg.quoteAsset.symbol,
+      decimals: localDecimals(cfg, chainConfig, "quote"),
+      genesisSupply: cfg.quoteAsset.initialSupply,
+      existingMint: cfg.quoteAsset.existingToken,
+    },
     mirrors.map((m) => ({ eid: m.eid, oft: m.quoteOft }))
   );
 

@@ -21,7 +21,7 @@ import { deployRelays, deployMirrorRequests } from "./modules/05-relays.js";
 import { finalizeManifest, printManifest } from "./modules/06-manifest.js";
 import { log } from "./lib/logger.js";
 import { setupSolanaMirror, remotesFromManifest, solanaManifestPath } from "./solana/setup.js";
-import { setupSolanaHomeAssets, setupSolanaHomePool, setupSolanaHomeRelay } from "./solana/home.js";
+import { preflightSolanaHome, setupSolanaHomeAssets, setupSolanaHomePool, setupSolanaHomeRelay } from "./solana/home.js";
 import { writeFileSync } from "node:fs";
 import type { DeploymentConfig, Manifest } from "./lib/types.js";
 import type { Chain } from "./lib/chains.js";
@@ -239,6 +239,7 @@ async function deployWithSolanaHome(
 ): Promise<void> {
   const homeCfg = cfg.homeChain;
   const mirrors = { ...evmCfg, homeChain: homeCfg };
+  await preflightSolanaHome(cfg, homeCfg);
 
   // EVM mirrors: empty OFTs, wired to each other.
   await deployMirrorTokens(mirrors, chains, manifest);

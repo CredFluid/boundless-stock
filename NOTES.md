@@ -1635,3 +1635,32 @@ the relay's return fee cap set below the library's fee — rather than by breaki
 exercises exactly the case M27's fee cap introduced. Validation: Solana home scenario 8
 (buy, refund, sell, strand + retry, cancel, supply) on two consecutive runs of one deployment;
 EVM home + Solana mirror 8/8; EVM-only 8/8; Foundry 65/65; Rust 34 + 10.
+
+---
+
+### [2026-09-24] Bring-your-own SPL token on a Solana home
+**Milestone:** M29
+
+**What happened / what to know:** An issuer whose tokenized stock already exists as an SPL mint
+can now make Solana the home chain without replacing it. `token.existingToken` names the mint;
+`initOft` initialises the OFT as `OFTType::Adapter` — the vendored OFT supports it unchanged —
+so tokens leaving Solana are locked in the OFT's escrow and released on return. Nothing is
+minted, the mint authority is not transferred, and holders keep their balances and the mint's
+address: the SPL counterpart of `OmniTokenAdapter`.
+
+The mint is checked in a preflight before any CrossStock contract is deployed: it must exist, be
+a classic SPL Token mint (Token-2022 is not in this OFT build), and have exactly the decimals the
+config expects on Solana (`svm.decimals`, default min(configured, 9)). A mismatch is refused with
+the value to set, as EVM adapt mode refuses a decimals mismatch. The first version ran the check
+inside `initOft`, which refused correctly but only after the EVM mirrors had been deployed.
+
+`deploy:legacy` creates a stand-in mint on a Solana home (supply and authority with the
+deployer), and `config/localnet-solana-home-adapter.json` is the Solana-home config with only the
+name and `token.existingToken` changed. Scenario 8's supply step now distinguishes the modes: for
+an adapted asset, escrow must equal the mirrors' total supply exactly, the mint's supply must be
+unchanged, and the adapter must not hold the mint authority.
+
+**Why it matters / what breaks if ignored:** validation: adapt mode (base adapted, quote
+launched) passes scenario 8 on two consecutive runs — 99.32568 then 198.50123 tAAPL locked,
+equal to the mirrors' supply each time; launch mode unchanged; the decimals refusal fires before
+any mirror contract is deployed.

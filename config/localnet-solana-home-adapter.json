@@ -1,0 +1,72 @@
+{
+  "name": "crossstock-solana-home-adapter",
+  "_comment": "ADAPT MODE ON A SOLANA HOME. The tokenized stock ALREADY EXISTS as an SPL mint on Solana, so the OFT is initialised as an adapter that locks it in escrow instead of minting a new one; the issuer keeps the mint and its authority. Diff against localnet-solana-home.json: the name and token.existingToken. Create the pre-existing mint first with `npm run deploy:legacy -- --config config/localnet-solana-home.json`.",
+  "token": {
+    "name": "Tokenized Apple Inc.",
+    "symbol": "tAAPL",
+    "decimals": 18,
+    "initialSupply": "1000000",
+    "existingToken": "${EXISTING_STOCK_ADDRESS}"
+  },
+  "quoteAsset": {
+    "name": "USD Coin",
+    "symbol": "USDC",
+    "decimals": 6,
+    "initialSupply": "50000000"
+  },
+  "homeChain": {
+    "key": "solana-devnet",
+    "name": "Solana Devnet (local)",
+    "vm": "svm",
+    "eid": 40168,
+    "rpcUrl": "http://127.0.0.1:8899",
+    "nativeSymbol": "SOL",
+    "svm": {
+      "endpointProgramId": "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6",
+      "keypairPath": ".localnet-solana/payer.json",
+      "commitment": "confirmed"
+    }
+  },
+  "mirrorChains": [
+    {
+      "key": "base-sepolia",
+      "name": "Base Sepolia",
+      "chainId": 84532,
+      "eid": 40245,
+      "rpcUrl": "http://127.0.0.1:8545",
+      "nativeSymbol": "ETH"
+    },
+    {
+      "key": "arbitrum-sepolia",
+      "name": "Arbitrum Sepolia",
+      "chainId": 421614,
+      "eid": 40231,
+      "rpcUrl": "http://127.0.0.1:8546",
+      "nativeSymbol": "ETH"
+    },
+    {
+      "key": "optimism-sepolia",
+      "name": "Optimism Sepolia",
+      "chainId": 11155420,
+      "eid": 40232,
+      "rpcUrl": "http://127.0.0.1:8547",
+      "nativeSymbol": "ETH"
+    }
+  ],
+  "pool": {
+    "feeTier": 3000,
+    "initialPrice": "150",
+    "baseLiquidity": "100000",
+    "quoteLiquidity": "15000000",
+    "tickHalfWidth": 60000
+  },
+  "relay": {
+    "homeLzReceiveGas": 300000,
+    "homeComposeGas": 1200000,
+    "homeComposeValue": "0.01",
+    "returnGas": 300000,
+    "relayNativeBuffer": "1",
+    "returnComposeGas": 400000
+  },
+  "localMessageLibFee": "0.0001"
+}

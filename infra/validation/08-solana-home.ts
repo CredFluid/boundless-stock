@@ -268,7 +268,7 @@ export async function scenario8(h: Harness): Promise<ScenarioResult> {
   metrics["cancel: restored"] = `${formatUnits(restored, h.quoteDecimals)} ${h.quoteSymbol}`;
 
   // ---------------------------------------------------------------- d. SUPPLY
-  log.step("d. omnichain supply, across VMs (minted on Solana)");
+  log.step("d. omnichain supply, across VMs");
   for (const [asset, contract, evmDec, initial] of [
     ["base", "TokenizedStock", h.tokenDecimals, h.config.token.initialSupply],
     ["quote", "QuoteAsset", h.quoteDecimals, h.config.quoteAsset.initialSupply],
@@ -278,8 +278,23 @@ export async function scenario8(h: Harness): Promise<ScenarioResult> {
     let onMirrors = 0n;
     for (const k of h.mirrorKeys) onMirrors += await h.chain(k).read<bigint>(h.addr(k, contract), tokenAbi, "totalSupply");
     const genesis = parseUnits(initial, evmDec);
-    log.kv(contract, `Solana ${formatUnits(onSolana, evmDec)} + mirrors ${formatUnits(onMirrors, evmDec)} = ${formatUnits(onSolana + onMirrors, evmDec)}`);
-    if (onSolana + onMirrors !== genesis) findings.push(`${contract}: ${onSolana + onMirrors} across VMs, minted ${genesis}`);
+    if (home.assets[asset].mode === "adapt") {
+      // An adapted mint's supply is the issuer's and never changes; what moved is locked in
+      // the OFT's escrow, and must back the mirrors' supply exactly — `OmniTokenAdapter`'s
+      // invariant, on SPL.
+      const escrow = (await sol.connection.getTokenAccountBalance(new PublicKey(home.assets[asset].escrow))).value;
+      const locked = BigInt(escrow.amount) * 10n ** BigInt(evmDec - escrow.decimals);
+      log.kv(contract, `locked on Solana ${formatUnits(locked, evmDec)} = mirrors ${formatUnits(onMirrors, evmDec)}; mint supply ${formatUnits(onSolana, evmDec)} (adapted, untouched)`);
+      if (locked !== onMirrors) findings.push(`${contract}: ${locked} locked in the Solana escrow backs ${onMirrors} on the mirrors`);
+      if (onSolana !== genesis) findings.push(`${contract}: the adapted mint's supply changed to ${onSolana} from ${genesis}`);
+      // The issuer keeps control of their mint: the adapter never needs, and never took, it.
+      const mintData = (await sol.connection.getAccountInfo(new PublicKey(home.assets[asset].mint)))!.data;
+      const authority = mintData.readUInt32LE(0) === 1 ? new PublicKey(mintData.subarray(4, 36)).toBase58() : "none";
+      if (authority === home.assets[asset].oftStore) findings.push(`${contract}: the adapter holds the issuer's mint authority`);
+    } else {
+      log.kv(contract, `Solana ${formatUnits(onSolana, evmDec)} + mirrors ${formatUnits(onMirrors, evmDec)} = ${formatUnits(onSolana + onMirrors, evmDec)}`);
+      if (onSolana + onMirrors !== genesis) findings.push(`${contract}: ${onSolana + onMirrors} across VMs, minted ${genesis}`);
+    }
   }
 
   const passed = findings.length === 0;
