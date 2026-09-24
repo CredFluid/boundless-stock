@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { DeploymentConfig, ChainConfig } from "./types.js";
 import { validateDecimals } from "./decimals.js";
+import { repoRoot } from "./root.js";
 
 /**
  * Loads a deployment config and substitutes ${ENV_VAR} references.
@@ -11,7 +12,7 @@ import { validateDecimals } from "./decimals.js";
  */
 
 function loadDotEnv(): void {
-  const path = resolve(process.cwd(), ".env");
+  const path = resolve(repoRoot(), ".env");
   if (!existsSync(path)) return;
   for (const line of readFileSync(path, "utf8").split("\n")) {
     const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
@@ -77,7 +78,7 @@ export const vmOf = (c: ChainConfig): "evm" | "svm" => c.vm ?? "evm";
 
 export function loadConfig(path: string): DeploymentConfig {
   loadDotEnv();
-  const abs = resolve(process.cwd(), path);
+  const abs = resolve(repoRoot(), path);
   if (!existsSync(abs)) throw new Error(`Config not found: ${abs}`);
 
   const cfg = walk(JSON.parse(readFileSync(abs, "utf8")), "root") as DeploymentConfig;

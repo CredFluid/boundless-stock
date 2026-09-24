@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Abi, Hex } from "viem";
+import { repoRoot } from "./root.js";
 
 export interface Artifact {
   abi: Abi;
@@ -18,7 +19,7 @@ export function forgeArtifact(name: string, file = `${name}.sol`): Artifact {
   const hit = cache.get(key);
   if (hit) return hit;
 
-  const path = resolve(process.cwd(), "out", file, `${name}.json`);
+  const path = resolve(repoRoot(), "out", file, `${name}.json`);
   if (!existsSync(path)) {
     throw new Error(`Artifact not found: ${path}\nRun \`forge build\` first.`);
   }
@@ -45,7 +46,7 @@ export function packageArtifact(relativePath: string): Artifact {
   const hit = cache.get(key);
   if (hit) return hit;
 
-  const path = resolve(process.cwd(), "node_modules", relativePath);
+  const path = resolve(repoRoot(), "node_modules", relativePath);
   if (!existsSync(path)) throw new Error(`Package artifact not found: ${path}`);
 
   const json = JSON.parse(readFileSync(path, "utf8"));

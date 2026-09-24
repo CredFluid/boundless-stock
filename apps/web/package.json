@@ -4,8 +4,8 @@
   "private": true,
   "description": "CrossStock web: landing page, issuer dashboard and trading app.",
   "scripts": {
-    "dev": "next dev --port 3000",
-    "build": "next build",
+    "dev": "next dev --webpack --port 3000",
+    "build": "next build --webpack",
     "start": "next start --port 3000",
     "typecheck": "tsc --noEmit"
   },

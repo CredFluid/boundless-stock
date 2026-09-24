@@ -29,7 +29,8 @@
     "web:dev": "npm run dev -w @crossstock/web",
     "web:build": "npm run build -w @crossstock/web",
     "web:start": "npm run start -w @crossstock/web",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "history": "tsx infra/history.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

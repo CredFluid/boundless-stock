@@ -26,13 +26,14 @@ import { loadConfig, allChains, vmOf } from "../lib/config.js";
 import { LZ_PROGRAMS_DIR } from "./lz-build.js";
 import { SIMPLE_MESSAGELIB_PROGRAM_ID } from "./lz-local.js";
 import { WHIRLPOOL_PROGRAM_ID } from "./ids.js";
+import { repoRoot } from "../lib/root.js";
 
 /** LayerZero EndpointV2 on Solana. Same program id on mainnet and devnet. */
 export const LZ_ENDPOINT_PROGRAM_ID = "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6";
-const WHIRLPOOL_SO = resolve(process.cwd(), "solana/vendor/whirlpool/target/deploy/whirlpool.so");
+const WHIRLPOOL_SO = resolve(repoRoot(), "solana/vendor/whirlpool/target/deploy/whirlpool.so");
 
 /** Where the validator state and payer keypair live. Gitignored. */
-const STATE_DIR = resolve(process.cwd(), ".localnet-solana");
+const STATE_DIR = resolve(repoRoot(), ".localnet-solana");
 const STATE_FILE = resolve(STATE_DIR, "validators.json");
 const PAYER_FILE = resolve(STATE_DIR, "payer.json");
 

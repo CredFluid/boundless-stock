@@ -31,6 +31,7 @@ import type { DeploymentConfig, ChainConfig, Manifest } from "../lib/types.js";
 import { SolanaChain } from "./chain.js";
 import { log } from "../lib/logger.js";
 import { SHARED_DECIMALS, localDecimals } from "../lib/decimals.js";
+import { repoRoot } from "../lib/root.js";
 
 /** Anchor discriminators: first eight bytes of sha256("global:<name>"). */
 const DISC = {
@@ -76,7 +77,7 @@ const u32be = (n: number): Buffer => {
 };
 
 export function programIdFrom(keypairPath: string): PublicKey {
-  return new PublicKey(execFileSync("solana-keygen", ["pubkey", keypairPath], { encoding: "utf8" }).trim());
+  return new PublicKey(execFileSync("solana-keygen", ["pubkey", resolve(repoRoot(), keypairPath)], { encoding: "utf8" }).trim());
 }
 
 /** An EVM address as LayerZero addresses it: left-padded into 32 bytes. */
@@ -470,7 +471,7 @@ export interface SolanaDeployment {
 }
 
 export const solanaManifestPath = (cfg: DeploymentConfig, chainKey: string): string =>
-  resolve(process.cwd(), "deployments", `${cfg.name}.${chainKey}.solana.json`);
+  resolve(repoRoot(), "deployments", `${cfg.name}.${chainKey}.solana.json`);
 
 /**
  * Sets up one Solana mirror chain against the EVM chains in the deployment.

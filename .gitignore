@@ -12,3 +12,6 @@ deployments/*.local.json
 # and the record of a real deployment run.
 .localnet/
 .localnet-solana/
+
+# Local caches written by the infra and the web app (trade history).
+.crossstock/

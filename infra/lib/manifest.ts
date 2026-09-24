@@ -2,11 +2,12 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import type { Manifest, DeploymentConfig, ChainDeployment, PeerRecord } from "./types.js";
 import { isLocal } from "./config.js";
+import { repoRoot } from "./root.js";
 
 export const MANIFEST_VERSION = "1";
 
 export function manifestPath(name: string): string {
-  return resolve(process.cwd(), "deployments", `${name}.manifest.json`);
+  return resolve(repoRoot(), "deployments", `${name}.manifest.json`);
 }
 
 export function emptyManifest(cfg: DeploymentConfig, deployer: string): Manifest {
@@ -34,7 +35,7 @@ export function loadManifest(name: string): Manifest | null {
 }
 
 export function loadManifestAt(path: string): Manifest {
-  const abs = resolve(process.cwd(), path);
+  const abs = resolve(repoRoot(), path);
   if (!existsSync(abs)) throw new Error(`Manifest not found: ${abs}`);
   return JSON.parse(readFileSync(abs, "utf8")) as Manifest;
 }
