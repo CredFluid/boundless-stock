@@ -1731,3 +1731,28 @@ will not load under this one: deploy fresh. Validation, with the new programs: E
 Solana mirrors 9/9 (15,000 USDC shown in flight mid-transfer; exact across five chains after);
 Solana home + Solana mirror 2/2 (the same, across six chains); Solana home with an adapted mint
 2/2, and `npm run supply` conserved for all three.
+
+---
+
+### [2026-09-24] An intermittent invariant failure, and a liveness epilogue
+**Milestone:** test hardening (before merging the monorepo branch)
+
+**What happened / what to know:** `RelayInvariant` failed about one full suite run in five,
+always on its coverage assertions ("no trade ever filled", "no trade was ever submitted")
+rather than on a safety property. Each run is 160 random calls over seven actions, several of
+which can leave the venue unusable for long stretches (forced reverts, zero output, price
+moves), so occasionally a whole run never filled, refunded or stalled. Foundry then shrinks the
+failing run to one call — hence `runs: 1, calls: 1` and messages that differ from the run's real
+gap — and saves it in `cache/invariant/failures`, replaying it first on every later run, which
+made one unlucky seed look like a persistent break. Nothing in the contracts had changed.
+
+The fix keeps the assertions and removes the luck: every run now ends with a scripted epilogue
+from whatever state the campaign reached — restore the venue, settle everything, then require
+that a satisfiable order fills, an unsatisfiable one is refunded and a stalled compose can be
+settled — and re-checks every invariant afterwards. That is also a new property: the system is
+live from any reachable state. A negative control (making the "should fill" order
+unsatisfiable) fails as it must; 15 consecutive suites with fresh seeds all passed.
+
+**Why it matters / what breaks if ignored:** with CI, a one-in-five false failure trains people
+to re-run instead of read. If a coverage assertion ever fails again, clear
+`cache/invariant/failures` before re-running, or Foundry replays the same sequence.

@@ -133,6 +133,32 @@ contract TradeHandler is Test {
         router.setReturnZero(bound(seed, 0, 9) == 0); // ~10% of the time
     }
 
+    // ------------------------------------------------------------------ epilogue
+    // Not fuzzer targets: the invariant contract calls these at the end of every run to prove
+    // the system is still live from whatever state the random campaign left behind.
+
+    /// @notice Restore a working venue at the starting price.
+    function resetVenue() external {
+        router.setForceRevert(false);
+        router.setReturnZero(false);
+        router.setPrice(150e6);
+    }
+
+    /**
+     * @notice Try a trade with explicit parameters, over every actor and both directions,
+     *         until one is accepted. Returns whether any was.
+     * @param minOutPct The floor as a percentage of what the venue would pay: below 100 is
+     *        satisfiable, above 100 is not.
+     */
+    function tradeAnyActor(uint256 minOutPct) external returns (bool) {
+        uint256 before = tradesSubmitted;
+        for (uint256 i = 0; i < actors.length && tradesSubmitted == before; i++) {
+            _trade(SwapTypes.Direction.BUY, i, 1_000e6, minOutPct);
+            if (tradesSubmitted == before) _trade(SwapTypes.Direction.SELL, i, 5e18, minOutPct);
+        }
+        return tradesSubmitted > before;
+    }
+
     // ------------------------------------------------------------------ internals
 
     function _trade(SwapTypes.Direction dir, uint256 actorSeed, uint256 amountSeed, uint256 minOutSeed) internal {

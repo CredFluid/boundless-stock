@@ -25,7 +25,10 @@
     "solana:build:orca": "cargo build-sbf --manifest-path solana/vendor/whirlpool/Cargo.toml",
     "solana:test": "cd solana && cargo test -p swap-request --lib",
     "solana:deploy": "tsx infra/solana/deploy-program.ts",
-    "solana:setup": "tsx infra/solana/setup.ts"
+    "solana:setup": "tsx infra/solana/setup.ts",
+    "web:dev": "npm run dev -w @crossstock/web",
+    "web:build": "npm run build -w @crossstock/web",
+    "web:start": "npm run start -w @crossstock/web"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
@@ -58,5 +61,9 @@
   },
   "overrides": {
     "@solana/web3.js": "1.95.8"
-  }
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
 }

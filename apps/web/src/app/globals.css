@@ -1,0 +1,222 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Every colour the UI uses is one of these, redefined for dark mode, so
+ * components never hard-code a palette.
+ */
+:root {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f1f3f6;
+  --border: #e3e6eb;
+  --text: #0f1419;
+  --muted: #5b6573;
+  --accent: #0e7c66;
+  --accent-soft: #e3f4ef;
+  --accent-contrast: #ffffff;
+  --evm: #4f46e5;
+  --evm-soft: #eceafd;
+  --svm: #9333ea;
+  --svm-soft: #f4e9fd;
+  --ok: #15803d;
+  --ok-soft: #e7f6ec;
+  --warn: #b45309;
+  --warn-soft: #fdf1e3;
+  --bad: #b91c1c;
+  --bad-soft: #fdecec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0e12;
+    --surface: #12161c;
+    --surface-2: #181d25;
+    --border: #252b35;
+    --text: #e8ebf0;
+    --muted: #97a1ae;
+    --accent: #34c7a4;
+    --accent-soft: #10302a;
+    --accent-contrast: #06140f;
+    --evm: #8b85ff;
+    --evm-soft: #1d1b3a;
+    --svm: #c084fc;
+    --svm-soft: #2a1a3a;
+    --ok: #4ade80;
+    --ok-soft: #10281a;
+    --warn: #fbbf24;
+    --warn-soft: #2d230d;
+    --bad: #f87171;
+    --bad-soft: #2d1414;
+  }
+}
+
+/* A subtree that is always dark — the landing page — whatever the system setting. */
+[data-theme="dark"] {
+  --bg: #07090c;
+  --surface: #0e1217;
+  --surface-2: #151a21;
+  --border: #212833;
+  --text: #edf0f4;
+  --muted: #8d97a5;
+  --accent: #34c7a4;
+  --accent-soft: #0f2c26;
+  --accent-contrast: #04120d;
+  --evm: #8b85ff;
+  --evm-soft: #1d1b3a;
+  --svm: #c084fc;
+  --svm-soft: #2a1a3a;
+  --ok: #4ade80;
+  --ok-soft: #10281a;
+  --warn: #fbbf24;
+  --warn-soft: #2d230d;
+  --bad: #f87171;
+  --bad-soft: #2d1414;
+  background: var(--bg);
+  color: var(--text);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-evm: var(--evm);
+  --color-evm-soft: var(--evm-soft);
+  --color-svm: var(--svm);
+  --color-svm-soft: var(--svm-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Landing-page textures: a faint engineering grid, and a glow behind the hero. */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--border) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--border) 70%, transparent) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+.mask-fade {
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, #000 40%, transparent 100%);
+}
+.glow {
+  background: radial-gradient(ellipse 60% 50% at 50% 0%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .packet { display: none; }
+  .pulse { animation: none !important; }
+}
+
+/* ------------------------------------------------------------------------------------------
+ * Motion. Everything below is gated on [data-anim="on"], which the root layout sets only when
+ * JavaScript runs and the visitor has not asked for reduced motion. Without it, every element
+ * is simply visible and still.
+ * ---------------------------------------------------------------------------------------- */
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes shimmer {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes blink {
+  50% { opacity: 0; }
+}
+@keyframes float {
+  50% { transform: translateY(-6px); }
+}
+@keyframes glow-breathe {
+  50% { opacity: 0.55; }
+}
+
+/* Hero entrance: children with .enter-N rise in, staggered. */
+[data-anim="on"] .enter { animation: fade-up 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+[data-anim="on"] .enter-1 { animation-delay: 0.05s; }
+[data-anim="on"] .enter-2 { animation-delay: 0.15s; }
+[data-anim="on"] .enter-3 { animation-delay: 0.3s; }
+[data-anim="on"] .enter-4 { animation-delay: 0.45s; }
+[data-anim="on"] .enter-5 { animation-delay: 0.6s; }
+
+/* The gradient headline slowly drifts. */
+.text-shimmer { background-size: 200% auto; }
+[data-anim="on"] .text-shimmer { animation: shimmer 8s linear infinite; }
+
+[data-anim="on"] .floaty { animation: float 6s ease-in-out infinite; }
+[data-anim="on"] .glow { animation: glow-breathe 7s ease-in-out infinite; }
+
+/* Scroll reveal: .reveal elements wait until <Reveal> marks them visible. */
+[data-anim="on"] .reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.8s cubic-bezier(0.2, 0.7, 0.2, 1), transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition-delay: var(--delay, 0ms);
+}
+[data-anim="on"] .reveal[data-visible] { opacity: 1; transform: none; }
+
+/* Marquee: the list is rendered twice and scrolls by half its width, seamlessly. */
+[data-anim="on"] .marquee-track { animation: marquee 32s linear infinite; }
+[data-anim="on"] .marquee:hover .marquee-track { animation-play-state: paused; }
+/* Still, the list simply wraps; moving, it is one long row the width of both copies. */
+.marquee-track { flex-wrap: wrap; }
+.marquee-track[aria-hidden] { display: none; }
+[data-anim="on"] .marquee-row { width: max-content; }
+[data-anim="on"] .marquee-track { flex-wrap: nowrap; }
+[data-anim="on"] .marquee-track[aria-hidden] { display: flex; }
+
+.cursor { display: inline-block; width: 0.55em; height: 1.1em; vertical-align: text-bottom; background: var(--accent); }
+[data-anim="on"] .cursor { animation: blink 1s step-end infinite; }
+
+/* The lifecycle rail fills as it comes into view. */
+.rail-fill { transform-origin: top; }
+[data-anim="on"] .rail-fill { transform: scaleY(0); transition: transform 1.6s cubic-bezier(0.2, 0.7, 0.2, 1) 0.2s; }
+[data-anim="on"] [data-visible] > .rail-fill,
+[data-anim="on"] .rail[data-visible] .rail-fill { transform: scaleY(1); }
+
+/* Cards lift a little under the pointer. */
+.lift { transition: transform 0.25s ease, border-color 0.25s ease, background-color 0.25s ease; }
+.lift:hover { transform: translateY(-3px); }
+@media (prefers-reduced-motion: reduce) { .lift:hover { transform: none; } }
+
+/* The beam between the control plane and the chains it powers. */
+@keyframes beam-x { from { background-position: -100% 0; } to { background-position: 200% 0; } }
+@keyframes beam-y { from { background-position: 0 -100%; } to { background-position: 0 200%; } }
+.beam {
+  background-color: var(--border);
+  background-image: linear-gradient(to bottom, transparent, var(--accent), transparent);
+  background-size: 100% 60%;
+  background-repeat: no-repeat;
+}
+@media (min-width: 1024px) {
+  .beam { background-image: linear-gradient(to right, transparent, var(--accent), var(--evm), transparent); background-size: 60% 100%; }
+}
+[data-anim="on"] .beam { animation: beam-y 2.2s linear infinite; }
+@media (min-width: 1024px) { [data-anim="on"] .beam { animation-name: beam-x; } }
