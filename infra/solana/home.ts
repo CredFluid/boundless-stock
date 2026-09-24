@@ -31,10 +31,10 @@ import { SolanaChain } from "./chain.js";
 import { ataOf, createAtaIdempotent, TOKEN_PROGRAM } from "./client.js";
 import { initLocalEndpoint, initOAppPath, lzLocal } from "./lz-local.js";
 import { deploySolanaPool, type SolanaPoolDeployment } from "./pool.js";
-import { checkExistingMint, evmAddressToBytes32, initOft, programIdFrom, type OftDeployment } from "./setup.js";
+import { checkExistingMint, toBytes32, initOft, programIdFrom, type OftDeployment } from "./setup.js";
 import { localDecimals, SHARED_DECIMALS } from "../lib/decimals.js";
 import { WHIRLPOOL_PROGRAM_ID } from "./ids.js";
-import { maxReturnFee } from "../lib/svm-executor.js";
+import { maxReturnFee, svmExecutor } from "../lib/svm-executor.js";
 
 const disc = (name: string): Buffer => createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
 const u32le = (n: number): Buffer => {
@@ -137,8 +137,8 @@ export async function setupSolanaHomeAssets(
 
   if (isLocal(cfg)) {
     for (const m of mirrors) {
-      await initOAppPath(chain, base.oftStore, m.eid, evmAddressToBytes32(m.baseOft));
-      await initOAppPath(chain, quote.oftStore, m.eid, evmAddressToBytes32(m.quoteOft));
+      await initOAppPath(chain, base.oftStore, m.eid, toBytes32(m.baseOft));
+      await initOAppPath(chain, quote.oftStore, m.eid, toBytes32(m.quoteOft));
     }
     log.ok(`messaging paths initialised to ${mirrors.length} mirror chain(s)`);
   }
@@ -255,18 +255,27 @@ export async function setupSolanaHomeRelay(
     createAtaIdempotent(chain.payer.publicKey, store, quoteMint)
   );
 
-  // ---- peers: each mirror's SwapRequest, with the executor options for returns to it
-  const returnOptions = Buffer.from(
-    Options.new()
-      .addExecutorLzReceive(BigInt(cfg.relay.returnGas))
-      .addExecutorLzCompose(0, BigInt(cfg.relay.returnComposeGas ?? cfg.relay.returnGas))
-      .build()
-      .slice(2),
-    "hex"
-  );
+  // ---- peers: each mirror's SwapRequest, with the executor options for returns to it — in
+  // that mirror's own terms: EVM gas, or compute units and lamports for a Solana mirror.
+  const optionsFor = (eid: number): Buffer => {
+    const mc = cfg.mirrorChains.find((c) => c.eid === eid);
+    const o =
+      mc && (mc.vm ?? "evm") === "svm"
+        ? (() => {
+            const ex = svmExecutor(mc);
+            return Options.new()
+              .addExecutorLzReceive(ex.lzReceiveComputeUnits, ex.lzReceiveValueLamports)
+              .addExecutorLzCompose(0, ex.lzComposeComputeUnits);
+          })()
+        : Options.new()
+            .addExecutorLzReceive(BigInt(cfg.relay.returnGas))
+            .addExecutorLzCompose(0, BigInt(cfg.relay.returnComposeGas ?? cfg.relay.returnGas));
+    return Buffer.from(o.build().slice(2), "hex");
+  };
   const feeCap = Buffer.alloc(8);
   feeCap.writeBigUInt64LE(maxReturnFee(chainConfig));
   for (const m of mirrors) {
+    const returnOptions = optionsFor(m.eid);
     const [peer] = PublicKey.findProgramAddressSync([Buffer.from("Peer"), u32be(m.eid)], program);
     const len = Buffer.alloc(4);
     len.writeUInt32LE(returnOptions.length);
@@ -280,11 +289,11 @@ export async function setupSolanaHomeRelay(
           { pubkey: peer, isSigner: false, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
-        data: Buffer.concat([disc("set_peer"), u32le(m.eid), evmAddressToBytes32(m.request), feeCap, len, returnOptions]),
+        data: Buffer.concat([disc("set_peer"), u32le(m.eid), toBytes32(m.request), feeCap, len, returnOptions]),
       })
     );
     const stored = (await chain.accountInfo(peer.toBase58()))?.data.subarray(8, 40).toString("hex");
-    if (stored !== evmAddressToBytes32(m.request).toString("hex")) throw new Error(`peer to eid ${m.eid} did not land`);
+    if (stored !== toBytes32(m.request).toString("hex")) throw new Error(`peer to eid ${m.eid} did not land`);
   }
   log.ok(`peers wired and verified to ${mirrors.length} mirror SwapRequest(s)`);
 
@@ -306,7 +315,7 @@ export async function setupSolanaHomeRelay(
           tokenEscrow: publicKey(asset.escrow),
           tokenSource: publicKey(ataOf(store, mint).toBase58()),
         },
-        { dstEid: m.eid, to: evmAddressToBytes32(m.request), amountLd: 1n, minAmountLd: 0n, nativeFee: 0n },
+        { dstEid: m.eid, to: toBytes32(m.request), amountLd: 1n, minAmountLd: 0n, nativeFee: 0n },
         { oft: publicKey(home.programs.oft) }
       );
       const keys = toWeb3JsInstruction(ix.instruction).keys;
@@ -351,7 +360,7 @@ export async function setupSolanaHomeRelay(
   // whoever sends the notice (the admin), so it is not pinned.
   const lz = lzLocal(chain);
   for (const m of mirrors) {
-    const receiver = evmAddressToBytes32(m.request);
+    const receiver = toBytes32(m.request);
     if (isLocal(cfg)) await initOAppPath(chain, store.toBase58(), m.eid, receiver);
     const metas = await lz.endpoint.getSendIXAccountMetaForCPI(rpc, publicKey(chain.payer.publicKey.toBase58()), {
       path: { sender: publicKey(store.toBase58()), dstEid: m.eid, receiver },

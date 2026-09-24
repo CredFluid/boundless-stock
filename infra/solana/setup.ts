@@ -80,8 +80,14 @@ export function programIdFrom(keypairPath: string): PublicKey {
 }
 
 /** An EVM address as LayerZero addresses it: left-padded into 32 bytes. */
-export function evmAddressToBytes32(address: string): Buffer {
-  return Buffer.from(address.replace(/^0x/, "").padStart(64, "0"), "hex");
+/**
+ * A remote address as LayerZero addresses it: 32 bytes. EVM hex is left-padded; a Solana
+ * address (base58) is its own 32 bytes. Remotes can be either since a deployment can hold
+ * several Solana chains.
+ */
+export function toBytes32(address: string): Buffer {
+  if (/^0x[0-9a-fA-F]*$/.test(address)) return Buffer.from(address.slice(2).padStart(64, "0"), "hex");
+  return new PublicKey(address).toBuffer();
 }
 
 export function createMint(rpcUrl: string, keypairPath: string, decimals: number): PublicKey {
@@ -139,11 +145,20 @@ export async function checkExistingMint(chain: SolanaChain, mint: PublicKey, sym
 /** One remote chain this chain's OApps talk to, and each OApp's counterpart there. */
 export interface RemoteChain {
   eid: number;
-  /** This asset's OFT handle there — the token, or its adapter. */
-  baseOft: string;
-  quoteOft: string;
-  /** The SwapRelay, on the home chain only. */
+  /**
+   * This asset's OFT handle there — the token, or its adapter; for a Solana remote, its OFT
+   * store. Absent while that chain's OFTs do not exist yet: a Solana home is set up after its
+   * Solana mirrors, which are then set up again to peer with it.
+   */
+  baseOft?: string;
+  quoteOft?: string;
+  /** The SwapRelay (or `swap_relay` store), on the home chain only. */
   relay?: string;
+}
+
+/** A Solana chain of this deployment as a remote for another. */
+export function solanaRemote(d: SolanaDeployment): RemoteChain {
+  return { eid: d.chain.eid, baseOft: d.assets.base.oftStore, quoteOft: d.assets.quote.oftStore };
 }
 
 interface PeerLink {
@@ -277,7 +292,7 @@ export async function wireOftPeer(
   remoteOft: string
 ): Promise<PeerLink> {
   const [peer] = PublicKey.findProgramAddressSync([SEEDS.peer, oftStore.toBuffer(), u32be(remoteEid)], oftProgram);
-  const expected = evmAddressToBytes32(remoteOft);
+  const expected = toBytes32(remoteOft);
   const peerTx = new Transaction().add(
     new TransactionInstruction({
       programId: oftProgram,
@@ -428,7 +443,7 @@ async function setHomeRelay(
         { pubkey: chain.payer.publicKey, isSigner: true, isWritable: false },
         { pubkey: store, isSigner: false, isWritable: true },
       ],
-      data: Buffer.concat([DISC.set_home_relay, evmAddressToBytes32(homeRelay)]),
+      data: Buffer.concat([DISC.set_home_relay, toBytes32(homeRelay)]),
     })
   );
   await chain.connection.confirmTransaction(
@@ -504,7 +519,8 @@ export async function setupSolanaMirror(
       log.step(`${asset.symbol} — OFT peers`);
       asset.peers = [];
       for (const r of remotes) {
-        asset.peers.push(await wireOftPeer(chain, oftProgram, new PublicKey(asset.oftStore), r.eid, r[key]));
+        const remoteOft = r[key];
+        if (remoteOft) asset.peers.push(await wireOftPeer(chain, oftProgram, new PublicKey(asset.oftStore), r.eid, remoteOft));
       }
     }
     await setHomeRelay(chain, swapRequestProgram, new PublicKey(deployment.swapRequest.store), home.relay);
@@ -518,10 +534,10 @@ export async function setupSolanaMirror(
       `${cfg.token.symbol} ${baseDecimals}, ${cfg.quoteAsset.symbol} ${quoteDecimals} (shared ${SHARED_DECIMALS})`
     );
 
-    const base = await initOft(chain, chainConfig, oftProgram, { symbol: cfg.token.symbol, decimals: baseDecimals },
-      remotes.map((r) => ({ eid: r.eid, oft: r.baseOft })));
-    const quote = await initOft(chain, chainConfig, oftProgram, { symbol: cfg.quoteAsset.symbol, decimals: quoteDecimals },
-      remotes.map((r) => ({ eid: r.eid, oft: r.quoteOft })));
+    const withOft = (key: "baseOft" | "quoteOft") =>
+      remotes.flatMap((r) => (r[key] ? [{ eid: r.eid, oft: r[key]! }] : []));
+    const base = await initOft(chain, chainConfig, oftProgram, { symbol: cfg.token.symbol, decimals: baseDecimals }, withOft("baseOft"));
+    const quote = await initOft(chain, chainConfig, oftProgram, { symbol: cfg.quoteAsset.symbol, decimals: quoteDecimals }, withOft("quoteOft"));
     const store = await initStore(chain, swapRequestProgram, cfg, base, quote, home.relay, oftProgram);
 
     deployment = {
@@ -553,9 +569,9 @@ export async function setupSolanaMirror(
   if (isLocal(cfg)) {
     log.step("LayerZero messaging paths");
     for (const r of remotes) {
-      await initOAppPath(chain, deployment.assets.base.oftStore, r.eid, evmAddressToBytes32(r.baseOft));
-      await initOAppPath(chain, deployment.assets.quote.oftStore, r.eid, evmAddressToBytes32(r.quoteOft));
-      if (r.relay) await initOAppPath(chain, deployment.swapRequest.store, r.eid, evmAddressToBytes32(r.relay));
+      if (r.baseOft) await initOAppPath(chain, deployment.assets.base.oftStore, r.eid, toBytes32(r.baseOft));
+      if (r.quoteOft) await initOAppPath(chain, deployment.assets.quote.oftStore, r.eid, toBytes32(r.quoteOft));
+      if (r.relay) await initOAppPath(chain, deployment.swapRequest.store, r.eid, toBytes32(r.relay));
     }
     log.ok(`paths initialised to ${remotes.length} remote chain(s)`);
   }

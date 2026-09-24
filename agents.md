@@ -246,7 +246,8 @@ funds, and the residue is real (see `NOTES.md`). See §6 for what each scenario 
 | 5 | Multi-mirror check | Scenario 2 repeated against a **second** mirror chain — proves per-chain wiring generalizes |
 | 6 | Reverse direction (sell) | A mirror user sells; proceeds arrive on the mirror chain |
 | 7 | **Solana mirror** | Buy, refund and sell from a **Solana** mirror, plus supply conservation across VMs. Skipped when no Solana chain is configured |
-| 8 | **Solana home** | Buy, refund and sell from EVM mirrors against an Orca Whirlpool on a **Solana home chain**; supply conserved across VMs. The only scenario run when the home chain is Solana |
+| 8 | **Solana home** | Buy, refund, sell, strand + retry and cancel from EVM mirrors against an Orca Whirlpool on a **Solana home chain**; supply conserved across VMs. Runs only when the home chain is Solana |
+| 9 | **Solana to Solana** | Tokens moved directly between two Solana chains, then a buy and a sell from a Solana mirror — against a Solana home, or, with an EVM home, from a second Solana mirror funded by the first; supply conserved across every chain. Skipped without two Solana chains |
 
 ---
 
@@ -513,6 +514,31 @@ npm run deploy   -- --config config/localnet-solana-home.json
 npm run validate -- --config config/localnet-solana-home.json   # scenario 8
 ```
 
+### Several Solana chains in one deployment (M30)
+
+A deployment may hold any number of Solana (SVM) chains, as home or mirrors, beside EVM
+chains. Locally each is its own validator: `npm run solana:up -- --config <file>` starts one per
+local Solana chain in the config, each with its own ledger, faucet, gossip and port range.
+
+| Config | Chains | Validated |
+|---|---|---|
+| `localnet-solana-2.json` | EVM home, two EVM mirrors, **two Solana mirrors** | 9/9: scenario 7 on the first Solana mirror; scenario 9 moves 15,000 USDC Solana → Solana and trades from the second |
+| `localnet-solana-home-svm-mirror.json` | **Solana home**, three EVM mirrors, **a Solana mirror** | 2/2: scenario 8, and scenario 9 — 15,000 USDC home → mirror SVM to SVM, then a buy (66.14 tAAPL) and a sell against the Whirlpool, orders and returns never touching an EVM chain |
+
+```bash
+npm run solana:up -- --config config/localnet-solana-home-svm-mirror.json && npm run chains:up
+npm run solana:deploy -- --config config/localnet-solana-home-svm-mirror.json
+npm run deploy   -- --config config/localnet-solana-home-svm-mirror.json
+npm run validate -- --config config/localnet-solana-home-svm-mirror.json   # scenarios 8, 9
+```
+
+What it took: remote addresses are 32 bytes of either kind (EVM hex, left-padded, or a Solana
+pubkey), not EVM hex assumed; Solana mirrors of a Solana home are set up in two passes — their
+OFTs first, pointed at the home relay by its PDA address, then again once the home's OFTs exist —
+because each side needs the other's addresses and Solana OFT stores are not predictable in
+advance; the home relay's return options to a Solana mirror are compute units and lamports; and
+with an EVM home, Solana mirrors are peered with each other in a second pass.
+
 How `swap_relay` differs from `SwapRelay.sol`, and why (details in `NOTES.md`, 2026-09-24):
 
 - **It quotes before it swaps.** Solana cannot catch a failed CPI, so "try the swap, refund in
@@ -637,8 +663,7 @@ but the default `svm.executor` figures are local guesses and want measuring on d
 
 **Solana as the home chain:**
 
-1. **Several Solana chains in one deployment** (a Solana home with Solana mirrors) — refused today.
-2. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
+1. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
    `infra/supply.ts` plus the supply invariants extended to it. (Scenarios 7 and 8 already check
    conservation across VMs from mint supplies.)
 

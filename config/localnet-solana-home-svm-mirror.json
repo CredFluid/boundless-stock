@@ -1,0 +1,84 @@
+{
+  "name": "crossstock-solana-home-svm-mirror",
+  "_comment": "A SOLANA HOME WITH A SOLANA MIRROR, beside three EVM mirrors: two separate SVM clusters in one deployment. The second one runs as its own local validator on :8999 (`npm run solana:up -- --config` with this file starts both); eid 40999 is a local-only id. Orders from the Solana mirror cross SVM to SVM. See agents.md section 12.",
+  "token": {
+    "name": "Tokenized Apple Inc.",
+    "symbol": "tAAPL",
+    "decimals": 18,
+    "initialSupply": "1000000"
+  },
+  "quoteAsset": {
+    "name": "USD Coin",
+    "symbol": "USDC",
+    "decimals": 6,
+    "initialSupply": "50000000"
+  },
+  "homeChain": {
+    "key": "solana-devnet",
+    "name": "Solana Devnet (local)",
+    "vm": "svm",
+    "eid": 40168,
+    "rpcUrl": "http://127.0.0.1:8899",
+    "nativeSymbol": "SOL",
+    "svm": {
+      "endpointProgramId": "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6",
+      "keypairPath": ".localnet-solana/payer.json",
+      "commitment": "confirmed"
+    }
+  },
+  "mirrorChains": [
+    {
+      "key": "base-sepolia",
+      "name": "Base Sepolia",
+      "chainId": 84532,
+      "eid": 40245,
+      "rpcUrl": "http://127.0.0.1:8545",
+      "nativeSymbol": "ETH"
+    },
+    {
+      "key": "arbitrum-sepolia",
+      "name": "Arbitrum Sepolia",
+      "chainId": 421614,
+      "eid": 40231,
+      "rpcUrl": "http://127.0.0.1:8546",
+      "nativeSymbol": "ETH"
+    },
+    {
+      "key": "optimism-sepolia",
+      "name": "Optimism Sepolia",
+      "chainId": 11155420,
+      "eid": 40232,
+      "rpcUrl": "http://127.0.0.1:8547",
+      "nativeSymbol": "ETH"
+    },
+    {
+      "key": "svm-b",
+      "name": "SVM chain B (local)",
+      "vm": "svm",
+      "eid": 40999,
+      "rpcUrl": "http://127.0.0.1:8999",
+      "nativeSymbol": "SOL",
+      "svm": {
+        "endpointProgramId": "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6",
+        "keypairPath": ".localnet-solana/payer.json",
+        "commitment": "confirmed"
+      }
+    }
+  ],
+  "pool": {
+    "feeTier": 3000,
+    "initialPrice": "150",
+    "baseLiquidity": "100000",
+    "quoteLiquidity": "15000000",
+    "tickHalfWidth": 60000
+  },
+  "relay": {
+    "homeLzReceiveGas": 300000,
+    "homeComposeGas": 1200000,
+    "homeComposeValue": "0.01",
+    "returnGas": 300000,
+    "relayNativeBuffer": "1",
+    "returnComposeGas": 400000
+  },
+  "localMessageLibFee": "0.0001"
+}

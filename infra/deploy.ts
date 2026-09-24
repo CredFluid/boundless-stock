@@ -20,8 +20,21 @@ import { deployPool } from "./modules/04-pool.js";
 import { deployRelays, deployMirrorRequests } from "./modules/05-relays.js";
 import { finalizeManifest, printManifest } from "./modules/06-manifest.js";
 import { log } from "./lib/logger.js";
-import { setupSolanaMirror, remotesFromManifest, solanaManifestPath } from "./solana/setup.js";
-import { preflightSolanaHome, setupSolanaHomeAssets, setupSolanaHomePool, setupSolanaHomeRelay } from "./solana/home.js";
+import {
+  setupSolanaMirror,
+  remotesFromManifest,
+  solanaManifestPath,
+  solanaRemote,
+  programIdFrom,
+  type SolanaDeployment,
+} from "./solana/setup.js";
+import {
+  preflightSolanaHome,
+  relayStoreAddress,
+  setupSolanaHomeAssets,
+  setupSolanaHomePool,
+  setupSolanaHomeRelay,
+} from "./solana/home.js";
 import { writeFileSync } from "node:fs";
 import type { DeploymentConfig, Manifest } from "./lib/types.js";
 import type { Chain } from "./lib/chains.js";
@@ -56,9 +69,6 @@ async function main(): Promise<void> {
   // own backend once the EVM side exists, because its peers are the EVM contracts' addresses.
   const svmChains = allChains(cfg).filter((c) => vmOf(c) === "svm");
   const solanaHome = vmOf(cfg.homeChain) === "svm";
-  if (solanaHome && svmChains.length > 1) {
-    throw new Error("A Solana home chain with further Solana mirrors is not supported yet; mirrors must be EVM.");
-  }
   const evmCfg = { ...cfg, mirrorChains: cfg.mirrorChains.filter((c) => vmOf(c) === "evm") };
   if (svmChains.length > 0) {
     log.kv("Solana chains", svmChains.map((c) => `${c.name} (${c.eid})`).join(", "));
@@ -139,8 +149,12 @@ async function main(): Promise<void> {
   saveManifest(manifest);
 
   // ------------------------------------------------------------------ Solana chains
+  // Each Solana mirror peers with the EVM chains and with every Solana mirror set up before it;
+  // once all exist, a second pass peers the earlier ones with the later ones.
+  const solanaMirrors: SolanaDeployment[] = [];
   for (const sc of svmChains) {
-    const sol = await setupSolanaMirror(cfg, sc, remotesFromManifest(manifest));
+    const sol = await setupSolanaMirror(cfg, sc, [...remotesFromManifest(manifest), ...solanaMirrors.map(solanaRemote)]);
+    solanaMirrors.push(sol);
 
     // The EVM half of each link: every EVM chain's OFT for an asset peers with that asset's
     // OFT store on Solana, and the home relay with the Solana request store. Same module,
@@ -204,6 +218,13 @@ async function main(): Promise<void> {
     );
     saveManifest(manifest);
   }
+  if (solanaMirrors.length > 1) {
+    log.step("Solana ↔ Solana peers");
+    for (const [i, sc] of svmChains.entries()) {
+      const others = solanaMirrors.filter((_, j) => j !== i).map(solanaRemote);
+      await setupSolanaMirror(cfg, sc, [...remotesFromManifest(manifest), ...others]);
+    }
+  }
 
   const result = finalizeManifest(manifest, chains);
   printManifest(manifest);
@@ -245,23 +266,61 @@ async function deployWithSolanaHome(
   await deployMirrorTokens(mirrors, chains, manifest);
   saveManifest(manifest);
 
-  const peersOf = () =>
+  // Solana mirrors, first pass: their OFTs and request stores, peered with the EVM mirrors and
+  // each other, and pointed at the home relay — whose address is a PDA, known before it exists.
+  // The home's OFTs do not exist yet; the second pass below peers them.
+  const svmMirrorCfgs = cfg.mirrorChains.filter((c) => vmOf(c) === "svm");
+  const relayStore = relayStoreAddress(programIdFrom("solana/keys/swap_relay-keypair.json")).toBase58();
+  const evmRemotes = () =>
     evmCfg.mirrorChains.map((c) => ({
       eid: c.eid,
       baseOft: getContract(manifest, c.key, "TokenizedStockOft"),
       quoteOft: getContract(manifest, c.key, "QuoteAssetOft"),
-      request: manifest.chains[c.key]?.contracts.SwapRequest ?? "",
     }));
+  const solanaMirrors: SolanaDeployment[] = [];
+  for (const sc of svmMirrorCfgs) {
+    solanaMirrors.push(
+      await setupSolanaMirror(cfg, sc, [
+        ...evmRemotes(),
+        ...solanaMirrors.map(solanaRemote),
+        { eid: homeCfg.eid, relay: relayStore },
+      ])
+    );
+  }
+
+  const peersOf = () => [
+    ...evmCfg.mirrorChains.map((c) => ({
+      eid: c.eid,
+      baseOft: getContract(manifest, c.key, "TokenizedStockOft"),
+      quoteOft: getContract(manifest, c.key, "QuoteAssetOft"),
+      request: manifest.chains[c.key]?.contracts.SwapRequest ?? "",
+    })),
+    ...solanaMirrors.map((d) => ({
+      eid: d.chain.eid,
+      baseOft: d.assets.base.oftStore,
+      quoteOft: d.assets.quote.oftStore,
+      request: d.swapRequest.store,
+    })),
+  ];
 
   // Solana: genesis and the OFTs, peered with every mirror; then the pool.
   let home = await setupSolanaHomeAssets(cfg, homeCfg, peersOf());
   home = await setupSolanaHomePool(cfg, homeCfg, home);
 
-  // The mesh, EVM half: every mirror OFT with every other, and with the Solana OFT store.
+  // Solana mirrors, second pass: now peered with the home's OFTs, and with every other mirror.
+  for (const [i, sc] of svmMirrorCfgs.entries()) {
+    solanaMirrors[i] = await setupSolanaMirror(cfg, sc, [
+      ...evmRemotes(),
+      ...solanaMirrors.filter((_, j) => j !== i).map(solanaRemote),
+      { eid: homeCfg.eid, baseOft: home.assets.base.oftStore, quoteOft: home.assets.quote.oftStore, relay: relayStore },
+    ]);
+  }
+
+  // The mesh, EVM half: every mirror OFT with every other, and with each Solana OFT store.
   log.step("Module 3 — peer wiring (Solana home)");
-  for (const [contractName, store] of [
-    ["TokenizedStockOft", home.assets.base.oftStore],
-    ["QuoteAssetOft", home.assets.quote.oftStore],
+  for (const [contractName, side] of [
+    ["TokenizedStockOft", "base"],
+    ["QuoteAssetOft", "quote"],
   ] as const) {
     const nodes: PeerNode[] = [
       ...evmCfg.mirrorChains.map((c) => ({
@@ -270,7 +329,20 @@ async function deployWithSolanaHome(
         eid: c.eid,
         address: getContract(manifest, c.key, contractName) as Address,
       })),
-      { chainKey: homeCfg.key, chainName: homeCfg.name, eid: homeCfg.eid, address: solanaPeerId(store), vm: "svm" },
+      {
+        chainKey: homeCfg.key,
+        chainName: homeCfg.name,
+        eid: homeCfg.eid,
+        address: solanaPeerId(home.assets[side].oftStore),
+        vm: "svm",
+      },
+      ...solanaMirrors.map((d) => ({
+        chainKey: d.chain.key,
+        chainName: d.chain.name,
+        eid: d.chain.eid,
+        address: solanaPeerId(d.assets[side].oftStore),
+        vm: "svm" as const,
+      })),
     ];
     const w = await wirePeers({ kind: "oft", nodes, chains, manifest, topology: "mesh", label: contractName });
     if (w.failures.length > 0) throw new Error(`${contractName} peer wiring failed verification.`);

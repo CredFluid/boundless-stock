@@ -9,14 +9,20 @@
  * `--clone-devnet` copies the endpoint from devnet instead, as the original setup did.
  *
  *   npm run solana:lz-build   # once
- *   npm run solana:up
+ *   npm run solana:up                                   # one validator on :8899
+ *   npm run solana:up -- --config config/<name>.json    # one per Solana chain in the config
  *   npm run solana:down
+ *
+ * With a config, every Solana chain whose rpcUrl is local gets its own validator on that port,
+ * with its own ledger, faucet and gossip ports: separate clusters, as two SVM chains are. They
+ * share one payer keypair, funded on each.
  */
 import { spawn } from "node:child_process";
 import { writeFileSync, readFileSync, existsSync, mkdirSync, openSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { log } from "../lib/logger.js";
+import { loadConfig, allChains, vmOf } from "../lib/config.js";
 import { LZ_PROGRAMS_DIR } from "./lz-build.js";
 import { SIMPLE_MESSAGELIB_PROGRAM_ID } from "./lz-local.js";
 import { WHIRLPOOL_PROGRAM_ID } from "./ids.js";
@@ -27,18 +33,40 @@ const WHIRLPOOL_SO = resolve(process.cwd(), "solana/vendor/whirlpool/target/depl
 
 /** Where the validator state and payer keypair live. Gitignored. */
 const STATE_DIR = resolve(process.cwd(), ".localnet-solana");
-const STATE_FILE = resolve(STATE_DIR, "validator.json");
+const STATE_FILE = resolve(STATE_DIR, "validators.json");
 const PAYER_FILE = resolve(STATE_DIR, "payer.json");
-const LEDGER_DIR = resolve(STATE_DIR, "ledger");
 
 const RPC_PORT = 8899;
 export const LOCAL_RPC = `http://127.0.0.1:${RPC_PORT}`;
 
 interface ValidatorState {
+  key: string;
   pid: number;
   rpc: string;
   payer: string;
   clonedPrograms: string[];
+}
+
+/** A validator to start: which chain, and on which port. */
+interface Target {
+  key: string;
+  name: string;
+  port: number;
+}
+
+/** Local Solana chains named by the config, or the single default validator. */
+function targets(): Target[] {
+  const i = process.argv.indexOf("--config");
+  if (i < 0 || !process.argv[i + 1]) return [{ key: "default", name: "Solana (local)", port: RPC_PORT }];
+  const cfg = loadConfig(process.argv[i + 1]);
+  const out: Target[] = [];
+  for (const c of allChains(cfg).filter((c) => vmOf(c) === "svm")) {
+    const url = new URL(c.rpcUrl);
+    if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") continue;
+    out.push({ key: c.key, name: c.name, port: Number(url.port || RPC_PORT) });
+  }
+  if (out.length === 0) throw new Error("The config names no local Solana chain.");
+  return out;
 }
 
 async function waitForRpc(url: string, timeoutMs = 60_000): Promise<void> {
@@ -70,15 +98,30 @@ function ensurePayer(): string {
 
 async function up(): Promise<void> {
   mkdirSync(STATE_DIR, { recursive: true });
-  if (existsSync(STATE_FILE)) {
-    log.warn("A local Solana validator is already recorded as running. Run `npm run solana:down` first.");
+  if (existsSync(STATE_FILE) || existsSync(resolve(STATE_DIR, "validator.json"))) {
+    log.warn("Local Solana validators are already recorded as running. Run `npm run solana:down` first.");
     process.exit(1);
   }
-
-  log.banner("Starting local Solana validator");
+  const all = targets();
+  log.banner(`Starting ${all.length} local Solana validator${all.length > 1 ? "s" : ""}`);
   const payer = ensurePayer();
-  const logFile = resolve(STATE_DIR, "validator.log");
-  const fd = openSync(logFile, "a");
+  const cloneDevnet = process.argv.includes("--clone-devnet");
+  if (cloneDevnet && all.length > 1) throw new Error("--clone-devnet supports a single validator only.");
+
+  const states: ValidatorState[] = [];
+  for (const [n, t] of all.entries()) states.push(await startOne(t, n, payer, cloneDevnet));
+  writeFileSync(STATE_FILE, JSON.stringify(states, null, 2));
+  log.info(`\nState: ${STATE_FILE}`);
+}
+
+/**
+ * Starts one validator. The n-th gets its own faucet, gossip and dynamic port range, so several
+ * run side by side; the first keeps the defaults a single validator always had.
+ */
+async function startOne(t: Target, n: number, payer: string, cloneDevnet: boolean): Promise<ValidatorState> {
+  const rpc = `http://127.0.0.1:${t.port}`;
+  const ledger = resolve(STATE_DIR, n === 0 ? "ledger" : `ledger-${t.key}`);
+  const fd = openSync(resolve(STATE_DIR, n === 0 ? "validator.log" : `validator-${t.key}.log`), "a");
 
   // Two ways to get LayerZero's programs onto the validator:
   //
@@ -91,7 +134,6 @@ async function up(): Promise<void> {
   //
   // --clone-upgradeable-program pulls the bytecode AND its programdata account; plain --clone
   // gives an account the loader cannot execute.
-  const cloneDevnet = process.argv.includes("--clone-devnet");
   const programArgs: string[] = [];
   if (cloneDevnet) {
     programArgs.push("--url", "https://api.devnet.solana.com", "--clone-upgradeable-program", LZ_ENDPOINT_PROGRAM_ID);
@@ -112,39 +154,34 @@ async function up(): Promise<void> {
       programArgs.push("--upgradeable-program", WHIRLPOOL_PROGRAM_ID, WHIRLPOOL_SO, payer);
     }
   }
+  const portArgs =
+    n === 0
+      ? []
+      : [
+          "--faucet-port", String(9900 + n),
+          "--gossip-port", String(8000 + 100 * n),
+          "--dynamic-port-range", `${20000 + 1000 * n}-${20000 + 1000 * n + 999}`,
+        ];
 
   const child = spawn(
     "solana-test-validator",
-    ["--reset", "--quiet", "--ledger", LEDGER_DIR, "--rpc-port", String(RPC_PORT), ...programArgs],
+    ["--reset", "--quiet", "--ledger", ledger, "--rpc-port", String(t.port), ...portArgs, ...programArgs],
     { detached: true, stdio: ["ignore", fd, fd] }
   );
   child.unref();
 
-  await waitForRpc(LOCAL_RPC);
+  await waitForRpc(rpc);
 
   // Confirm the endpoint is actually executable here, not just present.
-  const shown = execFileSync(
-    "solana",
-    ["program", "show", LZ_ENDPOINT_PROGRAM_ID, "--url", LOCAL_RPC, "--keypair", PAYER_FILE],
-    { encoding: "utf8" }
-  );
+  const shown = execFileSync("solana", ["program", "show", LZ_ENDPOINT_PROGRAM_ID, "--url", rpc, "--keypair", PAYER_FILE], {
+    encoding: "utf8",
+  });
   if (!shown.includes("BPFLoaderUpgradeab1e")) {
     throw new Error("LayerZero endpoint did not clone as an executable upgradeable program.");
   }
+  execFileSync("solana", ["airdrop", "100", payer, "--url", rpc, "--keypair", PAYER_FILE], { stdio: "ignore" });
 
-  execFileSync("solana", ["airdrop", "100", payer, "--url", LOCAL_RPC, "--keypair", PAYER_FILE], {
-    stdio: "ignore",
-  });
-
-  const state: ValidatorState = {
-    pid: child.pid!,
-    rpc: LOCAL_RPC,
-    payer,
-    clonedPrograms: cloneDevnet ? [LZ_ENDPOINT_PROGRAM_ID] : [LZ_ENDPOINT_PROGRAM_ID, SIMPLE_MESSAGELIB_PROGRAM_ID],
-  };
-  writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
-
-  log.ok(`validator running on ${LOCAL_RPC} (pid ${child.pid})`);
+  log.ok(`${t.name}: validator running on ${rpc} (pid ${child.pid})`);
   log.kv("payer", payer);
   log.kv(
     "LayerZero EndpointV2",
@@ -152,25 +189,41 @@ async function up(): Promise<void> {
   );
   if (!cloneDevnet) log.kv("simple-messagelib", `${SIMPLE_MESSAGELIB_PROGRAM_ID} (built from source)`);
   if (!cloneDevnet && existsSync(WHIRLPOOL_SO)) log.kv("Orca Whirlpools", `${WHIRLPOOL_PROGRAM_ID} (built from source)`);
-  log.info(`\nState: ${STATE_FILE}`);
+  return {
+    key: t.key,
+    pid: child.pid!,
+    rpc,
+    payer,
+    clonedPrograms: cloneDevnet ? [LZ_ENDPOINT_PROGRAM_ID] : [LZ_ENDPOINT_PROGRAM_ID, SIMPLE_MESSAGELIB_PROGRAM_ID],
+  };
 }
 
 function down(): void {
-  if (!existsSync(STATE_FILE)) {
+  // `validator.json` is the single-validator file earlier versions wrote.
+  const legacy = resolve(STATE_DIR, "validator.json");
+  const states: { pid: number; key?: string }[] = existsSync(STATE_FILE)
+    ? JSON.parse(readFileSync(STATE_FILE, "utf8"))
+    : existsSync(legacy)
+      ? [JSON.parse(readFileSync(legacy, "utf8"))]
+      : [];
+  if (states.length === 0) {
     log.warn("No local Solana validator recorded as running.");
     return;
   }
-  const state: ValidatorState = JSON.parse(readFileSync(STATE_FILE, "utf8"));
-  try {
-    process.kill(state.pid, "SIGTERM");
-    log.ok(`stopped validator (pid ${state.pid})`);
-  } catch {
-    log.dim(`validator (pid ${state.pid}) was not running`);
+  for (const st of states) {
+    try {
+      process.kill(st.pid, "SIGTERM");
+      log.ok(`stopped validator ${st.key ?? ""} (pid ${st.pid})`);
+    } catch {
+      log.dim(`validator (pid ${st.pid}) was not running`);
+    }
   }
-  try {
-    unlinkSync(STATE_FILE);
-  } catch {
-    /* already gone */
+  for (const f of [STATE_FILE, legacy]) {
+    try {
+      unlinkSync(f);
+    } catch {
+      /* already gone */
+    }
   }
 }
 
@@ -183,6 +236,6 @@ if (cmd === "up") {
 } else if (cmd === "down") {
   down();
 } else {
-  console.log("usage: tsx infra/solana/localnet.ts <up|down>");
+  console.log("usage: tsx infra/solana/localnet.ts <up [--config <path>] | down>");
   process.exit(1);
 }

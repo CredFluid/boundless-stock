@@ -277,6 +277,11 @@ export async function scenario8(h: Harness): Promise<ScenarioResult> {
     const onSolana = BigInt(s.amount) * 10n ** BigInt(evmDec - s.decimals);
     let onMirrors = 0n;
     for (const k of h.mirrorKeys) onMirrors += await h.chain(k).read<bigint>(h.addr(k, contract), tokenAbi, "totalSupply");
+    // Solana mirrors, rescaled from their own mint decimals.
+    for (const c of h.solana) {
+      const m = await c.mintSupply(asset);
+      onMirrors += m.amount * 10n ** BigInt(evmDec - m.decimals);
+    }
     const genesis = parseUnits(initial, evmDec);
     if (home.assets[asset].mode === "adapt") {
       // An adapted mint's supply is the issuer's and never changes; what moved is locked in
@@ -312,7 +317,7 @@ export async function scenario8(h: Harness): Promise<ScenarioResult> {
 }
 
 /** Quote per base, from the Whirlpool's sqrt price (Q64.64, B per A in raw units). */
-async function whirlpoolSpot(sol: SolanaChain, home: SolanaHomeDeployment): Promise<number> {
+export async function whirlpoolSpot(sol: SolanaChain, home: SolanaHomeDeployment): Promise<number> {
   const d = (await sol.connection.getAccountInfo(new PublicKey(home.pool!.whirlpool)))!.data;
   const sqrt = Number(d.readBigUInt64LE(65) + (d.readBigUInt64LE(73) << 64n)) / 2 ** 64;
   const baseIsA = home.pool!.mintA === home.assets.base.mint;

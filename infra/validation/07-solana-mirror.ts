@@ -212,8 +212,12 @@ export async function scenario7(h: Harness): Promise<ScenarioResult> {
     ["quote", "QuoteAsset", h.quoteDecimals, h.config.quoteAsset.initialSupply],
   ] as const) {
     const evm = (await h.totalSupplyAcrossChains(contract)).total;
-    const s = await sol.mintSupply(side);
-    const onSolana = s.amount * 10n ** BigInt(homeDec - s.decimals); // rescaled to home decimals
+    // Every Solana chain of the deployment, each rescaled to home decimals.
+    let onSolana = 0n;
+    for (const c of h.solana) {
+      const s = await c.mintSupply(side);
+      onSolana += s.amount * 10n ** BigInt(homeDec - s.decimals);
+    }
     const genesis = parseUnits(initial, homeDec);
     const total = evm + onSolana;
     log.kv(`${contract}`, `EVM ${formatUnits(evm, homeDec)} + Solana ${formatUnits(onSolana, homeDec)} = ${formatUnits(total, homeDec)}`);

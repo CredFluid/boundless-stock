@@ -24,7 +24,7 @@ import type { Hex } from "viem";
 import type { DeploymentConfig } from "../lib/types.js";
 import { SolanaChain } from "./chain.js";
 import { lzLocal } from "./lz-local.js";
-import { solanaManifestPath, type SolanaDeployment } from "./setup.js";
+import { solanaManifestPath, toBytes32, type SolanaDeployment } from "./setup.js";
 
 export const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 export const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -206,7 +206,7 @@ export class SolanaSwapClient {
     const homePeer = Buffer.from(inAsset.peers.find((p) => p.remoteEid === this.deployment.homeChain.eid)!.address.slice(2), "hex");
     const nonceIndex = this.nonceIndexAddress(inOftStore, await this.nextOutboundNonce(inOftStore, homePeer));
     const storeEscrow = ataOf(this.store, tokenIn);
-    const homeRelay = Buffer.from(this.deployment.homeChain.relay.slice(2).padStart(64, "0"), "hex");
+    const homeRelay = toBytes32(this.deployment.homeChain.relay);
 
     // The messaging fee, quoted as the send will be made: the same path, options, and a
     // composeMsg of the order's size (four ABI words), since a real library prices by size.
@@ -298,4 +298,47 @@ export class SolanaSwapClient {
     await this.chain.connection.confirmTransaction(signature, "confirmed");
     return { requestId, signature, nativeFee };
   }
+}
+
+/**
+ * A plain OFT transfer from a Solana chain: `amountLd` of an asset from `sender`'s token account
+ * to `to` on `dstEid`, with the messaging fee quoted and paid by the sender. What a user does to
+ * move tokens between chains — including between two Solana chains.
+ */
+export async function sendOftFromSolana(
+  chain: SolanaChain,
+  sender: Keypair,
+  asset: { mint: string; escrow: string },
+  oftProgram: string,
+  dstEid: number,
+  to: Uint8Array,
+  amountLd: bigint,
+  options: Uint8Array
+): Promise<string> {
+  const rpc = lzLocal(chain).rpc;
+  const params = { dstEid, to, amountLd, minAmountLd: amountLd, options };
+  const { nativeFee } = await oft.quote(
+    rpc,
+    { payer: publicKey(sender.publicKey.toBase58()), tokenMint: publicKey(asset.mint), tokenEscrow: publicKey(asset.escrow) },
+    params,
+    { oft: publicKey(oftProgram) }
+  );
+  const ix = await oft.send(
+    rpc,
+    {
+      payer: createNoopSigner(publicKey(sender.publicKey.toBase58())),
+      tokenMint: publicKey(asset.mint),
+      tokenEscrow: publicKey(asset.escrow),
+      tokenSource: publicKey(ataOf(sender.publicKey, new PublicKey(asset.mint)).toBase58()),
+    },
+    { ...params, nativeFee },
+    { oft: publicKey(oftProgram) }
+  );
+  const tx = new Transaction().add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+    toWeb3JsInstruction(ix.instruction)
+  );
+  const sig = await chain.connection.sendTransaction(tx, [sender]);
+  await chain.connection.confirmTransaction(sig, "confirmed");
+  return sig;
 }

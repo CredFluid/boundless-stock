@@ -1664,3 +1664,40 @@ unchanged, and the adapter must not hold the mint authority.
 launched) passes scenario 8 on two consecutive runs — 99.32568 then 198.50123 tAAPL locked,
 equal to the mirrors' supply each time; launch mode unchanged; the decimals refusal fires before
 any mirror contract is deployed.
+
+---
+
+### [2026-09-24] Several Solana chains in one deployment
+**Milestone:** M30
+
+**What happened / what to know:** "Any chain can be the home chain" now also means any
+number of Solana chains, in any role. Two topologies are validated end to end: an EVM home with
+two Solana mirrors (9/9), and a Solana home with a Solana mirror beside three EVM mirrors (8 + 9).
+In the latter, a user on the Solana mirror is funded, buys and sells with every message going
+Solana to Solana: 15,000 USDC arrived in ~0.7 s, a 10,000 USDC buy filled at 66.14 tAAPL via the
+Whirlpool, and supply is exact across all six chains.
+
+Four things were EVM-shaped and had to change:
+
+- **Remote addresses.** Every place a remote was turned into LayerZero's 32 bytes assumed EVM hex
+  (`evmAddressToBytes32`). `toBytes32` takes either — hex is left-padded, base58 is decoded — and
+  every call site uses it: peers, paths, the home relay, return and notice routes.
+- **Chicken and egg.** A Solana mirror's OFTs must peer with the home's, and the home's with the
+  mirror's, and a Solana OFT store's address is a PDA of a fresh escrow keypair — unknowable
+  until created. The Solana-home pipeline sets up Solana mirrors twice: first with the EVM
+  mirrors and the home relay (a PDA, so known in advance) as remotes, then — after the home's
+  OFTs exist — again, which rewires peers and paths through the existing reuse path. With an EVM
+  home, Solana mirrors get a second pass to peer with each other.
+- **Return options by destination.** `swap_relay` gives a Solana mirror compute units and
+  lamports (`svm.executor`), an EVM mirror gas.
+- **Local clusters.** `solana:up -- --config` starts a validator per local Solana chain, each
+  with its own ledger, faucet, gossip port and dynamic port range; without a config it behaves
+  as before. The relayer and harness already iterated over every Solana chain.
+
+Scenario 9 is new: SVM ↔ SVM transfer and trading from a Solana mirror, in whichever form the
+topology allows. Scenarios 7 and 8 now count every Solana chain in their supply checks — with
+more than one, counting only the first would have been wrong the moment tokens reached another.
+
+**Why it matters / what breaks if ignored:** the second local chain uses eid 40999, a local-only
+id; a live deployment uses the chains' real eids. Both multi-Solana topologies, the single-Solana
+ones (EVM home + Solana mirror; Solana home) and EVM-only were rerun after the change.

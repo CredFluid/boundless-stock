@@ -1,8 +1,8 @@
 {
   "name": "crossstock-localnet",
   "version": "1",
-  "createdAt": "2026-09-24T08:18:55.756Z",
-  "updatedAt": "2026-09-24T08:18:56.755Z",
+  "createdAt": "2026-09-24T08:43:06.332Z",
+  "updatedAt": "2026-09-24T08:43:07.266Z",
   "environment": "local",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "token": {
@@ -41,7 +41,7 @@
         "SwapRelay": "0x59b670e9fa9d0a427751af201d676719a970857b"
       },
       "deploymentGas": {
-        "gasUsed": "35565930",
+        "gasUsed": "35570341",
         "txCount": 31
       }
     },
@@ -230,7 +230,7 @@
       "expected": "0x0000000000000000000000000DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
       "actual": "0x0000000000000000000000000dcd1bf9a1b36ce34237eeafef220932846bcd82",
       "verified": true,
-      "txHash": "0x90515f198d0703bf7add6c2ab37dc1e3ff3c873e1551e825c0394da809543132"
+      "txHash": "0x782bbc7a6146a588ea7534723d328c025db8432cff4997e9a144167bcc3afc39"
     },
     {
       "kind": "relay",
@@ -252,7 +252,7 @@
       "expected": "0x0000000000000000000000000DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
       "actual": "0x0000000000000000000000000dcd1bf9a1b36ce34237eeafef220932846bcd82",
       "verified": true,
-      "txHash": "0x682cf35f612f86e30eefe6e23775598dec4530ab4ceeb7fbb2e8353de0b6f3ad"
+      "txHash": "0x3a6d5e3fdeb5d9de6ef9af5602a3c6a95a777f63b17f7f898b79acb6fbaf5266"
     },
     {
       "kind": "relay",
@@ -270,55 +270,55 @@
     {
       "module": "00-endpoints",
       "status": "ok",
-      "at": "2026-09-24T08:18:56.095Z",
+      "at": "2026-09-24T08:43:06.637Z",
       "detail": "3 chains"
     },
     {
       "module": "01-token",
       "status": "ok",
-      "at": "2026-09-24T08:18:56.141Z",
+      "at": "2026-09-24T08:43:06.680Z",
       "detail": "tAAPL + USDC on base-sepolia (launch)"
     },
     {
       "module": "02-mirrors",
       "status": "ok",
-      "at": "2026-09-24T08:18:56.216Z",
+      "at": "2026-09-24T08:43:06.746Z",
       "detail": "2 mirrors × 2 assets"
     },
     {
       "module": "03-peers:TokenizedStockOft",
       "status": "ok",
-      "at": "2026-09-24T08:18:56.311Z",
+      "at": "2026-09-24T08:43:06.828Z",
       "detail": "6/6 verified"
     },
     {
       "module": "03-peers:QuoteAssetOft",
       "status": "ok",
-      "at": "2026-09-24T08:18:56.400Z",
+      "at": "2026-09-24T08:43:06.905Z",
       "detail": "6/6 verified"
     },
     {
       "module": "04-pool",
       "status": "ok",
-      "at": "2026-09-24T08:18:56.525Z",
+      "at": "2026-09-24T08:43:07.030Z",
       "detail": "L=1288875159409035126"
     },
     {
       "module": "03-peers:SwapRelay↔SwapRequest",
       "status": "ok",
-      "at": "2026-09-24T08:18:56.754Z",
+      "at": "2026-09-24T08:43:07.265Z",
       "detail": "4/4 verified"
     },
     {
       "module": "05-relays",
       "status": "ok",
-      "at": "2026-09-24T08:18:56.754Z",
+      "at": "2026-09-24T08:43:07.265Z",
       "detail": "relay + 2 requests, 4 links"
     },
     {
       "module": "06-manifest",
       "status": "ok",
-      "at": "2026-09-24T08:18:56.755Z",
+      "at": "2026-09-24T08:43:07.266Z",
       "detail": "0 problems"
     }
   ],

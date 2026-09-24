@@ -101,10 +101,7 @@ async function main(): Promise<void> {
 
     log.banner("Solana programs deployed");
     for (const [key, id] of Object.entries(deployed)) log.kv(key, id);
-    log.info("\nStill required before a trade can round-trip through this chain:");
-    log.info("  - init_oft for each asset, and init_store on swap_request");
-    log.info("  - peer wiring, and relayer support for the SVM delivery path");
-    log.info("See agents.md section 12.");
+    log.info(`\nNext: npm run deploy -- --config <this config> — it initialises the OFTs, stores and peers.`);
   }
 }
 

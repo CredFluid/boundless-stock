@@ -139,7 +139,7 @@ export class SolanaRelayEndpoint {
         nonce: packet.nonce.toString(),
       })
     );
-    log.dim(`packet ${packet.srcEid}→${packet.dstEid} nonce ${packet.nonce} delivered on Solana`);
+    log.dim(`packet ${packet.srcEid}→${packet.dstEid} nonce ${packet.nonce} delivered on ${this.chain.name}`);
 
     let composed = 0;
     const composes = await extractComposeSentEventByTxHash(rpc, this.endpointProgram, receipt, {
