@@ -26,6 +26,8 @@ import { writeFileSync } from "node:fs";
 import type { DeploymentConfig, Manifest } from "./lib/types.js";
 import type { Chain } from "./lib/chains.js";
 import { PublicKey } from "@solana/web3.js";
+import { forgeArtifact } from "./lib/artifacts.js";
+import { svmExecutor } from "./lib/svm-executor.js";
 import type { Address } from "viem";
 
 function arg(name: string, fallback?: string): string {
@@ -186,6 +188,20 @@ async function main(): Promise<void> {
       label: "SwapRelay",
     });
     if (r.failures.length > 0) throw new Error(`SwapRelay → ${sc.name} peer wiring failed verification.`);
+
+    // Return legs to Solana ask for compute units and lamports, not EVM gas: the figures the
+    // relay puts in its executor options are set per eid, in the destination's own terms.
+    const home = chains.get(evmCfg.homeChain.key)!;
+    const relay = getContract(manifest, evmCfg.homeChain.key, "SwapRelay") as Address;
+    const relayAbi = forgeArtifact("SwapRelay").abi;
+    const ex = svmExecutor(sc);
+    await home.write(relay, relayAbi, "setReturnGas", [sc.eid, ex.lzReceiveComputeUnits]);
+    await home.write(relay, relayAbi, "setReturnComposeGas", [sc.eid, ex.lzComposeComputeUnits]);
+    await home.write(relay, relayAbi, "setReturnValue", [sc.eid, ex.lzReceiveValueLamports]);
+    log.ok(
+      `return legs to ${sc.name}: ${ex.lzReceiveComputeUnits} + ${ex.lzComposeComputeUnits} CU, ` +
+        `${ex.lzReceiveValueLamports} lamports for rent`
+    );
     saveManifest(manifest);
   }
 

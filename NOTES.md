@@ -1553,3 +1553,35 @@ liquidity-management instructions, which the SBF linker flags for stack size; th
 called by the relay — only the swap path is reachable — but a change that starts calling them
 must revisit that. Validation: scenario 8 on a Solana home; 8/8 (7 + skip) on EVM home with a
 Solana mirror; EVM-only unchanged; Foundry 64/64; Rust 34/34 + 9/9.
+
+---
+
+### [2026-09-24] Messaging fees and Solana-native executor options
+**Milestone:** M27
+
+**What happened / what to know:** Until now the local `simple-messagelib` charged nothing, so
+every Solana send passed `native_fee: 0` and nothing proved a fee could be paid. It now charges
+`svm.localMessageLibFeeLamports` (default 50,000) per send, set with its `set_fee` instruction.
+
+- `open_request`: the client quotes the OFT send with LayerZero's SDK as it will be made — same
+  path and options, a 128-byte composeMsg for the order, since a real library prices by size —
+  and passes the result through as the send's `native_fee`. The user is the send's payer, so the
+  user pays; the program never holds lamports for fees.
+- `swap_relay`'s return leg: `native_fee` is a per-mirror cap (`Peer.max_return_fee`, default
+  5,000,000 lamports), not a price. The library charges the actual fee to the route's `Payer` —
+  the Executor's fee payer — and refuses the send above the cap. What reimburses the Executor is
+  the compose value the mirror's SwapRequest asks for, which a Solana home sets to that cap.
+- Executor options now speak the destination's units. `SwapRelay` gains
+  `returnValue[eid]` and `returnOptions(eid)`; for a Solana mirror, `deploy.ts` sets its return
+  gas and compose gas to compute units and `returnValue` to lamports for rent
+  (`svm.executor`). A mirror SwapRequest facing a Solana home asks for compute units and a
+  lamport compose value instead of EVM gas and wei.
+
+**Why it matters / what breaks if ignored:** EVM options against a Solana destination are not
+wrong by a factor — they are in the wrong units: `homeComposeValue: "0.01"` ETH is 1e16, which on
+Solana reads as 10 million SOL. Nothing local would have caught it, because the local relayer
+ignores options. Scenarios 7 and 8 now assert the fee actually charged (50,000 lamports on the
+user's `open_request`, and on the relay's return leg, measured as the library's balance change)
+rather than just that sends succeed. The default `svm.executor` figures are local estimates to
+be measured on devnet. Validation: EVM-only 8/8; EVM home + Solana mirror 8/8; Solana home
+scenario 8; Foundry 65/65; Rust 34 + 9.

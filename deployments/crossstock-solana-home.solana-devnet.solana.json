@@ -2,7 +2,7 @@
   "name": "crossstock-solana-home",
   "vm": "svm",
   "role": "home",
-  "createdAt": "2026-09-24T00:44:40.936Z",
+  "createdAt": "2026-09-24T08:01:03.741Z",
   "chain": {
     "key": "solana-devnet",
     "name": "Solana Devnet (local)",
@@ -20,9 +20,9 @@
     "base": {
       "symbol": "tAAPL",
       "decimals": 9,
-      "mint": "4P8mHUDxm1er1cmmSLs1pXVyNr4QykbNzV6295vphMux",
-      "oftStore": "CzRMj35ZSRgwzRKuMmKGhYv5zaEw7D3ixnR66C97JKg4",
-      "escrow": "4fTA53QoVLHw4S5977DSsHvHn2Knh8D6zmmioco7v6GX",
+      "mint": "Hfvg91865QibziPKFSRgXiPtY1TfLBkGD4CPWDA1hEzJ",
+      "oftStore": "3xN648VtnB62HkRgkzdwr8uoxEt4WLXgpprN97FMYLFH",
+      "escrow": "CrTGFKiaLFyLtSJk7ioUgDv2peGmfHA4kh2EVFDahZVt",
       "peers": [
         {
           "remoteEid": 40245,
@@ -44,9 +44,9 @@
     "quote": {
       "symbol": "USDC",
       "decimals": 6,
-      "mint": "BjmNm2wfJiLMAwJDHaCHRPzcovqfvzQoEdg3Vet69aQ1",
-      "oftStore": "3JtDYgDanmZtJ2iqiA1MCmDtKMYejz3ypXzF9i8wtHKW",
-      "escrow": "5gzRxcjdGhxnTe17FxMtzuLNE19Gs9Riavme7SikmtU3",
+      "mint": "G3t2tG2FZ58z6k51RkR9bxeRkbVDYcbR5td1YM9kNXRN",
+      "oftStore": "NWuUR8v7zhpB5rLsE8AiD4aH1dJiCxhcyPHvFAcpbK7",
+      "escrow": "Gvy7ruKtWqW2Q2Uv2C5gJR6TuXfa5WNin6YGEZMBe8n2",
       "peers": [
         {
           "remoteEid": 40245,
@@ -67,41 +67,41 @@
     }
   },
   "pool": {
-    "whirlpool": "H7fr7aP9MUsBYvYjBTFiMrUSjs1Z95vCKFxjQNcRMYdb",
-    "config": "EXBKpSMcxdCkNwdqCab7H9ghHhDMcTPnPPHjx7uvWsww",
+    "whirlpool": "6F3zyzq1nj8cxKUA4rqhvhnHqnRtM2jynQ5XPhRKvkpD",
+    "config": "FJDeoRCdACjPtNwoTacjdMEdsuxRnFRBcFBvJRkXHpDf",
     "tickSpacing": 64,
-    "mintA": "4P8mHUDxm1er1cmmSLs1pXVyNr4QykbNzV6295vphMux",
-    "mintB": "BjmNm2wfJiLMAwJDHaCHRPzcovqfvzQoEdg3Vet69aQ1",
+    "mintA": "G3t2tG2FZ58z6k51RkR9bxeRkbVDYcbR5td1YM9kNXRN",
+    "mintB": "Hfvg91865QibziPKFSRgXiPtY1TfLBkGD4CPWDA1hEzJ",
     "tickArrays": [
-      "GSwWbitBK3DS714BkLREt9UMCf1npaVbAZViSH11gi91",
-      "GsvPaCU4RskEWvbW9KMoMFewE2UkapfC9uRsqQrYX1a",
-      "G49EYjjjVQk7yE31cFUJfwrsJUoGHcfoMLAEqLAwUF65",
-      "CNSVssTyTuLuWsqFBxwXeoSuEmudnv1v78wSK7jqbWPf",
-      "8Hx3gmHxRAUr1LnYdD89yapWCirzw9NHvgSAL7pU5rxn",
-      "F3fwVLHLiMqBZMnAgSzGqzHaNsTp8EnQ2onmfW8SeH3B",
-      "sqHZkB2ZMEjrjZHaWdwPAogUbqKVpZTY6M9DpYQAVQ7",
-      "BrBxQyqLbHCwQZWgebyr8CrWxXGvdZdduR4VgdYfzoi2",
-      "Dv3JQfDD5ogZcLUTkHjAnFqZgpdkouZKs5pHw5HrTZEh",
-      "57xfcqc1YRzhh2uCDX2u2FvHp1MjSjRALyQwxtQHbVve",
-      "Axf33uPohGVVU1qBo6Dj2XQEArhm3UUg76RtqrPar8RM",
-      "GctgFfkv5tbjiPvVqL5TUdNVxQbmqcGYcY4CZ3hnpjyi",
-      "ENjtWHVztt2pZDK9DJrLJJiNTdhUFuztXsU4ydNK19gk",
-      "2Wny8kmnVdJsAQ3ovQ5jxoooZ1Pn3NysgdGxgz3pdajH",
-      "5yh492BBK38Jn9xh9TjUhwYst1jDw8wQLGGHZhGkNyEU",
-      "7pFkXR3eiLK1qca588dwsahH56XSZkCDWCJAao9DFCBw",
-      "BzfxWh4NRuet6RGoz51Fej3vcUsCv6t99c1KoCvDKAgu",
-      "AbityhSBrivepbdU1vQvKAjoi1qoQ3ba8bV2KDhqciCj",
-      "DjGQf9SvcHnJwFUxCqyTBr9ktWgifj1vyRi1CY5biV7Q",
-      "7nCtV8f3npkgwJ5152q6jp9nKJCL7w8aGLsL3rsc3GBU",
-      "5h8p895UzWEhZ7CSppFGaKzFyhFYHLgwHKrL94wJ7Ych",
-      "7ngh67MedR6Dt6qCxV5m4np9EEDmNyAGNoasbn9SiF23",
-      "Nedox9TmCf6ZVRCxNQtEQ98EAFvpT53wHSSrHTVwJjj"
+      "8ZNkTyg3ZjyGY89KGj6UiCJ42JfHifv3u7zTGsUQ9MSF",
+      "DWAerSERfCXmc4pEmRsBuGDi4fBcBERsnJ82W85bjwfj",
+      "BCw1X2JTLrhh8AgcNppuoeYyGrTnb8g9Dwi4HrJTn7Mb",
+      "EXMLdy2mAWq5xdNDeg41Fo5V7iriLb4z1eNUWrqTJtPS",
+      "DpVkB1Q2UKWmrY2d6dWUFT9dgsoU2vJmCrGd6sHJPnyS",
+      "GZaxFRmyATkQj38SMJ2iGwshtDaDvS52eH9fhaj7mGGj",
+      "2iTXfDJaSRRm19TPgoevMq8RqyrsytyYf6y31aPpXtHs",
+      "CYQVowBNn2BPCKVWLexavkn6k1CkGf7B49RWK1CsmubN",
+      "42Thi7P1qPn7qw3XLRgmWmQnYiVz39vgLuYH8TmWQpXh",
+      "5c59jbcGySPNp2ZVEBZhe2Dmkpe1TAndunoLVD59Bfp6",
+      "5sLV9VDqg1GeM3zXyAxF44L16hTdedHnAZVg6MhLxHCt",
+      "GdMkNkCgghNBPVWfDS7rGFhfWP8fG3LY7xoB2EvE8MpX",
+      "7ZhjwkisRfWxnFfoeT2nDT4eEEaygfA9xmtYcaks9Udk",
+      "H7oXCj5fXbuMJGQFCp4m9zZGY11fjfXAS2DSY1GTxm6v",
+      "BH4Fq9XwXDwf6NbRPXFkfLCfzZiqJQNJ8QBWqQ7zoCsS",
+      "Ho2axceEcGds9zpaZ4q3yCdhfvJb3FzwSiRQPv4zaajx",
+      "hyXRS5jKJ6YD9s163VNKKbQVKYJ2eVZGukve2cwCXnW",
+      "6LGXQvQXtSLhDKEJKXe31jnJ5iFcyCQUTEU57FJ1ksFh",
+      "5YsyczLcahfoG6fRWCE259WfWde1c95bYBQmfKU9d6Dn",
+      "4av1bHxy4HUjSDQAM1EBbyn6Ps34dMdGdQuGNghKcMzQ",
+      "372fhjJRTzXfD4RQZgc5BbERRrej5QJBMmk9pXm7aeT3",
+      "46rXtMKF9EU31n973n4TDcigzyFbEAPCjYXSdyK962ot",
+      "Af9z8CTQw29EpXww8UN5sZn41UfGPpBUWCzJ3xFs8Wnw"
     ],
-    "position": "DdqxugXvgECBMBur6b1wyevtCNYkrajPfnrWjGz5vVXU"
+    "position": "FCJGFt4nb8bpWveNEXwEQsf3QftcUXG37u5nfScpX86b"
   },
   "relay": {
     "store": "FbkNjoe4TriNAbZ14XurB8gGviR4FVN8yCzBWeTCRxBC",
-    "alt": "FysAfvh5VKTwNJ5U7cgwgFDLqn2feMuuyVJRWSsT1AHv",
+    "alt": "7bvnLsaHmXvYAqHDxfcRp5J6umQ5EGHgpT6B36YgE6Ay",
     "peers": [
       {
         "eid": 40245,

@@ -39,6 +39,10 @@ impl RelayStore {
 pub struct Peer {
     /// The mirror's SwapRequest, as LayerZero addresses it.
     pub address: [u8; 32],
+    /// The most one return leg to that chain may cost in messaging fees, in lamports. Paid by
+    /// the executor's fee payer, which the mirror's compose value reimburses; the cap bounds
+    /// what a mis-set library fee can take from it.
+    pub max_return_fee: u64,
     /// Executor options for the return leg to that chain — EVM gas for an EVM mirror.
     pub return_options: Vec<u8>,
     pub bump: u8,
@@ -47,7 +51,7 @@ pub struct Peer {
 impl Peer {
     pub const SEED: &'static [u8] = b"Peer";
     pub const MAX_OPTIONS: usize = 128;
-    pub const SIZE: usize = 8 + 32 + 4 + Self::MAX_OPTIONS + 1;
+    pub const SIZE: usize = 8 + 32 + 8 + 4 + Self::MAX_OPTIONS + 1;
 }
 
 /// One account of an OFT `send`, as recorded in a [`ReturnRoute`].

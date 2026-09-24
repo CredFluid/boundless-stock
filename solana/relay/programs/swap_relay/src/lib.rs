@@ -104,10 +104,17 @@ pub mod swap_relay {
     }
 
     /// Records the SwapRequest on a mirror chain, and the executor options for returns to it.
-    pub fn set_peer(ctx: Context<SetPeer>, eid: u32, address: [u8; 32], return_options: Vec<u8>) -> Result<()> {
+    pub fn set_peer(
+        ctx: Context<SetPeer>,
+        eid: u32,
+        address: [u8; 32],
+        max_return_fee: u64,
+        return_options: Vec<u8>,
+    ) -> Result<()> {
         require!(return_options.len() <= Peer::MAX_OPTIONS, SwapRelayError::OptionsTooLong);
         let peer = &mut ctx.accounts.peer;
         peer.address = address;
+        peer.max_return_fee = max_return_fee;
         peer.return_options = return_options;
         peer.bump = ctx.bumps.peer;
         let _ = eid;
@@ -392,6 +399,7 @@ pub mod swap_relay {
             return_amount,
             peer.return_options.clone(),
             settlement.encode(),
+            peer.max_return_fee,
         )?;
         Ok(())
     }
@@ -544,6 +552,7 @@ fn oft_send<'info>(
     amount_ld: u64,
     options: Vec<u8>,
     compose_msg: Vec<u8>,
+    max_native_fee: u64,
 ) -> Result<()> {
     let mut data = OFT_SEND_DISCRIMINATOR.to_vec();
     dst_eid.serialize(&mut data)?;
@@ -552,7 +561,9 @@ fn oft_send<'info>(
     0u64.serialize(&mut data)?; // min_amount_ld: a return must never fail on dust
     options.serialize(&mut data)?;
     Some(compose_msg).serialize(&mut data)?;
-    0u64.serialize(&mut data)?; // native_fee: the local message library charges none
+    // The cap, not the price: the library charges its actual fee to the route's payer and
+    // refuses the send if that exceeds this.
+    max_native_fee.serialize(&mut data)?;
     0u64.serialize(&mut data)?; // lz_token_fee
 
     let metas = accounts

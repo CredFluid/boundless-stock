@@ -12,7 +12,9 @@
  *   2. LayerZero's `simple-messagelib` is initialised and registered, with the local relayer as
  *      its whitelisted caller. Its `validate_packet` verifies a packet straight into the
  *      endpoint, exactly as the EVM side's `LocalMessageLib.validatePacket` does;
- *   3. it is the default send and receive library for every remote eid;
+ *   3. it is the default send and receive library for every remote eid, and charges a real
+ *      native fee per send (`svm.localMessageLibFeeLamports`) so every sender must quote and
+ *      pay, as it must on devnet;
  *   4. every OApp has its per-path accounts: nonce, send/receive library config, and the
  *      message library's own config. An OApp without these cannot send or receive on that path.
  *
@@ -22,7 +24,8 @@
  * than hand-encoded: the account lists for these are long, order-sensitive and version-specific,
  * and the SDK is generated from the same program source that is loaded onto the validator.
  */
-import { PublicKey, Transaction } from "@solana/web3.js";
+import { createHash } from "node:crypto";
+import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { createUmi, createNoopSigner, publicKey, type RpcInterface } from "@metaplex-foundation/umi";
 import { web3JsRpc } from "@metaplex-foundation/umi-rpc-web3js";
 import { toWeb3JsInstruction } from "@metaplex-foundation/umi-web3js-adapters";
@@ -30,6 +33,7 @@ import { EndpointProgram, SimpleMessageLibProgram, MessageLibPDA } from "@layerz
 
 import type { SolanaChain } from "./chain.js";
 import { log } from "../lib/logger.js";
+import { localMessageLibFee } from "../lib/svm-executor.js";
 
 /** LayerZero EndpointV2 on Solana. Same id on every cluster, and loaded at it locally. */
 export const ENDPOINT_PROGRAM_ID = "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6";
@@ -101,6 +105,28 @@ export async function initLocalEndpoint(chain: SolanaChain, remoteEids: number[]
       messageLib.setWhitelistCaller(payer, admin)
     );
     log.ok("simple-messagelib initialised; the relayer is its whitelisted caller");
+  }
+
+  // The fee sits at a fixed offset in `MessageLib`: discriminator 8 | eid 4 | endpoint 32 |
+  // endpoint_program 32 | bump 1 | admin 32 | fee u64.
+  const fee = localMessageLibFee(chain.config);
+  const libData = (await chain.accountInfo(lib.toString()))!.data;
+  if (libData.readBigUInt64LE(109) !== fee) {
+    const disc = createHash("sha256").update("global:set_fee").digest().subarray(0, 8);
+    const data = Buffer.alloc(24);
+    disc.copy(data, 0);
+    data.writeBigUInt64LE(fee, 8);
+    const ix = new TransactionInstruction({
+      programId: new PublicKey(SIMPLE_MESSAGELIB_PROGRAM_ID),
+      keys: [
+        { pubkey: chain.payer.publicKey, isSigner: true, isWritable: false },
+        { pubkey: new PublicKey(lib.toString()), isSigner: false, isWritable: true },
+      ],
+      data,
+    });
+    const sig = await chain.connection.sendTransaction(new Transaction().add(ix), [chain.payer]);
+    await chain.connection.confirmTransaction(sig, chain.commitment);
+    log.ok(`simple-messagelib native fee: ${fee} lamports per send`);
   }
 
   const [libInfo] = endpoint.pda.messageLibraryInfo(lib);

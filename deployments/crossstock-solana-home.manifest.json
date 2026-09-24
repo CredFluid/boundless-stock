@@ -1,8 +1,8 @@
 {
   "name": "crossstock-solana-home",
   "version": "1",
-  "createdAt": "2026-09-24T00:44:29.126Z",
-  "updatedAt": "2026-09-24T00:44:53.994Z",
+  "createdAt": "2026-09-24T08:00:51.008Z",
+  "updatedAt": "2026-09-24T08:01:16.919Z",
   "environment": "local",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "token": {
@@ -36,7 +36,7 @@
         "SwapRequest": "0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae"
       },
       "deploymentGas": {
-        "gasUsed": "15783665",
+        "gasUsed": "15786441",
         "txCount": 22
       }
     },
@@ -57,7 +57,7 @@
         "SwapRequest": "0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae"
       },
       "deploymentGas": {
-        "gasUsed": "15783665",
+        "gasUsed": "15786441",
         "txCount": 22
       }
     },
@@ -78,7 +78,7 @@
         "SwapRequest": "0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae"
       },
       "deploymentGas": {
-        "gasUsed": "15783665",
+        "gasUsed": "15786441",
         "txCount": 22
       }
     }
@@ -112,10 +112,10 @@
       "fromChain": "base-sepolia",
       "toChain": "solana-devnet",
       "toEid": 40168,
-      "expected": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
-      "actual": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
+      "expected": "0x2be62962248b6d82afcaa47812543761acd9e1a7ef0d28d6e1fa69874b046840",
+      "actual": "0x2be62962248b6d82afcaa47812543761acd9e1a7ef0d28d6e1fa69874b046840",
       "verified": true,
-      "txHash": "0x7a473049fb14cfa8d122889c34e0c8c0bf4f25e4ba06bd62a32d28404bf917da"
+      "txHash": "0x420297589dd5d31e3724645d3eb0e3ef45e871cd14d9e5a938e5b7ac878f060f"
     },
     {
       "kind": "oft",
@@ -145,10 +145,10 @@
       "fromChain": "arbitrum-sepolia",
       "toChain": "solana-devnet",
       "toEid": 40168,
-      "expected": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
-      "actual": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
+      "expected": "0x2be62962248b6d82afcaa47812543761acd9e1a7ef0d28d6e1fa69874b046840",
+      "actual": "0x2be62962248b6d82afcaa47812543761acd9e1a7ef0d28d6e1fa69874b046840",
       "verified": true,
-      "txHash": "0x37bc47062e25fea3e344dc9876d6f52b7dff90575cb0a2f5962286af2cc1d190"
+      "txHash": "0xc3485b599fddd4abe9522dd6f6ced5d847c9c807d4f93cd857e587a4bd24d41b"
     },
     {
       "kind": "oft",
@@ -178,10 +178,10 @@
       "fromChain": "optimism-sepolia",
       "toChain": "solana-devnet",
       "toEid": 40168,
-      "expected": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
-      "actual": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
+      "expected": "0x2be62962248b6d82afcaa47812543761acd9e1a7ef0d28d6e1fa69874b046840",
+      "actual": "0x2be62962248b6d82afcaa47812543761acd9e1a7ef0d28d6e1fa69874b046840",
       "verified": true,
-      "txHash": "0x4ac9cdb5eae1a2c9a77e3811d1c47f4d13307b418c1f6947a71003a6d584d16a"
+      "txHash": "0x9409c417a216cd99723500848220a07ce87b9cea03a985cbb7bb5c3662c82eb5"
     },
     {
       "kind": "oft",
@@ -211,10 +211,10 @@
       "fromChain": "base-sepolia",
       "toChain": "solana-devnet",
       "toEid": 40168,
-      "expected": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
-      "actual": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
+      "expected": "0x058302a5ef441280fb1927808c93c8233b37ac465e5a74787d4aedb5ab5ea40a",
+      "actual": "0x058302a5ef441280fb1927808c93c8233b37ac465e5a74787d4aedb5ab5ea40a",
       "verified": true,
-      "txHash": "0x87213315be61564ce76073f5c161707cc7d25c5c9eed6c3ee157ccea9d1794f3"
+      "txHash": "0xd22c6d199a2a106e5486bf900a79a23b59dbc4f37abf8e8bd4cc0ccbd35bb306"
     },
     {
       "kind": "oft",
@@ -244,10 +244,10 @@
       "fromChain": "arbitrum-sepolia",
       "toChain": "solana-devnet",
       "toEid": 40168,
-      "expected": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
-      "actual": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
+      "expected": "0x058302a5ef441280fb1927808c93c8233b37ac465e5a74787d4aedb5ab5ea40a",
+      "actual": "0x058302a5ef441280fb1927808c93c8233b37ac465e5a74787d4aedb5ab5ea40a",
       "verified": true,
-      "txHash": "0xf6e5dc79ed82bfa8946344e32b56c4e7e225f31d94d6e9f8a9b50268fe0c3aa4"
+      "txHash": "0x6dc40aba0c5359c33911ae8ba9ca14b46ded42e09555d8b6e26608566dd7150f"
     },
     {
       "kind": "oft",
@@ -277,10 +277,10 @@
       "fromChain": "optimism-sepolia",
       "toChain": "solana-devnet",
       "toEid": 40168,
-      "expected": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
-      "actual": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
+      "expected": "0x058302a5ef441280fb1927808c93c8233b37ac465e5a74787d4aedb5ab5ea40a",
+      "actual": "0x058302a5ef441280fb1927808c93c8233b37ac465e5a74787d4aedb5ab5ea40a",
       "verified": true,
-      "txHash": "0xfed57554fb44ede89a89021b84f135179e7bca278ccd48ed05a6bed4308018bb"
+      "txHash": "0x466b0fab64352e14c2383b3ba1ee81b302d3ff4578b462f7975c1f9ae2415483"
     },
     {
       "kind": "relay",
@@ -291,7 +291,7 @@
       "expected": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
       "actual": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
       "verified": true,
-      "txHash": "0xca644008c910489fe44757c0aaaf6113f626d81b3d57c9ef758c4e3f8d39e0ba"
+      "txHash": "0xfc92e6034f9792a15ea93606291a42eea157b13f8ab19455d95943b0435d176e"
     },
     {
       "kind": "relay",
@@ -302,7 +302,7 @@
       "expected": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
       "actual": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
       "verified": true,
-      "txHash": "0x17cb4caef8cf0ba6c3df3e27645afeac39079e3aff90201dd9e4bfbb6dbe1089"
+      "txHash": "0x9df5cbad215902c66f8b4c3b36cfa1fc09c36fd81730e577ed723e96edd6d71f"
     },
     {
       "kind": "relay",
@@ -313,51 +313,51 @@
       "expected": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
       "actual": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
       "verified": true,
-      "txHash": "0xc0fbf6396120c8706d08706db55793b8e08395673e2fce2e1a50b2293656ecce"
+      "txHash": "0xaf40a3bf6f601780bfe0e14e5ec33b45b37384294915ff17c60d842df8229a0a"
     }
   ],
   "steps": [
     {
       "module": "00-endpoints",
       "status": "ok",
-      "at": "2026-09-24T00:44:29.454Z",
+      "at": "2026-09-24T08:00:51.485Z",
       "detail": "4 chains"
     },
     {
       "module": "02-mirrors",
       "status": "ok",
-      "at": "2026-09-24T00:44:29.551Z",
+      "at": "2026-09-24T08:00:51.611Z",
       "detail": "3 mirrors × 2 assets"
     },
     {
       "module": "03-peers:TokenizedStockOft",
       "status": "ok",
-      "at": "2026-09-24T00:44:45.588Z",
+      "at": "2026-09-24T08:01:08.392Z",
       "detail": "9/9 verified"
     },
     {
       "module": "03-peers:QuoteAssetOft",
       "status": "ok",
-      "at": "2026-09-24T00:44:45.688Z",
+      "at": "2026-09-24T08:01:08.503Z",
       "detail": "9/9 verified"
     },
     {
       "module": "03-peers:swap_relay↔SwapRequest",
       "status": "ok",
-      "at": "2026-09-24T00:44:53.993Z",
+      "at": "2026-09-24T08:01:16.917Z",
       "detail": "3/3 verified"
     },
     {
       "module": "06-manifest",
       "status": "ok",
-      "at": "2026-09-24T00:44:53.994Z",
+      "at": "2026-09-24T08:01:16.919Z",
       "detail": "0 problems"
     }
   ],
   "pool": {
-    "address": "H7fr7aP9MUsBYvYjBTFiMrUSjs1Z95vCKFxjQNcRMYdb",
-    "token0": "4P8mHUDxm1er1cmmSLs1pXVyNr4QykbNzV6295vphMux",
-    "token1": "BjmNm2wfJiLMAwJDHaCHRPzcovqfvzQoEdg3Vet69aQ1",
+    "address": "6F3zyzq1nj8cxKUA4rqhvhnHqnRtM2jynQ5XPhRKvkpD",
+    "token0": "G3t2tG2FZ58z6k51RkR9bxeRkbVDYcbR5td1YM9kNXRN",
+    "token1": "Hfvg91865QibziPKFSRgXiPtY1TfLBkGD4CPWDA1hEzJ",
     "feeTier": 3000,
     "initialPrice": "150",
     "sqrtPriceX96": "n/a — Orca Whirlpool (Q64.64), see the Solana deployment file",

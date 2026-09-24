@@ -7,6 +7,8 @@ import { endpointOf } from "./00-endpoints.js";
 import { wirePeers, type PeerNode } from "./03-peers.js";
 import { reuse } from "../lib/reuse.js";
 import { log } from "../lib/logger.js";
+import { vmOf } from "../lib/config.js";
+import { maxReturnFee, svmExecutor } from "../lib/svm-executor.js";
 
 /**
  * MODULE 5 — relay contracts.
@@ -142,12 +144,26 @@ export async function deployMirrorRequests(
       ]));
     log.kv("SwapRequest", request);
 
-    await chain.write(request, requestArtifact.abi, "setGasParams", [
-      BigInt(cfg.relay.homeLzReceiveGas),
-      BigInt(cfg.relay.homeComposeGas),
-      parseEther(cfg.relay.homeComposeValue),
-    ]);
-    log.kv("compose gas / value", `${cfg.relay.homeComposeGas} / ${cfg.relay.homeComposeValue} ETH`);
+    // What the leg home asks the executor for, in the HOME chain's terms. An EVM home takes
+    // gas and wei; a Solana home takes compute units and lamports — the compose value there
+    // reimburses the executor's payer for the return leg's fee, so it is that fee's cap.
+    if (vmOf(cfg.homeChain) === "svm") {
+      const ex = svmExecutor(cfg.homeChain);
+      const value = maxReturnFee(cfg.homeChain);
+      await chain.write(request, requestArtifact.abi, "setGasParams", [
+        ex.lzReceiveComputeUnits,
+        ex.lzComposeComputeUnits,
+        value,
+      ]);
+      log.kv("compose CU / value", `${ex.lzComposeComputeUnits} / ${value} lamports`);
+    } else {
+      await chain.write(request, requestArtifact.abi, "setGasParams", [
+        BigInt(cfg.relay.homeLzReceiveGas),
+        BigInt(cfg.relay.homeComposeGas),
+        parseEther(cfg.relay.homeComposeValue),
+      ]);
+      log.kv("compose gas / value", `${cfg.relay.homeComposeGas} / ${cfg.relay.homeComposeValue} ETH`);
+    }
 
     setContract(manifest, mc.key, "SwapRequest", request);
     requests[mc.key] = request;

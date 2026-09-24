@@ -415,7 +415,7 @@ Two layers, deliberately non-overlapping.
 | **Foundry** (`test/`) | The *contracts* are correct, including under adversarial inputs no sensible scenario would pick | `npm test` |
 | **TypeScript** (`infra/validation/`) | The *deployment* works across separate chains with a real relayer | `npm run validate -- --config config/localnet.json` |
 
-64 Foundry tests, including 16 fuzz (512 runs each) and 12 invariants (48 runs × 160 calls), plus
+65 Foundry tests, including 16 fuzz (512 runs each) and 12 invariants (48 runs × 160 calls), plus
 34 Rust tests in `solana/` (`npm run solana:test`).
 
 `test/MixedDecimals.t.sol` runs the relay with an 18-decimal home and a 9-decimal mirror — the
@@ -598,30 +598,32 @@ All of the above is now exercised on a local validator by scenario 7, not only h
   by (OFT store, nonce), which is how a notice naming only a killed message finds its request.
 - **A Solana user client** (`infra/solana/client.ts`) for `open_request`, deriving the forwarded
   OFT `send` accounts with LayerZero's OFT SDK.
+- **Real messaging fees and Solana-native executor options** (M27). The local
+  `simple-messagelib` charges a fee per send (`svm.localMessageLibFeeLamports`, default 50,000
+  lamports), so nothing passes by sending zero. `open_request` sends with a quoted fee — the
+  client quotes the OFT send as it will be made, with an order-sized composeMsg, and the user,
+  who signs as the send's payer, pays it. `swap_relay`'s return leg passes a per-mirror cap
+  (`Peer.max_return_fee`); the Executor's payer pays the actual fee. Return legs from an EVM
+  relay to a Solana mirror carry compute units and lamports (`SwapRelay.returnValue`,
+  `returnOptions(eid)`, set from `svm.executor`), and mirror SwapRequests facing a Solana home
+  ask for compute units and a lamport compose value that covers the return fee. Scenarios 7 and
+  8 check the fee actually charged, not merely that sends succeed.
 
 ### What remains, in dependency order
 
-**Solana as a mirror chain:**
-
-1. **Messaging fees on live clusters.** Locally the message library charges nothing. On devnet
-   the OFT `send` inside `open_request` must pay LayerZero's fee; check which account the ULN
-   debits when the sender is a program-owned PDA, and have the user fund it.
-2. **Executor options for a Solana destination.** The relay's return leg to Solana uses EVM-gas
-   figures (`setReturnGas`); a Solana destination wants compute units and lamports (rent for the
-   user's token account). Irrelevant to the local relayer, which ignores options for Solana.
+**Solana as a mirror chain:** nothing functional. Against a live cluster, the fee path has been
+exercised only with `simple-messagelib`; the ULN debits the same `payer` account of the send,
+but the default `svm.executor` figures are local guesses and want measuring on devnet.
 
 **Solana as the home chain:**
 
-3. **Strand and cancel on `swap_relay`.** An output below one bridgeable unit cannot happen — the
+1. **Strand and cancel on `swap_relay`.** An output below one bridgeable unit cannot happen — the
    floor is raised to one quantum before quoting — but a return that cannot be *sent* reverts the
    delivery (it stays retryable) rather than stranding, and there is no `cancel_stuck_inbound`
    on Solana yet. The EVM relay has both.
-4. **Messaging fees on the return leg.** The relay's OFT `send` passes a native fee of zero, which
-   the local message library accepts. On a live cluster the Executor-supplied payer (already in
-   each route as `Payer`) must pay a quoted fee, funded by the compose value the mirror sends.
-5. **Bring-your-own SPL token** on a Solana home: `init_adapter_oft` instead of a native OFT.
-6. **Several Solana chains in one deployment** (a Solana home with Solana mirrors) — refused today.
-7. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
+2. **Bring-your-own SPL token** on a Solana home: `init_adapter_oft` instead of a native OFT.
+3. **Several Solana chains in one deployment** (a Solana home with Solana mirrors) — refused today.
+4. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
    `infra/supply.ts` plus the supply invariants extended to it. (Scenarios 7 and 8 already check
    conservation across VMs from mint supplies.)
 

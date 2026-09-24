@@ -52,6 +52,34 @@ contract RelayFlow is RelayFixture {
         deliverAll();
     }
 
+    /// @dev A Solana mirror is addressed in its own terms: compute units, and lamports the
+    ///      executor forwards for rent. The options must carry exactly what was configured.
+    function test_returnOptionsCarryPerDestinationGasAndValue() public {
+        uint32 solanaEid = 40_168;
+        assertEq(
+            relay.returnOptions(solanaEid),
+            OptionsBuilder
+                .newOptions()
+                .addExecutorLzReceiveOption(relay.DEFAULT_RETURN_GAS(), 0)
+                .addExecutorLzComposeOption(0, relay.DEFAULT_RETURN_COMPOSE_GAS(), 0)
+        );
+
+        relay.setReturnGas(solanaEid, 400_000);
+        relay.setReturnComposeGas(solanaEid, 600_000);
+        relay.setReturnValue(solanaEid, 2_500_000);
+        assertEq(
+            relay.returnOptions(solanaEid),
+            OptionsBuilder
+                .newOptions()
+                .addExecutorLzReceiveOption(400_000, 2_500_000)
+                .addExecutorLzComposeOption(0, 600_000, 0)
+        );
+
+        vm.prank(user);
+        vm.expectRevert();
+        relay.setReturnValue(solanaEid, 1);
+    }
+
     function test_buyDeliversStockOnTheMirrorChain() public {
         uint256 spend = 15_000e6;
         _fundUserOnMirror(spend);

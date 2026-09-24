@@ -34,6 +34,7 @@ import { deploySolanaPool, type SolanaPoolDeployment } from "./pool.js";
 import { evmAddressToBytes32, initOft, programIdFrom, type OftDeployment } from "./setup.js";
 import { localDecimals, SHARED_DECIMALS } from "../lib/decimals.js";
 import { WHIRLPOOL_PROGRAM_ID } from "./ids.js";
+import { maxReturnFee } from "../lib/svm-executor.js";
 
 const disc = (name: string): Buffer => createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
 const u32le = (n: number): Buffer => {
@@ -238,6 +239,8 @@ export async function setupSolanaHomeRelay(
       .slice(2),
     "hex"
   );
+  const feeCap = Buffer.alloc(8);
+  feeCap.writeBigUInt64LE(maxReturnFee(chainConfig));
   for (const m of mirrors) {
     const [peer] = PublicKey.findProgramAddressSync([Buffer.from("Peer"), u32be(m.eid)], program);
     const len = Buffer.alloc(4);
@@ -252,7 +255,7 @@ export async function setupSolanaHomeRelay(
           { pubkey: peer, isSigner: false, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
-        data: Buffer.concat([disc("set_peer"), u32le(m.eid), evmAddressToBytes32(m.request), len, returnOptions]),
+        data: Buffer.concat([disc("set_peer"), u32le(m.eid), evmAddressToBytes32(m.request), feeCap, len, returnOptions]),
       })
     );
     const stored = (await chain.accountInfo(peer.toBase58()))?.data.subarray(8, 40).toString("hex");

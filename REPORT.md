@@ -325,7 +325,7 @@ Two non-overlapping layers, because they prove different things.
 
 | Layer | Proves | Scale |
 |---|---|---|
-| **Foundry** (`test/`) | The *contracts* are correct under adversarial input | 63 tests: 16 fuzz at 512 runs, 12 invariants at 48×160 calls |
+| **Foundry** (`test/`) | The *contracts* are correct under adversarial input | 65 tests: 16 fuzz at 512 runs, 12 invariants at 48×160 calls |
 | **TypeScript** (`infra/validation/`) | The *deployment* works across separate chains with a real relayer | 6 scenarios |
 | **Rust** (`solana/`) | The Solana wire format matches Solidity byte for byte, and `lz_compose` refuses every tampered delivery | 23 tests |
 
@@ -442,11 +442,11 @@ transfer from the home chain; and a PDA cannot pay fees in the SDK's simulation.
 
 ### What remains
 
-- Live-cluster concerns the local run cannot show: LayerZero's messaging fee on the OFT `send`
-  inside `open_request`, and executor options for a Solana destination expressed in compute
-  units and lamports rather than EVM gas.
-- On a Solana home: strand/cancel paths on `swap_relay`, and quoted messaging fees on its return
-  leg for live clusters (see `agents.md` §12).
+- On a Solana home: strand/cancel paths on `swap_relay`; a bring-your-own SPL token; several
+  Solana chains in one deployment; SPL supply counters (see `agents.md` §12).
+- Measuring the Solana executor figures (compute units, lamports) on devnet. Messaging fees are
+  now charged and paid locally on every Solana send — `open_request` and the relay's return leg
+  — and return legs to Solana carry Solana-native executor options (M27).
 
 ### Solana as the home chain (M26)
 
@@ -479,7 +479,7 @@ environment variable at build time; and the endpoint CPI account ordering.
 | Deployment infra | 6 modules, fully config-driven, one command, no manual follow-up |
 | Peer wiring | Automated, bidirectional, **read back and verified** on every link |
 | Add-a-chain flow | **Confirmed** to reuse the same modules; verified by doing it on a live deployment |
-| Validation | 8 scenarios: 1–7 on an EVM home (incl. a Solana mirror), 8 on a Solana home; 64/64 Foundry, 43/43 Rust |
+| Validation | 8 scenarios: 1–7 on an EVM home (incl. a Solana mirror), 8 on a Solana home; 65/65 Foundry, 43/43 Rust |
 | Solana | **Works as a mirror and as the home chain**, verified on a local validator: buy, refund, sell and cross-VM supply both ways, plus strand and cancel as a mirror |
 | Biggest gap | No timeout/refund for a stalled message — funds recoverable but never automatically |
 

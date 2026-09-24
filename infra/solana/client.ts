@@ -194,7 +194,7 @@ export class SolanaSwapClient {
     amountIn: bigint,
     minAmountOut: bigint,
     options: Hex
-  ): Promise<{ requestId: bigint; signature: string }> {
+  ): Promise<{ requestId: bigint; signature: string; nativeFee: bigint }> {
     const [tokenIn, tokenOut, inAsset] =
       direction === SolanaDirection.Buy
         ? [this.quoteMint, this.baseMint, this.deployment.assets.quote]
@@ -207,6 +207,27 @@ export class SolanaSwapClient {
     const nonceIndex = this.nonceIndexAddress(inOftStore, await this.nextOutboundNonce(inOftStore, homePeer));
     const storeEscrow = ataOf(this.store, tokenIn);
     const homeRelay = Buffer.from(this.deployment.homeChain.relay.slice(2).padStart(64, "0"), "hex");
+
+    // The messaging fee, quoted as the send will be made: the same path, options, and a
+    // composeMsg of the order's size (four ABI words), since a real library prices by size.
+    // The user pays it — the program passes it through as the send's `native_fee` cap.
+    const { nativeFee } = await oft.quote(
+      lzLocal(this.chain).rpc,
+      {
+        payer: publicKey(user.publicKey.toBase58()),
+        tokenMint: publicKey(tokenIn.toBase58()),
+        tokenEscrow: publicKey(inAsset.escrow),
+      },
+      {
+        dstEid: this.deployment.homeChain.eid,
+        to: homeRelay,
+        amountLd: amountIn,
+        minAmountLd: 0n,
+        options: optionBytes,
+        composeMsg: new Uint8Array(128),
+      },
+      { oft: publicKey(this.deployment.programs.oft) }
+    );
 
     // The OFT send's accounts, as LayerZero's SDK derives them. Built with the user as payer —
     // the SDK simulates with it, and a PDA cannot pay fees — then account 0, the OFT's token
@@ -226,7 +247,7 @@ export class SolanaSwapClient {
         amountLd: amountIn,
         minAmountLd: amountIn,
         options: optionBytes,
-        nativeFee: 0n,
+        nativeFee,
       },
       { oft: publicKey(this.deployment.programs.oft) }
     );
@@ -245,7 +266,7 @@ export class SolanaSwapClient {
       u64le(minAmountOut),
       len,
       optionBytes,
-      u64le(0n), // native_fee: the local message library charges none
+      u64le(nativeFee),
       u64le(0n), // lz_token_fee
     ]);
 
@@ -275,6 +296,6 @@ export class SolanaSwapClient {
     );
     const signature = await this.chain.connection.sendTransaction(tx, [user]);
     await this.chain.connection.confirmTransaction(signature, "confirmed");
-    return { requestId, signature };
+    return { requestId, signature, nativeFee };
   }
 }

@@ -13,6 +13,9 @@
  *   d. SUPPLY — the whole supply was minted on Solana; after all of the above it is exactly
  *               accounted for across VMs, Solana's 9-decimal mint rescaled to the mirrors' 18
  *
+ * The local message library charges a real fee per send, so (a) also proves the relay's return
+ * leg paid it: the library's balance rises by exactly one fee over the trade.
+ *
  * Only runs when the home chain is Solana.
  */
 import { readFileSync } from "node:fs";
@@ -20,6 +23,7 @@ import { ComputeBudgetProgram, PublicKey, Transaction } from "@solana/web3.js";
 import { createNoopSigner, publicKey } from "@metaplex-foundation/umi";
 import { toWeb3JsInstruction } from "@metaplex-foundation/umi-web3js-adapters";
 import { oft } from "@layerzerolabs/oft-v2-solana-sdk";
+import { MessageLibPDA } from "@layerzerolabs/lz-solana-sdk-v2/umi";
 import { formatUnits, parseUnits, type Address } from "viem";
 
 import type { Harness, ScenarioResult } from "./harness.js";
@@ -27,7 +31,8 @@ import { Direction, Status } from "./harness.js";
 import { forgeArtifact } from "../lib/artifacts.js";
 import { Options } from "../lib/options.js";
 import { SolanaChain } from "../solana/chain.js";
-import { lzLocal } from "../solana/lz-local.js";
+import { lzLocal, SIMPLE_MESSAGELIB_PROGRAM_ID } from "../solana/lz-local.js";
+import { localMessageLibFee } from "../lib/svm-executor.js";
 import { ataOf } from "../solana/client.js";
 import { solanaManifestPath } from "../solana/setup.js";
 import type { SolanaHomeDeployment } from "../solana/home.js";
@@ -64,6 +69,20 @@ export async function scenario8(h: Harness): Promise<ScenarioResult> {
   const fund = async (asset: "base" | "quote", whole: string) => {
     const a = home.assets[asset];
     const amountLd = parseUnits(whole, a.decimals);
+    const sendParams = {
+      dstEid: h.eid(mirror),
+      to: Buffer.from(userAddr.slice(2).padStart(64, "0"), "hex"),
+      amountLd,
+      minAmountLd: amountLd,
+      options: Buffer.from(Options.new().addExecutorLzReceive(200_000n).build().slice(2), "hex"),
+    };
+    // The local message library charges a real fee, so the send must quote and pay it.
+    const { nativeFee } = await oft.quote(
+      lzLocal(sol).rpc,
+      { payer: publicKey(sol.payer.publicKey.toBase58()), tokenMint: publicKey(a.mint), tokenEscrow: publicKey(a.escrow) },
+      sendParams,
+      { oft: publicKey(home.programs.oft) }
+    );
     const ix = await oft.send(
       lzLocal(sol).rpc,
       {
@@ -72,14 +91,7 @@ export async function scenario8(h: Harness): Promise<ScenarioResult> {
         tokenEscrow: publicKey(a.escrow),
         tokenSource: publicKey(ataOf(sol.payer.publicKey, new PublicKey(a.mint)).toBase58()),
       },
-      {
-        dstEid: h.eid(mirror),
-        to: Buffer.from(userAddr.slice(2).padStart(64, "0"), "hex"),
-        amountLd,
-        minAmountLd: amountLd,
-        options: Buffer.from(Options.new().addExecutorLzReceive(200_000n).build().slice(2), "hex"),
-        nativeFee: 0n,
-      },
+      { ...sendParams, nativeFee },
       { oft: publicKey(home.programs.oft) }
     );
     const token = asset === "base" ? stockOnMirror : quoteOnMirror;
@@ -109,7 +121,17 @@ export async function scenario8(h: Harness): Promise<ScenarioResult> {
   const spend = parseUnits("15000", h.quoteDecimals);
   const floor = parseUnits(((15000 / spot) * 0.95).toFixed(h.tokenDecimals), h.tokenDecimals);
   const stockBefore = await bal(stockOnMirror);
+  const messageLib = new PublicKey(
+    new MessageLibPDA(publicKey(SIMPLE_MESSAGELIB_PROGRAM_ID)).messageLib()[0].toString()
+  );
+  const libBefore = await sol.connection.getBalance(messageLib, "confirmed");
   const buy = await trade(Direction.BUY, spend, floor);
+  const returnFee = BigInt((await sol.connection.getBalance(messageLib, "confirmed")) - libBefore);
+  log.kv("return leg fee", `${returnFee} lamports, paid by the executor's payer`);
+  if (returnFee !== localMessageLibFee(homeCfg)) {
+    findings.push(`the return leg paid ${returnFee} lamports in messaging fees, expected ${localMessageLibFee(homeCfg)}`);
+  }
+  metrics["buy: return leg fee"] = `${returnFee} lamports`;
   const got = (await bal(stockOnMirror)) - stockBefore;
   log.kv("status", Status[buy.r.status]);
   log.kv("received", `${formatUnits(got, h.tokenDecimals)} ${h.tokenSymbol} on ${where}`);

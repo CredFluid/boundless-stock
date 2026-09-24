@@ -76,6 +76,15 @@ contract SwapRelay is OApp, IOAppComposer {
     mapping(uint32 eid => uint128 gas) public returnGas;
     /// @notice Gas granted to `SwapRequest.lzCompose` on each mirror chain.
     mapping(uint32 eid => uint128 gas) public returnComposeGas;
+    /**
+     * @notice Native value the executor delivers with the return's `lzReceive`, in the mirror
+     *         chain's own units.
+     * @dev Zero for an EVM mirror. A Solana mirror needs lamports here: its OFT creates the
+     *      recipient's token account on arrival, and that rent is paid from this value. "Gas" on
+     *      a Solana destination is likewise compute units, not EVM gas — the figures are set per
+     *      eid, so each mirror gets options in its own terms.
+     */
+    mapping(uint32 eid => uint128 value) public returnValue;
 
     /// @notice Input that could not be swapped *and* could not be sent home. Retryable.
     mapping(uint32 eid => mapping(uint64 requestId => uint256 amount)) public stranded;
@@ -297,10 +306,7 @@ contract SwapRelay is OApp, IOAppComposer {
             return;
         }
 
-        bytes memory options = OptionsBuilder
-            .newOptions()
-            .addExecutorLzReceiveOption(_returnGas(_dstEid), 0)
-            .addExecutorLzComposeOption(0, _returnComposeGas(_dstEid), 0);
+        bytes memory options = returnOptions(_dstEid);
 
         SendParam memory sendParam = SendParam({
             dstEid: _dstEid,
@@ -393,7 +399,10 @@ contract SwapRelay is OApp, IOAppComposer {
                 cancelledPath: bytes32(0)
             })
         );
-        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(_returnGas(_dstEid), 0);
+        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(
+            _returnGas(_dstEid),
+            returnValue[_dstEid]
+        );
 
         try this.quoteStrandedNotice(_dstEid, payload, options) returns (uint256 fee) {
             if (address(this).balance >= fee) {
@@ -532,6 +541,20 @@ contract SwapRelay is OApp, IOAppComposer {
         returnComposeGas[_eid] = _gas;
     }
 
+    function setReturnValue(uint32 _eid, uint128 _value) external onlyOwner {
+        returnValue[_eid] = _value;
+    }
+
+    /// @notice Executor options for a return leg to `_eid`: what the destination is asked to
+    ///         run, in that destination's own terms.
+    function returnOptions(uint32 _eid) public view returns (bytes memory) {
+        return
+            OptionsBuilder
+                .newOptions()
+                .addExecutorLzReceiveOption(_returnGas(_eid), returnValue[_eid])
+                .addExecutorLzComposeOption(0, _returnComposeGas(_eid), 0);
+    }
+
     function _returnGas(uint32 _eid) internal view returns (uint128) {
         uint128 g = returnGas[_eid];
         return g == 0 ? DEFAULT_RETURN_GAS : g;
@@ -618,7 +641,10 @@ contract SwapRelay is OApp, IOAppComposer {
                 cancelledPath: _sender // nonces are per path; the mirror needs both to find the request
             })
         );
-        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(_returnGas(_srcEid), 0);
+        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(
+            _returnGas(_srcEid),
+            returnValue[_srcEid]
+        );
         MessagingFee memory fee = _quote(_srcEid, payload, options, false);
         _lzSend(_srcEid, payload, options, fee, address(this));
 

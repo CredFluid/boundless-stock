@@ -27,6 +27,7 @@ import { Options } from "../lib/options.js";
 import { forgeArtifact } from "../lib/artifacts.js";
 import { SolanaDirection, SolanaStatus, type SolanaSwapClient } from "../solana/client.js";
 import { log } from "../lib/logger.js";
+import { localMessageLibFee } from "../lib/svm-executor.js";
 
 const NAME = "7. Solana mirror (buy, refund, sell, strand, cancel, cross-VM supply)";
 
@@ -101,6 +102,11 @@ export async function scenario7(h: Harness): Promise<ScenarioResult> {
   if (buy.status !== SolanaStatus.Filled) findings.push(`buy settled ${SolanaStatus[buy.status]}, expected Filled`);
   if (gotStock !== buy.amountOut) findings.push(`user holds ${gotStock}, request records ${buy.amountOut}`);
   if (gotStock < floor) findings.push(`received ${gotStock}, below the floor ${floor}`);
+  // The local library charges a real fee; the send only went through because it was quoted.
+  log.kv("messaging fee", `${buy.fee} lamports, quoted and paid by the user`);
+  if (buy.fee !== localMessageLibFee(sol.chain.config)) {
+    findings.push(`open_request paid ${buy.fee} lamports in messaging fees, expected ${localMessageLibFee(sol.chain.config)}`);
+  }
   if ((await sol.balance(user.publicKey, "quote")) !== 0n) findings.push("USDC left in the user's wallet after a full buy");
   const price = Number(formatUnits(spend, quoteDec)) / Number(formatUnits(gotStock, baseDec));
   metrics["buy: received"] = fmtBase(gotStock);
@@ -237,9 +243,9 @@ async function openAndSettle(
   minOut: bigint,
   options: `0x${string}`,
   settle: (id: bigint) => Promise<{ status: SolanaStatus; amountOut: bigint; ms: number }>
-): Promise<{ status: SolanaStatus; amountOut: bigint; ms: number }> {
+): Promise<{ status: SolanaStatus; amountOut: bigint; ms: number; fee: bigint }> {
   const t0 = Date.now();
-  const { requestId } = await sol.openRequest(user, direction, amountIn, minOut, options);
+  const { requestId, nativeFee } = await sol.openRequest(user, direction, amountIn, minOut, options);
   const r = await settle(requestId);
-  return { ...r, ms: Date.now() - t0 };
+  return { ...r, ms: Date.now() - t0, fee: nativeFee };
 }
