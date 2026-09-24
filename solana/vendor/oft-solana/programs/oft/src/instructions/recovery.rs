@@ -62,6 +62,7 @@ pub struct RecoveryCredit<'info> {
     )]
     pub recovery_minter: Account<'info, RecoveryMinter>,
     #[account(
+        mut,
         seeds = [OFT_SEED, oft_store.token_escrow.as_ref()],
         bump = oft_store.bump,
     )]
@@ -89,6 +90,10 @@ impl RecoveryCredit<'_> {
             ctx.accounts.token_mint.mint_authority == Some(ctx.accounts.oft_store.key()).into(),
             OFTError::InvalidMintAuthority
         );
+
+        // Counted as an arrival, not as new supply: it left once, was counted in `bridged_out`,
+        // and never arrived anywhere — as `OmniToken.recoveryCredit` counts it on EVM.
+        ctx.accounts.oft_store.bridged_in += u128::from(amount_ld);
 
         let escrow = ctx.accounts.oft_store.token_escrow;
         let seeds: &[&[u8]] = &[OFT_SEED, escrow.as_ref(), &[ctx.accounts.oft_store.bump]];

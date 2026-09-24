@@ -655,17 +655,33 @@ All of the above is now exercised on a local validator by scenario 7, not only h
   ask for compute units and a lamport compose value that covers the return fee. Scenarios 7 and
   8 check the fee actually charged, not merely that sends succeed.
 
-### What remains, in dependency order
+### Supply accounting across VMs (M31)
 
-**Solana as a mirror chain:** nothing functional. Against a live cluster, the fee path has been
-exercised only with `simple-messagelib`; the ULN debits the same `payer` account of the send,
-but the default `svm.executor` figures are local guesses and want measuring on devnet.
+The vendored Solana OFT carries `bridged_out`/`bridged_in` — `OmniToken`'s counters on SPL,
+appended to `OFTStore` (see `solana/vendor/oft-solana/LOCAL_CHANGES.md`): `send` counts what
+goes on the wire, `lz_receive` what comes off it, `recovery_credit` counts as an arrival. So
+`Σ supply + (Σ bridged_out − Σ bridged_in) == what exists` is checkable from chain state alone on
+every chain of every VM. `infra/lib/omnisupply.ts` measures it; `npm run supply` reports it for
+any topology (and exits non-zero if it does not hold); scenario 9 checks it mid-flight — an
+SVM → SVM transfer burned on the source and not yet minted is exactly the counters' in-flight
+figure — and after delivery.
 
-**Solana as the home chain:**
+### What remains
 
-1. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
-   `infra/supply.ts` plus the supply invariants extended to it. (Scenarios 7 and 8 already check
-   conservation across VMs from mint supplies.)
+Functionally, nothing for any topology in scope: any chain can be the home chain, Solana
+included, with any mix of EVM and Solana mirrors. What is left is live-cluster work the local
+setup cannot show:
+
+- **Measure the Solana executor figures on devnet.** Fees are charged and paid on every Solana
+  send locally, but only through `simple-messagelib`; the ULN debits the same `payer` account,
+  and the default `svm.executor` compute units and lamports are local estimates.
+- **Operational roles.** `swap_relay`'s admin strands and cancels, and the relay is its OFT
+  stores' endpoint delegate — adding a mirror after deployment needs that delegate to configure
+  the OFT's new path. Both roles want a timelock and a handover procedure before production, as
+  the EVM relay's owner and delegate roles do (§9).
+- **Token-2022 mints** cannot be adapted yet. The OFT itself uses Anchor's token interface, but
+  CrossStock's programs and infra address the classic SPL Token program and its associated
+  accounts directly, so the preflight refuses a Token-2022 mint rather than half-supporting it.
 
 ### The real difficulties
 

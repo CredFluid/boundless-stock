@@ -21,7 +21,7 @@
  * Skipped when the deployment has no such pair.
  */
 import { readFileSync } from "node:fs";
-import { PublicKey, type Keypair } from "@solana/web3.js";
+import type { Keypair } from "@solana/web3.js";
 import { formatUnits, parseEther, parseUnits, type Hex } from "viem";
 
 import type { Harness, ScenarioResult } from "./harness.js";
@@ -31,9 +31,9 @@ import { SolanaChain } from "../solana/chain.js";
 import { sendOftFromSolana, SolanaDirection, SolanaStatus, type SolanaSwapClient } from "../solana/client.js";
 import { solanaManifestPath } from "../solana/setup.js";
 import type { SolanaHomeDeployment } from "../solana/home.js";
-import { forgeArtifact } from "../lib/artifacts.js";
 import { whirlpoolSpot } from "./08-solana-home.js";
 import { log } from "../lib/logger.js";
+import { measureSupply } from "../lib/omnisupply.js";
 
 const NAME = "9. Solana to Solana (SVM ↔ SVM transfers; trading from a Solana mirror)";
 
@@ -66,6 +66,8 @@ export async function scenario9(h: Harness): Promise<ScenarioResult> {
   const amount = 15_000;
   log.step(`a. ${amount} ${h.quoteSymbol} to a user on ${where}, Solana to Solana`);
   const quoteBefore = await target.balance(user.publicKey, "quote");
+  // Baseline, since an earlier scenario may legitimately leave a message stalled mid-flight.
+  const baseline = (await measureSupply(h.config, h.manifest, h.chains)).quote.inFlight;
   let home: SolanaHomeDeployment | undefined;
   let homeChain: SolanaChain | undefined;
   if (solanaHome) {
@@ -102,6 +104,14 @@ export async function scenario9(h: Harness): Promise<ScenarioResult> {
     );
     if ((await a.balance(userA.publicKey, "quote")) !== aBefore) findings.push(`the sender on ${a.chain.config.name} kept some of the transfer`);
   }
+  // Mid-flight: burned on the source, not yet minted on the destination. The invariant holds
+  // anyway, because the source's OFT counted it out and nothing has counted it in yet.
+  const mid = (await measureSupply(h.config, h.manifest, h.chains)).quote;
+  const wire = parseUnits(String(amount), mid.decimals);
+  log.kv("mid-flight", `${formatUnits(mid.inFlight - baseline, mid.decimals)} ${h.quoteSymbol} in flight per the OFT counters`);
+  if (mid.inFlight - baseline !== wire) findings.push(`mid-flight the counters show ${mid.inFlight - baseline} in flight, expected ${wire}`);
+  if (mid.total + mid.inFlight !== mid.expected) findings.push(`mid-flight supply + in flight = ${mid.total + mid.inFlight}, expected ${mid.expected}`);
+
   const expected = parseUnits(String(amount), quoteDec);
   const { ok: funded, elapsedMs } = await h.waitFor(`${h.quoteSymbol} to reach the user on ${where}`, async () =>
     (await target.balance(user.publicKey, "quote")) >= quoteBefore + expected);
@@ -156,37 +166,18 @@ export async function scenario9(h: Harness): Promise<ScenarioResult> {
   metrics["sell: proceeds"] = fmtQuote(proceeds);
 
   // ---------------------------------------------------------------- d. SUPPLY
-  log.step("d. omnichain supply, across every chain");
-  const tokenAbi = forgeArtifact("OmniToken").abi;
-  for (const [side, contract, refDec, initial] of [
-    ["base", "TokenizedStock", h.tokenDecimals, h.config.token.initialSupply],
-    ["quote", "QuoteAsset", h.quoteDecimals, h.config.quoteAsset.initialSupply],
-  ] as const) {
-    if (solanaHome && home!.assets[side].mode === "adapt") continue; // scenario 8 checks the adapter
-    const genesis = parseUnits(initial, refDec);
-    let evm = 0n;
-    if (solanaHome) {
-      for (const k of h.mirrorKeys) evm += await h.chain(k).read<bigint>(h.addr(k, contract), tokenAbi, "totalSupply");
-    } else {
-      evm = (await h.totalSupplyAcrossChains(contract)).total;
+  log.step("d. omnichain supply, across every chain of every VM");
+  const supply = await measureSupply(h.config, h.manifest, h.chains);
+  for (const side of ["base", "quote"] as const) {
+    const a = supply[side];
+    const parts = a.rows.map((r) => `${r.name} ${formatUnits(r.supply, a.decimals)}`).join(" + ");
+    log.kv(a.symbol, `${parts} + in flight ${formatUnits(a.inFlight, a.decimals)} = ${formatUnits(a.total + a.inFlight, a.decimals)}`);
+    if (a.total + a.inFlight !== a.expected) {
+      findings.push(`${a.symbol}: ${a.total + a.inFlight} across every chain and in flight, expected ${a.expected}`);
     }
-    let svm = 0n;
-    const parts: string[] = [];
-    if (solanaHome) {
-      const s = (await homeChain!.connection.getTokenSupply(new PublicKey(home!.assets[side].mint))).value;
-      const v = BigInt(s.amount) * 10n ** BigInt(refDec - s.decimals);
-      svm += v;
-      parts.push(`${homeCfg.name} ${formatUnits(v, refDec)}`);
-    }
-    for (const c of h.solana) {
-      const s = await c.mintSupply(side);
-      const v = s.amount * 10n ** BigInt(refDec - s.decimals);
-      svm += v;
-      parts.push(`${c.chain.config.name} ${formatUnits(v, refDec)}`);
-    }
-    log.kv(contract, `EVM ${formatUnits(evm, refDec)} + ${parts.join(" + ")} = ${formatUnits(evm + svm, refDec)}`);
-    if (evm + svm !== genesis) findings.push(`${contract}: ${evm + svm} across every chain, minted ${genesis}`);
   }
+  const after = supply.quote.inFlight - baseline;
+  if (after !== 0n) findings.push(`${formatUnits(after, supply.quote.decimals)} ${h.quoteSymbol} still counted in flight after delivery`);
 
   const passed = findings.length === 0;
   if (passed) log.ok(`tokens and orders moved Solana to Solana; a user on ${where} bought and sold`);

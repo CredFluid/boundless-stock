@@ -442,13 +442,15 @@ transfer from the home chain; and a PDA cannot pay fees in the SDK's simulation.
 
 ### What remains
 
-- SPL supply counters (see `agents.md` §12). Strand, retry and cancel (M28) and a
-  bring-your-own SPL token (M29) now work on a Solana home, each exercised end to end in
-  scenario 8; a deployment may hold several Solana chains (M30), with tokens and orders moving
-  Solana to Solana in scenario 9.
-- Measuring the Solana executor figures (compute units, lamports) on devnet. Messaging fees are
-  now charged and paid locally on every Solana send — `open_request` and the relay's return leg
-  — and return legs to Solana carry Solana-native executor options (M27).
+Nothing functional, for any topology: any chain can be the home chain, Solana included, with any
+mix of EVM and Solana mirrors. Since M26: messaging fees charged and paid on every Solana send,
+with Solana-native executor options (M27); strand, retry and cancel on a Solana home (M28); a
+bring-your-own SPL token (M29); several Solana chains in one deployment, trading Solana to Solana
+(M30); and supply accounting across VMs from chain state, in-flight amounts included (M31).
+
+Left is live-cluster work (see `agents.md` §12): measuring the Solana executor figures on
+devnet, a timelock and handover procedure for the Solana relay's admin and delegate roles, and
+Token-2022 mints.
 
 ### Solana as the home chain (M26)
 

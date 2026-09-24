@@ -96,6 +96,8 @@ impl LzReceive<'_> {
         // Convert the amount from sd to ld
         let amount_sd = msg_codec::amount_sd(&params.message);
         let mut amount_received_ld = ctx.accounts.oft_store.sd2ld(amount_sd);
+        // CrossStock: what came off the wire, before any token-level transfer fee.
+        ctx.accounts.oft_store.bridged_in += u128::from(amount_received_ld);
 
         // Consume the inbound rate limiter
         if let Some(rate_limiter) = ctx.accounts.peer.inbound_rate_limiter.as_mut() {

@@ -11,13 +11,16 @@
  * message is in flight, because the tokens have been burned on the source and not yet minted
  * on the destination.
  *
+ * Every chain of every VM is included: a Solana chain's share is its SPL mint's supply, and its
+ * in-flight contribution comes from the flow counters CrossStock adds to the Solana OFT.
+ *
  *   npm run supply -- --config config/localnet.json
  */
-import { formatUnits, type Address } from "viem";
-import { loadConfig, allChains } from "./lib/config.js";
+import { formatUnits } from "viem";
+import { loadConfig, allChains, vmOf } from "./lib/config.js";
 import { buildChains } from "./lib/chains.js";
 import { loadManifest } from "./lib/manifest.js";
-import { forgeArtifact } from "./lib/artifacts.js";
+import { measureSupply } from "./lib/omnisupply.js";
 import { log } from "./lib/logger.js";
 
 function arg(name: string, fallback: string): string {
@@ -30,101 +33,50 @@ async function main(): Promise<void> {
   const manifest = loadManifest(cfg.name);
   if (!manifest) throw new Error(`No manifest for "${cfg.name}" — run the deployment first.`);
 
-  const chains = buildChains(allChains(cfg));
-  const abi = forgeArtifact("OmniToken").abi;
-  const resolved = manifest;
-
-  /**
-   * In-flight amount, read straight off the tokens.
-   *
-   * `Σ bridgedOut − Σ bridgedIn`. This is what makes the supply invariant checkable without a
-   * feed of pending LayerZero messages: a token burned to leave a chain is counted on the way
-   * out and again on the way in, so the difference is exactly what is mid-flight.
-   */
-  async function inFlight(contract: string): Promise<bigint> {
-    let out = 0n;
-    let inbound = 0n;
-    for (const cd of Object.values(resolved.chains)) {
-      const chain = chains.get(cd.key);
-      const addr = cd.contracts[`${contract}Oft`] ?? cd.contracts[contract];
-      if (!chain || !addr) continue;
-      out += await chain.read<bigint>(addr as Address, abi, "bridgedOut");
-      inbound += await chain.read<bigint>(addr as Address, abi, "bridgedIn");
-    }
-    return out - inbound;
-  }
+  // EVM chains are read through viem; Solana chains through their own deployment files.
+  const chains = buildChains(allChains(cfg).filter((c) => vmOf(c) === "evm"));
+  const supply = await measureSupply(cfg, manifest, chains);
 
   log.banner(`Supply report — ${manifest.name}`);
+  let broken = false;
 
-  for (const [contract, meta] of [
-    ["TokenizedStock", manifest.token],
-    ["QuoteAsset", manifest.quoteAsset],
+  for (const [side, meta] of [
+    ["base", cfg.token],
+    ["quote", cfg.quoteAsset],
   ] as const) {
-    log.step(`${meta.name} (${meta.symbol}) — minted ${meta.initialSupply} at launch`);
+    const a = supply[side];
+    const fmt = (v: bigint) => formatUnits(v, a.decimals);
+    log.step(`${meta.name} (${meta.symbol}) — ${a.adapted ? "adapted" : `minted ${meta.initialSupply} at launch`}`);
 
-    let total = 0n;
-    let adapted = false;
-    const rows: { name: string; role: string; supply: bigint; pool?: bigint; note?: string }[] = [];
-
-    for (const cd of Object.values(manifest.chains)) {
-      const chain = chains.get(cd.key);
-      if (!chain) continue;
-      const addr = cd.contracts[contract] as Address | undefined;
-      const oftAddr = cd.contracts[`${contract}Oft`] as Address | undefined;
-      if (!addr) continue;
-
-      // ADAPTED ASSET. The token's own totalSupply on this chain includes every coin that has
-      // never been near this system, so it is NOT the omnichain figure. What backs the mirror
-      // chains is the amount locked in the adapter.
-      const isAdapter = !!oftAddr && oftAddr.toLowerCase() !== addr.toLowerCase();
-      let counted: bigint;
-      let note: string | undefined;
-
-      counted = await chain.read<bigint>(addr, abi, "totalSupply");
-      if (isAdapter) {
-        adapted = true;
-        const locked = await chain.read<bigint>(addr, abi, "balanceOf", [oftAddr!]);
-        counted -= locked; // backing representations that live on other chains
-        note =
-          `${formatUnits(locked, meta.decimals)} locked in the adapter, backing the ` +
-          `representations on other chains`;
-      }
-      total += counted;
-
-      const poolAddr = manifest.pool?.address as Address | undefined;
-      const inPool =
-        cd.role === "home" && poolAddr
-          ? await chain.read<bigint>(addr, abi, "balanceOf", [poolAddr])
-          : undefined;
-
-      rows.push({ name: cd.name, role: cd.role, supply: counted, pool: inPool, note });
-    }
-
-    for (const r of rows) {
-      const pct = total === 0n ? 0 : Number((r.supply * 10000n) / total) / 100;
+    for (const r of a.rows) {
+      const pct = a.total === 0n ? 0 : Number((r.supply * 10000n) / a.total) / 100;
       log.kv(
-        `${r.name} (${r.role})`,
-        `${formatUnits(r.supply, meta.decimals).padStart(22)} ${meta.symbol}  ${pct.toFixed(2).padStart(6)}%` +
-          (r.pool !== undefined ? `   [pool holds ${formatUnits(r.pool, meta.decimals)}]` : "")
+        `${r.name} (${r.role}${r.vm === "svm" ? ", Solana" : ""})`,
+        `${fmt(r.supply).padStart(24)} ${meta.symbol}  ${pct.toFixed(2).padStart(6)}%` +
+          (r.pool !== undefined ? `   [pool holds ${fmt(r.pool)}]` : "")
       );
-      if (r.note) log.dim(`      ${r.note}`);
+      if (r.locked !== undefined) {
+        log.dim(`      ${fmt(r.locked)} locked in the adapter, backing the representations on other chains`);
+      }
     }
+    if (a.inFlight !== 0n) log.kv("in flight", `${fmt(a.inFlight)} ${meta.symbol} (left one chain, not yet arrived)`);
+    log.kv("ACROSS ALL CHAINS", `${fmt(a.total + a.inFlight)} ${meta.symbol}`);
 
-    const pending = await inFlight(contract);
-    if (pending > 0n) {
-      log.kv("in flight", `${formatUnits(pending, meta.decimals)} ${meta.symbol} (burned, not yet minted)`);
-    }
-    log.kv("ACROSS ALL CHAINS", `${formatUnits(total + pending, meta.decimals)} ${meta.symbol}`);
-
-    if (adapted) {
-      log.dim("ADAPTED asset: the home figure excludes what is locked in the adapter, because that");
-      log.dim("backing already appears as representations on the other chains. Summing raw");
-      log.dim("totalSupply would double-count it.");
+    if (a.total + a.inFlight === a.expected) {
+      log.ok(`conserved: equals the ${a.adapted ? "underlying token's supply" : "genesis supply"} exactly`);
     } else {
-      log.dim("this sum is the invariant, and both halves come from chain state: no feed of");
-      log.dim("pending messages is needed to explain away the in-flight gap");
+      broken = true;
+      log.fail(`NOT conserved: expected ${fmt(a.expected)} ${meta.symbol}`);
+    }
+    if (a.adapted) {
+      log.dim("ADAPTED asset: its home figure excludes what is locked in the adapter, because that");
+      log.dim("backing already appears as representations on the other chains.");
+    } else {
+      log.dim("both halves come from chain state — supplies, and every OFT's bridgedOut/bridgedIn on");
+      log.dim("EVM and Solana alike — so no feed of pending messages is needed to explain the gap");
     }
   }
+  if (broken) process.exit(1);
 }
 
 main().catch((e) => {

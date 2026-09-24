@@ -317,7 +317,8 @@ pub mod swap_request {
                 AccountMetaRef { pubkey: index_info.key().into(), is_writable: false },
                 AccountMetaRef { pubkey: store.oft_program.into(), is_writable: false },
                 AccountMetaRef { pubkey: recovery_minter_address(&store.oft_program, &oft_store).into(), is_writable: false },
-                AccountMetaRef { pubkey: oft_store.into(), is_writable: false },
+                // Writable: a recovery credit counts as an arrival on the OFT's flow counters.
+                AccountMetaRef { pubkey: oft_store.into(), is_writable: true },
                 AccountMetaRef { pubkey: index.token_in.into(), is_writable: true },
                 AccountMetaRef { pubkey: user_ata.into(), is_writable: true },
                 AccountMetaRef { pubkey: spl::TOKEN_PROGRAM_ID.into(), is_writable: false },
@@ -808,7 +809,7 @@ fn recovery_credit<'info>(
         accounts: vec![
             AccountMeta::new_readonly(*store.key, true),
             AccountMeta::new_readonly(*extra[2].key, false),
-            AccountMeta::new_readonly(*extra[3].key, false),
+            AccountMeta::new(*extra[3].key, false),
             AccountMeta::new(*extra[4].key, false),
             AccountMeta::new(*extra[5].key, false),
             AccountMeta::new_readonly(*extra[6].key, false),

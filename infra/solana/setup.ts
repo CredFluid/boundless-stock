@@ -129,7 +129,7 @@ export async function checkExistingMint(chain: SolanaChain, mint: PublicKey, sym
   if (!info.owner.equals(TOKEN_PROGRAM) || info.data.length !== 82) {
     throw new Error(
       `${symbol}: ${mint.toBase58()} is not a classic SPL Token mint (owner ${info.owner.toBase58()}). ` +
-        "Token-2022 mints are not supported by this deployment's OFT build."
+        "Token-2022 mints are not supported yet: CrossStock's programs address the classic SPL Token program."
     );
   }
   // Mint layout: mint_authority COption 36 | supply 8 | decimals 1

@@ -70,6 +70,8 @@ impl Send<'_> {
         if let Some(rate_limiter) = ctx.accounts.peer.inbound_rate_limiter.as_mut() {
             rate_limiter.refill(amount_received_ld)?;
         }
+        // CrossStock: what goes on the wire — dust and fee already removed.
+        ctx.accounts.oft_store.bridged_out += u128::from(amount_received_ld);
 
         if ctx.accounts.oft_store.oft_type == OFTType::Adapter {
             // transfer all tokens to escrow with fee
