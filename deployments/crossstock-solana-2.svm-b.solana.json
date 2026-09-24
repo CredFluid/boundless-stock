@@ -1,7 +1,7 @@
 {
   "name": "crossstock-solana-2",
   "vm": "svm",
-  "createdAt": "2026-09-24T08:39:01.416Z",
+  "createdAt": "2026-09-24T08:46:36.356Z",
   "chain": {
     "key": "svm-b",
     "name": "SVM chain B (local)",
@@ -23,9 +23,9 @@
     "base": {
       "symbol": "tAAPL",
       "decimals": 9,
-      "mint": "6LsigV7LM2YwtKPzAiS87mptrPZ1J7ihK68qrCCGHZap",
-      "oftStore": "BWQtzspegstDZdCE1w2hZHNseiazBzXTCkFE2AvhWh4f",
-      "escrow": "GxfVqU8NU1t73q33h8GW4WX2y3CfXhNjTLGjBNZFgi8i",
+      "mint": "74HwUaZw3j3VRpVZYnn7oWQ9JD69f3wGe6dhDQUsJnQM",
+      "oftStore": "FaLGirHa8AM4v8M9BMNi48CyLmiwvxi6Lm4NLmMNRx85",
+      "escrow": "JAAQGpJRezu4JWd5UZYPBVD2nWGEG48JpUdrGvCYWw47",
       "peers": [
         {
           "remoteEid": 40245,
@@ -44,7 +44,7 @@
         },
         {
           "remoteEid": 40168,
-          "address": "0xfc6c9148e33978e33c500df7bcbd0fddd073dfcb0511af2b579fe34e0e02f406",
+          "address": "0x2057d874e50bd42f9792a83387dad2a57635a4399bf9da6c3d8734cf67e64420",
           "verified": true
         }
       ],
@@ -53,9 +53,9 @@
     "quote": {
       "symbol": "USDC",
       "decimals": 6,
-      "mint": "hkEFgiuMFGdN62AH56qU4p3UfvR1fKrerAWiRz1E4gq",
-      "oftStore": "7B5RYD7aX43DQjuJdjWaLawPRxxbgwRp8qJL5NKDwSsd",
-      "escrow": "31Tp2rqSH8EbmgVFGybkuuXGhZsXqSeHNmVzRt32qwM4",
+      "mint": "BRvZXHAYGXkKMY5568EbKAznSCB1PMZcXzBKdCnAVzwc",
+      "oftStore": "HzoQYKzt56HgnAVDBB9QoBdsdDuugMgsU5zD3KodtqaR",
+      "escrow": "HQaf6ZPXH15q6MX4rg4e9Ap6tMAL7WESEoB2zvSsVffT",
       "peers": [
         {
           "remoteEid": 40245,
@@ -74,7 +74,7 @@
         },
         {
           "remoteEid": 40168,
-          "address": "0xd765e08cb653dde67923ec85c552c5f573df390f780d9b7a347eacaa5766423a",
+          "address": "0x1ae62ae64741adb05bb04acde1ee8d0e6abb463e4b608a186820247f92e2b3f4",
           "verified": true
         }
       ],
