@@ -123,7 +123,7 @@ npm run web:build
     - and which deployments cannot be read, with the reason.
   - Offline deployments fall back to the recorded figures and say why.
 - **CI** (`.github/workflows/ci.yml`):
-  - On every push and pull request:
+  - On every pull request and every push to main:
     - Foundry build and tests;
     - the Solana programs' unit tests;
     - the infra and web typechecks;

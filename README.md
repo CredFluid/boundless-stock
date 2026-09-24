@@ -72,7 +72,7 @@ npm run history -- --config config/localnet.json    # the same trade history, fr
 ```
 
 CI (`.github/workflows/ci.yml`) runs the Foundry tests, the Solana programs' unit tests, the
-TypeScript typecheck and the web build on every push and pull request. The local end-to-end
+TypeScript typecheck and the web build on every pull request and every push to main. The local end-to-end
 suite runs nightly and on demand.
 
 See [`FRONTEND.md`](FRONTEND.md) for the plan and phases.
