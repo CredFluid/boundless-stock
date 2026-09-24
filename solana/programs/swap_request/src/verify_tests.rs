@@ -48,6 +48,7 @@ impl Fixture {
             amount_out: 100_000_000,
             lz_nonce: 0,
             recipient: self.user.to_bytes(),
+            cancelled_path: [0u8; 32],
         }
     }
 

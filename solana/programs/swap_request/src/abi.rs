@@ -134,11 +134,14 @@ pub struct Settlement {
     /// because a delivery must name the user's token account before it runs, from the message
     /// alone. Checked against the request's own record rather than trusted.
     pub recipient: [u8; 32],
+    /// CANCELLED only: this chain's OFT store that sent the killed message. Nonces are per
+    /// path — a buy and a sell routinely share one — so `lz_nonce` alone names no request.
+    pub cancelled_path: [u8; 32],
 }
 
 impl Settlement {
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(7 * WORD);
+        let mut out = Vec::with_capacity(8 * WORD);
         write_u64(&mut out, self.request_id);
         write_u8(&mut out, self.status);
         write_u8(&mut out, self.reason);
@@ -146,6 +149,7 @@ impl Settlement {
         write_u128(&mut out, self.amount_out);
         write_u64(&mut out, self.lz_nonce);
         write_bytes32(&mut out, &self.recipient);
+        write_bytes32(&mut out, &self.cancelled_path);
         out
     }
 
@@ -158,6 +162,7 @@ impl Settlement {
             amount_out: read_u128(data, 4)?,
             lz_nonce: read_u64(data, 5)?,
             recipient: read_bytes32(data, 6)?,
+            cancelled_path: read_bytes32(data, 7)?,
         })
     }
 }
@@ -251,9 +256,10 @@ mod tests {
             amount_out: 99_605_634,
             lz_nonce: 17,
             recipient: [3u8; 32],
+            cancelled_path: [0u8; 32],
         };
         assert_eq!(Settlement::decode(&s.encode()).unwrap(), s);
-        assert_eq!(s.encode().len(), 7 * WORD, "must match abi.encode of seven value types");
+        assert_eq!(s.encode().len(), 8 * WORD, "must match abi.encode of eight value types");
     }
 
     #[test]
@@ -266,6 +272,7 @@ mod tests {
             amount_out: 1,
             lz_nonce: 1,
             recipient: [0u8; 32],
+            cancelled_path: [0u8; 32],
         };
         let encoded = s.encode();
         assert!(Settlement::decode(&encoded[..encoded.len() - 1]).is_err());
@@ -274,7 +281,7 @@ mod tests {
     #[test]
     fn oversized_value_is_rejected_not_truncated() {
         // A uint256 that does not fit u64 means the two sides disagree about the type.
-        let mut data = vec![0u8; 7 * WORD];
+        let mut data = vec![0u8; 8 * WORD];
         data[0] = 1; // high byte of the first word
         assert!(Settlement::decode(&data).is_err());
     }
@@ -292,6 +299,7 @@ mod tests {
             amount_out: 100_000_000,
             lz_nonce: 0,
             recipient: [0xAB; 32],
+            cancelled_path: [0u8; 32],
         };
         let expected = hex_words(&[
             "0000000000000000000000000000000000000000000000000000000000000007",
@@ -301,6 +309,7 @@ mod tests {
             "0000000000000000000000000000000000000000000000000000000005f5e100",
             "0000000000000000000000000000000000000000000000000000000000000000",
             "abababababababababababababababababababababababababababababababab",
+            "0000000000000000000000000000000000000000000000000000000000000000",
         ]);
         assert_eq!(s.encode(), expected);
     }
@@ -322,6 +331,7 @@ mod tests {
             amount_out: 100_000_000,
             lz_nonce: 0,
             recipient: [9u8; 32],
+            cancelled_path: [0u8; 32],
         };
         let frame = ComposeFrame {
             nonce: 3,
@@ -345,7 +355,7 @@ mod tests {
             src_eid: 40245,
             amount_ld: 1,
             compose_from: [4u8; 32],
-            compose_msg: vec![0u8; 7 * WORD],
+            compose_msg: vec![0u8; 8 * WORD],
         };
         assert!(Settlement::decode(&frame.encode()).is_err());
     }

@@ -113,6 +113,15 @@ library SwapTypes {
          * Zero on a CANCELLED settlement, which carries no tokens and no request id.
          */
         bytes32 recipient;
+        /**
+         * CANCELLED only: the mirror-chain OFT that sent the killed message. Zero otherwise.
+         *
+         * `lzNonce` alone does not name a message. Nonces are per path, and a buy leaves through
+         * the quote OFT while a sell leaves through the stock OFT, so the first of each is
+         * nonce 1. Without the path, cancelling a stuck buy restored the input of a sell with
+         * the same nonce while that sell was still deliverable — a double spend.
+         */
+        bytes32 cancelledPath;
     }
 
     function encodeOrder(Order memory _o) internal pure returns (bytes memory) {
@@ -127,13 +136,21 @@ library SwapTypes {
     }
 
     function encodeSettlement(Settlement memory _s) internal pure returns (bytes memory) {
-        return abi.encode(_s.requestId, _s.status, _s.reason, _s.amountIn, _s.amountOut, _s.lzNonce, _s.recipient);
+        return
+            abi.encode(
+                _s.requestId,
+                _s.status,
+                _s.reason,
+                _s.amountIn,
+                _s.amountOut,
+                _s.lzNonce,
+                _s.recipient,
+                _s.cancelledPath
+            );
     }
 
     function decodeSettlement(bytes memory _b) internal pure returns (Settlement memory s) {
-        (s.requestId, s.status, s.reason, s.amountIn, s.amountOut, s.lzNonce, s.recipient) = abi.decode(
-            _b,
-            (uint64, uint8, uint8, uint256, uint256, uint64, bytes32)
-        );
+        (s.requestId, s.status, s.reason, s.amountIn, s.amountOut, s.lzNonce, s.recipient, s.cancelledPath) = abi
+            .decode(_b, (uint64, uint8, uint8, uint256, uint256, uint64, bytes32, bytes32));
     }
 }

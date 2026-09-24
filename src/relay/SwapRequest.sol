@@ -106,7 +106,9 @@ contract SwapRequest is OApp, IOAppComposer {
      *      mirror resolve it, and is why the mirror — not the message — is the source of truth
      *      for the amount being restored.
      */
-    mapping(uint64 lzNonce => uint64 requestId) public requestIdByNonce;
+    /// @dev Keyed by the OFT that sent the message as well as its nonce: nonces are per path,
+    ///      so a buy (quote OFT) and a sell (stock OFT) routinely share one.
+    mapping(address oft => mapping(uint64 lzNonce => uint64 requestId)) public requestIdByNonce;
 
     /// @notice Gas for the OFT's `lzReceive` on the home chain.
     uint128 public homeLzReceiveGas = 250_000;
@@ -234,7 +236,7 @@ contract SwapRequest is OApp, IOAppComposer {
             failureReason: uint8(SwapTypes.FailureReason.NONE),
             lzNonce: lzNonce
         });
-        requestIdByNonce[lzNonce] = requestId;
+        requestIdByNonce[address(_oftFor(tokenIn))][lzNonce] = requestId;
 
         emit SwapRequested(requestId, msg.sender, uint8(_direction), address(tokenIn), sent, _minAmountOut);
     }
@@ -421,7 +423,7 @@ contract SwapRequest is OApp, IOAppComposer {
         SwapTypes.Settlement memory s = SwapTypes.decodeSettlement(_message);
 
         if (s.status == uint8(SwapTypes.Status.CANCELLED)) {
-            _applyCancellation(s.lzNonce);
+            _applyCancellation(s.lzNonce, s.cancelledPath);
             return;
         }
         if (s.status != uint8(SwapTypes.Status.STRANDED)) return;
@@ -447,9 +449,12 @@ contract SwapRequest is OApp, IOAppComposer {
      *      chain never saw the payload — it killed a nonce, not a request — so it cannot state
      *      an amount, and accepting one from the wire would be accepting an unverifiable claim.
      */
-    function _applyCancellation(uint64 _lzNonce) internal {
-        uint64 requestId = requestIdByNonce[_lzNonce];
-        if (requestId == 0) return; // nothing here matches that nonce
+    function _applyCancellation(uint64 _lzNonce, bytes32 _path) internal {
+        // The path is this chain's OFT that sent the killed message. Anything not addressable
+        // as an EVM address cannot be one of ours, so it matches nothing.
+        if (uint256(_path) >> 160 != 0) return;
+        uint64 requestId = requestIdByNonce[address(uint160(uint256(_path)))][_lzNonce];
+        if (requestId == 0) return; // nothing here matches that path and nonce
 
         Request storage r = requests[requestId];
         if (r.status != SwapTypes.Status.PENDING) return; // already settled; nothing owed

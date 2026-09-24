@@ -389,7 +389,8 @@ contract SwapRelay is OApp, IOAppComposer {
                 amountIn: _amountSD,
                 amountOut: 0,
                 lzNonce: 0,
-                recipient: _beneficiary
+                recipient: _beneficiary,
+                cancelledPath: bytes32(0)
             })
         );
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(_returnGas(_dstEid), 0);
@@ -462,7 +463,8 @@ contract SwapRelay is OApp, IOAppComposer {
                     amountIn: _amountIn / _bridgeQuantum(address(_tokenIn)),
                     amountOut: _amountOut / _bridgeQuantum(address(_tokenOut)),
                     lzNonce: 0,
-                    recipient: _recipient
+                    recipient: _recipient,
+                    cancelledPath: bytes32(0)
                 })
             );
     }
@@ -484,7 +486,8 @@ contract SwapRelay is OApp, IOAppComposer {
                     amountIn: _amountIn / _bridgeQuantum(address(_tokenIn)),
                     amountOut: 0,
                     lzNonce: 0,
-                    recipient: _recipient
+                    recipient: _recipient,
+                    cancelledPath: bytes32(0)
                 })
             );
     }
@@ -611,7 +614,8 @@ contract SwapRelay is OApp, IOAppComposer {
                 amountIn: 0,
                 amountOut: 0,
                 lzNonce: _nonce,
-                recipient: bytes32(0)
+                recipient: bytes32(0),
+                cancelledPath: _sender // nonces are per path; the mirror needs both to find the request
             })
         );
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(_returnGas(_srcEid), 0);
