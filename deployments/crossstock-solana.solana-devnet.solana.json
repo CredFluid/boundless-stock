@@ -1,7 +1,7 @@
 {
   "name": "crossstock-solana",
   "vm": "svm",
-  "createdAt": "2026-09-24T08:42:23.853Z",
+  "createdAt": "2026-09-24T18:08:28.793Z",
   "chain": {
     "key": "solana-devnet",
     "name": "Solana Devnet (local)",
@@ -23,9 +23,9 @@
     "base": {
       "symbol": "tAAPL",
       "decimals": 9,
-      "mint": "BEm3RNUEmrnHKG3GMsbaf1ALG5vtDEhxW5dqRh13rzrJ",
-      "oftStore": "AGPyxsurfVEZEJ6wKPjdDDuRQ4cGGyCaTv9Mt6CvYZCT",
-      "escrow": "4fhEGr1eyyJSjQdyXhcoeSaSLmJjKHPKFzLgcPA8hfD3",
+      "mint": "7piQ8E7d9zd71YndbDFhfmpcHXYkamb1YjFXsYAbPv3k",
+      "oftStore": "4c4jgQ94vzfRuEeAQ5UsMZ279XTdzHsfyiWJqTdxvyjM",
+      "escrow": "6m6UGae7EvweLHNgKzFKZNkGAD4tZGmeoN1xQ8JLF5fH",
       "peers": [
         {
           "remoteEid": 40245,
@@ -48,9 +48,9 @@
     "quote": {
       "symbol": "USDC",
       "decimals": 6,
-      "mint": "J3H9af79SKHShaiVw1XkGsJtiiJfARTJVMUHMWKFAmRU",
-      "oftStore": "964182UAWGgVrJQhYJuf79JB8Hwc35ikTXaMauruRpqd",
-      "escrow": "AaV3VKgiDTFgujqCB574dtF475ag6JiJijg9HU5ZsxCM",
+      "mint": "HFgk782VS5GEF44vsmfxv3FGfxkZzgBvmHe2vgxjnEHv",
+      "oftStore": "cwWC5gCUNVrxfoyVbaLpMnLofkoTachBC9npUSu42rC",
+      "escrow": "DVMyWHWGeF6xY8G2vcbpJ5HLHa5WbRnuFenwAwLXLhD5",
       "peers": [
         {
           "remoteEid": 40245,
