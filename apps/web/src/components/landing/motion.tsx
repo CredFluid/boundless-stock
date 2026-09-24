@@ -68,7 +68,7 @@ export function CountUp({ value, duration = 1400 }: { value: string; duration?: 
     requestAnimationFrame(tick);
   }, 0.4);
   return (
-    <span ref={ref} className="tabular-nums">
+    <span ref={ref} className="tabular-nums" data-countup={value}>
       {text}
     </span>
   );
@@ -94,7 +94,7 @@ export function TypedTerminal({ lines, title }: { lines: TermLine[]; title: stri
   }, 0.5);
 
   return (
-    <div ref={ref} className="overflow-hidden rounded-xl border border-line bg-surface shadow-2xl shadow-black/40">
+    <div ref={ref} data-terminal className="overflow-hidden rounded-xl border border-line bg-surface shadow-2xl shadow-black/40">
       <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
         <span className="h-2.5 w-2.5 rounded-full bg-bad/70" />
         <span className="h-2.5 w-2.5 rounded-full bg-warn/70" />
