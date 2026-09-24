@@ -53,6 +53,19 @@ Adding a chain to an already-launched token is one extra entry in `mirrorChains`
 npm run deploy -- --config config/localnet-add-chain.json
 ```
 
+## Web app
+
+The repo is an npm-workspaces monorepo: the web app lives in `apps/web` (landing page, issuer
+dashboard, trading app) and shared types in `packages/shared`. The dashboard reads the deployment
+records in `deployments/`.
+
+```bash
+npm install
+npm run web:dev    # http://localhost:3000
+```
+
+See [`FRONTEND.md`](FRONTEND.md) for the plan and phases.
+
 ## Where to read next
 
 | File | What it is |
