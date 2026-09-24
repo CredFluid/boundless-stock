@@ -679,6 +679,8 @@ setup cannot show:
   stores' endpoint delegate — adding a mirror after deployment needs that delegate to configure
   the OFT's new path. Both roles want a timelock and a handover procedure before production, as
   the EVM relay's owner and delegate roles do (§9).
+- **Proof of reserves** — parked; see `PROOF_OF_RESERVES.md`. The on-chain half (omnichain
+  supply, in flight included) exists; the reserve half needs an issuer, custodian or oracle feed.
 - **Token-2022 mints** cannot be adapted yet. The OFT itself uses Anchor's token interface, but
   CrossStock's programs and infra address the classic SPL Token program and its associated
   accounts directly, so the preflight refuses a Token-2022 mint rather than half-supporting it.
