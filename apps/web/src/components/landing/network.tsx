@@ -6,17 +6,17 @@
 const HUB = { x: 300, y: 250 };
 
 const NODES = [
-  { x: 92, y: 96, label: "Base", vm: "EVM" },
-  { x: 508, y: 96, label: "Arbitrum", vm: "EVM" },
-  { x: 536, y: 318, label: "Optimism", vm: "EVM" },
-  { x: 52, y: 330, label: "Solana", vm: "SVM" },
-  { x: 300, y: 462, label: "Any chain", vm: "EVM · SVM", ghost: true },
+  { x: 92, y: 96, label: "Base", vm: "EVM", use: "TRADE" },
+  { x: 508, y: 96, label: "Arbitrum", vm: "EVM", use: "TRANSFER" },
+  { x: 536, y: 318, label: "Optimism", vm: "EVM", use: "INTEGRATE" },
+  { x: 52, y: 330, label: "Solana", vm: "SVM", use: "TRADE" },
+  { x: 300, y: 462, label: "Any chain", vm: "EVM · SVM", use: "", ghost: true },
 ];
 
 export function NetworkVisual() {
   return (
     <svg viewBox="0 0 600 520" className="h-auto w-full" role="img"
-      aria-label="Mirror chains around one home market: orders travel in, settlements travel back.">
+      aria-label="One home chain runs admin, operations and liquidity; every other chain powers trading, transfers and integrations.">
       <defs>
         <radialGradient id="hubGlow" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.35" />
@@ -73,10 +73,10 @@ export function NetworkVisual() {
         </circle>
       ))}
       <g>
-        <rect x={HUB.x - 88} y={HUB.y - 42} width="176" height="84" rx="16" fill="var(--surface)" stroke="var(--accent)" strokeWidth="1.5" />
+        <rect x={HUB.x - 122} y={HUB.y - 42} width="244" height="84" rx="16" fill="var(--surface)" stroke="var(--accent)" strokeWidth="1.5" />
         <text x={HUB.x} y={HUB.y - 12} textAnchor="middle" fontSize="11" fill="var(--accent)" letterSpacing="1.5">HOME CHAIN</text>
-        <text x={HUB.x} y={HUB.y + 10} textAnchor="middle" fontSize="17" fontWeight="600" fill="var(--text)">One market</text>
-        <text x={HUB.x} y={HUB.y + 28} textAnchor="middle" fontSize="11" fill="var(--muted)">Uniswap V3 · Orca</text>
+        <text x={HUB.x} y={HUB.y + 10} textAnchor="middle" fontSize="15" fontWeight="600" fill="var(--text)">Admin · Ops · Liquidity</text>
+        <text x={HUB.x} y={HUB.y + 28} textAnchor="middle" fontSize="11" fill="var(--muted)">one market · one control plane</text>
       </g>
 
       {NODES.map((n) => (
@@ -85,7 +85,7 @@ export function NetworkVisual() {
             fill="var(--surface)" stroke={n.ghost ? "var(--border)" : "var(--border)"} strokeDasharray={n.ghost ? "4 4" : undefined} />
           <text x={n.x} y={n.y - 2} textAnchor="middle" fontSize="13" fontWeight="600" fill={n.ghost ? "var(--muted)" : "var(--text)"}>{n.label}</text>
           <text x={n.x} y={n.y + 14} textAnchor="middle" fontSize="10" fill={n.vm === "SVM" ? "var(--svm)" : "var(--muted)"} letterSpacing="1">
-            {n.ghost ? n.vm : `MIRROR · ${n.vm}`}
+            {n.ghost ? n.vm : `${n.use} · ${n.vm}`}
           </text>
         </g>
       ))}

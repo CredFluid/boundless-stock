@@ -205,3 +205,18 @@ body {
 .lift { transition: transform 0.25s ease, border-color 0.25s ease, background-color 0.25s ease; }
 .lift:hover { transform: translateY(-3px); }
 @media (prefers-reduced-motion: reduce) { .lift:hover { transform: none; } }
+
+/* The beam between the control plane and the chains it powers. */
+@keyframes beam-x { from { background-position: -100% 0; } to { background-position: 200% 0; } }
+@keyframes beam-y { from { background-position: 0 -100%; } to { background-position: 0 200%; } }
+.beam {
+  background-color: var(--border);
+  background-image: linear-gradient(to bottom, transparent, var(--accent), transparent);
+  background-size: 100% 60%;
+  background-repeat: no-repeat;
+}
+@media (min-width: 1024px) {
+  .beam { background-image: linear-gradient(to right, transparent, var(--accent), var(--evm), transparent); background-size: 60% 100%; }
+}
+[data-anim="on"] .beam { animation: beam-y 2.2s linear infinite; }
+@media (min-width: 1024px) { [data-anim="on"] .beam { animation-name: beam-x; } }

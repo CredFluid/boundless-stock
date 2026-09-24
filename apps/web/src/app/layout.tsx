@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: { default: "CrossStock", template: "%s · CrossStock" },
-  description: "Trade a tokenized stock from any chain — one market, every chain, no liquidity needed where you stand.",
+  description: "Manage the admin, operations and liquidity of tokenized stocks and RWAs from one chain, and power use cases across every other.",
 };
 
 /**

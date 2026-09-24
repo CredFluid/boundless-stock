@@ -23,6 +23,33 @@ import { CountUp, Reveal, TypedTerminal } from "@/components/landing/motion";
 
 const REPO = "https://github.com/CredFluid/boundless-stock";
 
+/* What stays on the home chain. Each is how the system works today (see agents.md). */
+const CONTROL = [
+  {
+    icon: KeyRound,
+    title: "Admin",
+    body: "Ownership, roles and delegates for the asset and its relay live on the home chain — including who may cancel a stuck message or restore funds.",
+  },
+  {
+    icon: LifeBuoy,
+    title: "Operations",
+    body: "Supply accounting across every chain, recovery of stranded or stuck transfers, and deployment records — run from one place.",
+  },
+  {
+    icon: Coins,
+    title: "Liquidity",
+    body: "One deep pool prices every order from every chain: Uniswap V3 on an EVM home, Orca on Solana. No market to seed or maintain anywhere else.",
+  },
+];
+
+/* What every other chain gets. "Roadmap" marks what the infrastructure is built for but does not ship yet. */
+const USE_CASES = [
+  { icon: ArrowRight, title: "Trading", body: "Buy and sell from any chain in one transaction, priced at the home market and settled back to the user.", roadmap: false },
+  { icon: Layers, title: "Holding and transfers", body: "One asset on every chain — not wrapped copies — moved natively between EVM and Solana chains.", roadmap: false },
+  { icon: Building2, title: "Platform integrations", body: "Wallets, brokers and exchanges offer the asset on the chains their users already use.", roadmap: false },
+  { icon: Scale, title: "Collateral and settlement", body: "Using RWAs as collateral or settlement assets on other chains, on the same messaging and supply guarantees.", roadmap: true },
+];
+
 /* Every figure here is measured by the validation suite or read from the repo — none is a
    projection. See REPORT.md. */
 const METRICS = [
@@ -94,18 +121,18 @@ export default function Landing() {
         <div className="glow absolute inset-0" aria-hidden />
         <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-5 pt-16 pb-20 lg:grid-cols-[1.05fr_1fr] lg:pt-24 lg:pb-28">
           <div>
-            <a href="#architecture" className="enter enter-1 inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pr-3 pl-1 text-xs text-muted hover:text-fg">
-              <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">New</span>
-              Solana can now be the home chain
+            <a href="#platform" className="enter enter-1 inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pr-3 pl-1 text-xs text-muted hover:text-fg">
+              <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">RWA</span>
+              Omnichain infrastructure for tokenized stocks and real-world assets
               <ArrowRight size={12} aria-hidden />
             </a>
-            <h1 className="enter enter-2 mt-7 text-5xl font-semibold leading-[1.02] tracking-tight md:text-7xl">
-              The settlement layer for{" "}
-              <span className="text-shimmer bg-gradient-to-r from-accent via-evm to-accent bg-clip-text text-transparent">omnichain stocks</span>.
+            <h1 className="enter enter-2 mt-7 text-5xl font-semibold leading-[1.02] tracking-tight text-balance md:text-7xl">
+              Manage from one chain.{" "}
+              <span className="text-shimmer bg-gradient-to-r from-accent via-evm to-accent bg-clip-text text-transparent">Power every other.</span>
             </h1>
             <p className="enter enter-3 mt-6 max-w-xl text-lg leading-relaxed text-muted">
-              One deep market on a home chain. Mirrors everywhere else. Users trade a tokenized stock from whichever chain
-              they&apos;re on — priced at home, settled back to them, with no liquidity needed where they stand.
+              Run the admin, operations and liquidity for your tokenized stocks and RWAs from a single home chain — and power
+              trading, transfers and integrations across every other chain, with no liquidity needed there.
             </p>
             <div className="enter enter-4 mt-9 flex flex-wrap gap-3">
               <Link href="/app/launch" className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-accent-contrast hover:opacity-90">
@@ -115,10 +142,15 @@ export default function Landing() {
                 <Terminal size={16} aria-hidden /> Start building
               </a>
             </div>
-            <div className="enter enter-5 mt-10 flex flex-wrap gap-x-6 gap-y-2 font-mono text-xs text-muted">
-              <span>▸ LayerZero V2 messaging</span>
-              <span>▸ EVM + Solana</span>
-              <span>▸ Open source</span>
+            <div className="enter enter-5 mt-10 grid max-w-xl gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-line bg-surface/60 px-4 py-3">
+                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">One chain</div>
+                <div className="mt-1 text-sm">Admin · Operations · Liquidity</div>
+              </div>
+              <div className="rounded-lg border border-line bg-surface/60 px-4 py-3">
+                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-evm">Every other chain</div>
+                <div className="mt-1 text-sm">Trading · Transfers · Integrations</div>
+              </div>
             </div>
           </div>
           <div className="enter enter-3 relative">
@@ -159,6 +191,78 @@ export default function Landing() {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* ================================================================ platform: one chain to run it */}
+      <section id="platform" className="scroll-mt-20 mx-auto max-w-7xl px-5 py-24">
+        <Reveal>
+          <Eyebrow>One chain to run it · every chain to use it</Eyebrow>
+          <h2 className="mt-4 max-w-4xl text-4xl font-semibold tracking-tight text-balance md:text-5xl">
+            Manage your admin, ops and liquidity from one chain. Power use cases across every other.
+          </h2>
+          <p className="mt-5 max-w-2xl text-lg text-muted">
+            For tokenized stocks and RWAs, the hard parts — who controls the asset, how it&apos;s operated, where it trades
+            — stay in one place. Every other chain gets the asset, and none of the overhead.
+          </p>
+        </Reveal>
+
+        <div className="mt-14 grid items-stretch gap-6 lg:grid-cols-[1fr_72px_1.25fr]">
+          {/* control plane */}
+          <Reveal delay={80}>
+            <div className="h-full rounded-2xl border border-accent/50 bg-gradient-to-b from-accent-soft to-surface p-7">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs uppercase tracking-[0.18em] text-accent">Home chain · control plane</span>
+                <span className="rounded-full border border-accent/40 px-2 py-0.5 text-xs text-accent">1 chain</span>
+              </div>
+              <ul className="mt-7 space-y-6">
+                {CONTROL.map((c) => (
+                  <li key={c.title} className="flex gap-4">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line bg-surface text-accent">
+                      <c.icon size={18} aria-hidden />
+                    </span>
+                    <div>
+                      <h3 className="font-semibold">{c.title}</h3>
+                      <p className="mt-1 text-sm leading-relaxed text-muted">{c.body}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </Reveal>
+
+          {/* the link between them: LayerZero messaging, drawn as a moving beam */}
+          <div className="relative flex items-center justify-center" aria-hidden>
+            <div className="beam h-16 w-0.5 rounded-full lg:h-0.5 lg:w-full" />
+            <span className="absolute rounded-full border border-line bg-bg px-2 py-1 font-mono text-[10px] tracking-wider text-muted">LZ V2</span>
+          </div>
+
+          {/* use cases */}
+          <Reveal delay={200}>
+            <div className="grid h-full gap-4 sm:grid-cols-2">
+              {USE_CASES.map((u) => (
+                <div key={u.title} className={`lift flex flex-col rounded-2xl border bg-surface p-6 ${u.roadmap ? "border-dashed border-line" : "border-line hover:border-evm/60"}`}>
+                  <div className="flex items-center justify-between">
+                    <u.icon size={18} className={u.roadmap ? "text-muted" : "text-evm"} aria-hidden />
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] ${u.roadmap ? "bg-surface-2 text-muted" : "bg-evm-soft text-evm"}`}>
+                      {u.roadmap ? "Roadmap" : "Live"}
+                    </span>
+                  </div>
+                  <h3 className="mt-5 font-semibold">{u.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-muted">{u.body}</p>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+        </div>
+
+        <Reveal delay={120}>
+          <div className="mt-10 flex flex-wrap items-center gap-2 text-sm">
+            <span className="mr-2 font-mono text-xs uppercase tracking-[0.18em] text-muted">Works for</span>
+            {["Tokenized equities", "Tokenized treasuries", "Fund shares", "Other real-world assets"].map((a) => (
+              <span key={a} className="rounded-md border border-line bg-surface px-3 py-1.5 text-muted">{a}</span>
+            ))}
+          </div>
+        </Reveal>
       </section>
 
       {/* ================================================================ problem */}
@@ -374,7 +478,7 @@ export default function Landing() {
               <span aria-hidden className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-sm font-bold text-accent-contrast">C</span>
               CrossStock
             </div>
-            <p className="mt-4 max-w-xs text-sm text-muted">The settlement layer for omnichain tokenized stocks. Built on LayerZero V2.</p>
+            <p className="mt-4 max-w-xs text-sm text-muted">Omnichain infrastructure for tokenized stocks and real-world assets. Built on LayerZero V2.</p>
           </div>
           {[
             { title: "Product", links: [["Issuer console", "/app"], ["Launch an asset", "/app/launch"], ["Operations", "/app/operations"], ["Trading app", "/trade"]] },
