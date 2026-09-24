@@ -28,7 +28,8 @@
     "solana:setup": "tsx infra/solana/setup.ts",
     "web:dev": "npm run dev -w @crossstock/web",
     "web:build": "npm run build -w @crossstock/web",
-    "web:start": "npm run start -w @crossstock/web"
+    "web:start": "npm run start -w @crossstock/web",
+    "typecheck": "tsc --noEmit -p ."
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
