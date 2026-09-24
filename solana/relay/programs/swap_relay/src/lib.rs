@@ -21,8 +21,10 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::{AccountMeta, Instruction as SolInstruction};
 use anchor_lang::solana_program::program::invoke_signed;
+use endpoint_interface::cpi::accounts::{Burn, Skip};
 use endpoint_interface::instructions::oapp::clear_compose::ClearComposeParams;
-use endpoint_interface::instructions::RegisterOAppParams;
+use endpoint_interface::instructions::{BurnParams, RegisterOAppParams, SendParams, SkipParams};
+use endpoint_interface::ConstructCPIContext;
 use oapp::common::{AccountMetaRef, AddressLocator, EXECUTION_CONTEXT_VERSION_1};
 use oapp::endpoint_cpi;
 use oapp::lz_compose_types_v2::{
@@ -38,13 +40,15 @@ pub mod pool;
 pub mod state;
 
 use error::SwapRelayError;
-use state::{Peer, RelayStore, ReturnRoute, RouteAccount};
+use state::{Peer, RelayStore, ReturnRoute, RouteAccount, Stranded, NOTICE_MINT};
 
 declare_id!("ADjsJxDJ4zCr54P2ioDin4uWRi8AQaofvSzh9ZyMWC5b");
 
 /// Mirrors `SwapTypes.Status`.
 pub const STATUS_FILLED: u8 = 2;
 pub const STATUS_REFUNDED: u8 = 3;
+pub const STATUS_STRANDED: u8 = 4;
+pub const STATUS_CANCELLED: u8 = 5;
 /// Mirrors `SwapTypes.FailureReason`.
 pub const REASON_NONE: u8 = 0;
 pub const REASON_SLIPPAGE: u8 = 1;
@@ -55,6 +59,11 @@ pub const DIRECTION_BUY: u8 = 0;
 
 /// Accounts `endpoint::clear_compose` takes; they lead `lz_compose`'s remaining accounts.
 pub const CLEAR_COMPOSE_ACCOUNTS: usize = 5;
+/// `endpoint::skip`'s accounts, program first: signer, OApp registry, nonce, pending nonces,
+/// payload hash, endpoint settings, and `#[event_cpi]`'s two.
+pub const SKIP_ACCOUNTS: usize = 9;
+/// `endpoint::burn`'s: as `skip`'s, without the pending nonces.
+pub const BURN_ACCOUNTS: usize = 8;
 
 /// sha256("global:send")[..8] — LayerZero's OFT `send`.
 const OFT_SEND_DISCRIMINATOR: [u8; 8] = [0x66, 0xfb, 0x14, 0xbb, 0x41, 0x4b, 0x0c, 0x45];
@@ -138,6 +147,21 @@ pub mod swap_relay {
         );
         let route = &mut ctx.accounts.route;
         route.mint = mint;
+        route.eid = eid;
+        route.accounts = accounts;
+        route.bump = ctx.bumps.route;
+        Ok(())
+    }
+
+    /// Records the accounts of the endpoint `send` that carries notices to `eid`'s SwapRequest.
+    pub fn set_notice_route(ctx: Context<SetNoticeRoute>, eid: u32, accounts: Vec<RouteAccount>) -> Result<()> {
+        require!(accounts.len() <= ReturnRoute::MAX_ACCOUNTS, SwapRelayError::RouteTooLong);
+        let store = &ctx.accounts.store;
+        // The endpoint program, then its `sender`: always this relay.
+        require!(accounts.first().map(|a| a.pubkey) == Some(store.endpoint_program), SwapRelayError::RouteMismatch);
+        require!(accounts.get(1).map(|a| a.pubkey) == Some(store.key()), SwapRelayError::RouteMismatch);
+        let route = &mut ctx.accounts.route;
+        route.mint = NOTICE_MINT;
         route.eid = eid;
         route.accounts = accounts;
         route.bump = ctx.bumps.route;
@@ -403,6 +427,211 @@ pub mod swap_relay {
         )?;
         Ok(())
     }
+
+    // ------------------------------------------------------------------ recovery
+
+    /// Consumes an order whose return cannot be sent, holds its input here, and tells the mirror.
+    ///
+    /// `SwapRelay.sol` strands inside the delivery, in the `catch` of a failed return. Solana
+    /// cannot catch: a return that fails reverts the whole compose, which stays queued. That is
+    /// already safe — nothing is lost and the compose can be re-executed — but the mirror hears
+    /// nothing and the request sits PENDING. This is the explicit step that ends that: the
+    /// operator consumes the compose, the input (untraded) is recorded in a [`Stranded`]
+    /// account, and a STRANDED notice goes to the mirror. `retry_return` sends it home later.
+    ///
+    /// Admin-only, like `cancelStuckInbound`: stranding a compose that could have filled is not
+    /// a loss — the user is refunded in full by the retry — but it is not the user's outcome
+    /// either, so it is not left to anyone.
+    pub fn strand_compose<'info>(
+        ctx: Context<'_, '_, 'info, 'info, StrandCompose<'info>>,
+        eid: u32,
+        request_id: u64,
+        params: LzComposeParams,
+        notice_options: Vec<u8>,
+        max_notice_fee: u64,
+    ) -> Result<()> {
+        let store = &ctx.accounts.store;
+        let (token_in, _) = direction(store, &params.from)?;
+        let frame = ComposeFrame::parse(&params.message)?;
+        let order = Order::decode(&frame.compose_msg)?;
+        require!(frame.src_eid == eid && order.request_id == request_id, SwapRelayError::ComposeMismatch);
+        let peer_address = ctx.accounts.peer.address;
+        require!(peer_address != [0u8; 32], SwapRelayError::NoPeer);
+
+        let seeds: &[&[u8]] = &[RelayStore::SEED, &[store.bump]];
+        let remaining = ctx.remaining_accounts;
+        require!(remaining.len() >= CLEAR_COMPOSE_ACCOUNTS, SwapRelayError::RouteMismatch);
+        endpoint_cpi::clear_compose(
+            store.endpoint_program,
+            store.key(),
+            &remaining[..CLEAR_COMPOSE_ACCOUNTS],
+            seeds,
+            ClearComposeParams { from: params.from, guid: params.guid, index: params.index, message: params.message.clone() },
+        )?;
+
+        let mint_info = if token_in == store.base_mint { &ctx.accounts.base_mint } else { &ctx.accounts.quote_mint };
+        let q = quantum(spl::mint_decimals(mint_info)?, store.shared_decimals)?;
+        let amount = frame.amount_ld;
+        let s = &mut ctx.accounts.stranded;
+        s.eid = eid;
+        s.request_id = request_id;
+        s.mint = token_in;
+        s.amount = amount;
+        s.amount_sd = amount / q;
+        s.recipient = order.recipient;
+        s.rent_payer = ctx.accounts.admin.key();
+        s.bump = ctx.bumps.stranded;
+        emit!(FundsStranded { eid, request_id, mint: token_in, amount });
+
+        let notice = Settlement {
+            request_id,
+            status: STATUS_STRANDED,
+            reason: REASON_POOL_ERROR,
+            amount_in: (amount / q).into(),
+            amount_out: 0,
+            lz_nonce: 0,
+            recipient: order.recipient,
+            cancelled_path: [0u8; 32],
+        };
+        send_notice(
+            store,
+            &ctx.accounts.notice_route,
+            &remaining[CLEAR_COMPOSE_ACCOUNTS..],
+            seeds,
+            eid,
+            peer_address,
+            notice.encode(),
+            notice_options,
+            max_notice_fee,
+        )
+    }
+
+    /// Sends a stranded amount back to its mirror, as a refund. Permissionless: the destination
+    /// is the recorded peer and the recipient the recorded user, so a caller can only pay the
+    /// fee, never redirect anything. The mirror pays a late settlement to the request's user.
+    pub fn retry_return<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RetryReturn<'info>>,
+        eid: u32,
+        request_id: u64,
+    ) -> Result<()> {
+        let store = &ctx.accounts.store;
+        let peer = &ctx.accounts.peer;
+        require!(peer.address != [0u8; 32], SwapRelayError::NoPeer);
+        let stranded = &ctx.accounts.stranded;
+        let route = &ctx.accounts.route;
+        let accounts = ctx.remaining_accounts.get(..route.accounts.len()).ok_or(SwapRelayError::RouteMismatch)?;
+        verify_route(route, accounts)?;
+
+        let settlement = Settlement {
+            request_id,
+            status: STATUS_REFUNDED,
+            reason: REASON_POOL_ERROR,
+            amount_in: stranded.amount_sd.into(),
+            amount_out: 0,
+            lz_nonce: 0,
+            recipient: stranded.recipient,
+            cancelled_path: [0u8; 32],
+        };
+        oft_send(
+            &store.oft_program,
+            accounts,
+            &store.key(),
+            &[RelayStore::SEED, &[store.bump]],
+            eid,
+            peer.address,
+            stranded.amount,
+            peer.return_options.clone(),
+            settlement.encode(),
+            peer.max_return_fee,
+        )?;
+        emit!(ReturnRetried { eid, request_id, mint: stranded.mint, amount: stranded.amount });
+        Ok(())
+    }
+
+    /// Permanently kills an inbound OFT message that will never arrive, then tells the mirror
+    /// so the user's input can be re-created there.
+    ///
+    /// The ordering is the safety argument, exactly as in `SwapRelay.cancelStuckInbound`: prove
+    /// here that the message can never execute, and only then authorise the restoration.
+    ///
+    /// Solana's endpoint differs from EVM's in how:
+    ///
+    ///   unverified  `skip`. It requires the message's payload-hash account to exist (anyone may
+    ///               create it with `init_verify`) and the nonce to be the next inbound one; it
+    ///               closes the account and advances the inbound nonce past it. `init_verify`
+    ///               then refuses the nonce for good, so it can never be verified again.
+    ///   verified    `burn`. `skip` is refused — verification already advanced the nonce — and
+    ///               `burn` closes the payload hash, after which neither `lz_receive` nor a
+    ///               fresh verification can reach it.
+    ///
+    /// This relay must be the OFT store's endpoint delegate for either to be authorised: a
+    /// powerful role, admin-gated here, and one that wants a timelock in production.
+    ///
+    /// @param payload_hash Zero if the message was never verified; else the verified hash.
+    #[allow(clippy::too_many_arguments)]
+    pub fn cancel_stuck_inbound<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CancelStuckInbound<'info>>,
+        src_eid: u32,
+        sender: [u8; 32],
+        oft_store: Pubkey,
+        nonce: u64,
+        payload_hash: [u8; 32],
+        notice_options: Vec<u8>,
+        max_notice_fee: u64,
+    ) -> Result<()> {
+        let store = &ctx.accounts.store;
+        require!(oft_store == store.base_oft || oft_store == store.quote_oft, SwapRelayError::WrongOft);
+        let peer_address = ctx.accounts.peer.address;
+        require!(peer_address != [0u8; 32], SwapRelayError::NoPeer);
+        let seeds: &[&[u8]] = &[RelayStore::SEED, &[store.bump]];
+        let remaining = ctx.remaining_accounts;
+
+        // Kill.
+        let used = if payload_hash == [0u8; 32] {
+            let accounts = remaining.get(..SKIP_ACCOUNTS).ok_or(SwapRelayError::RouteMismatch)?;
+            require_keys_eq!(accounts[1].key(), store.key(), SwapRelayError::RouteMismatch);
+            let cpi = Skip::construct_context(store.endpoint_program, accounts)?;
+            endpoint_interface::cpi::skip(
+                cpi.with_signer(&[seeds]),
+                SkipParams { receiver: oft_store, src_eid, sender, nonce },
+            )?;
+            SKIP_ACCOUNTS
+        } else {
+            let accounts = remaining.get(..BURN_ACCOUNTS).ok_or(SwapRelayError::RouteMismatch)?;
+            require_keys_eq!(accounts[1].key(), store.key(), SwapRelayError::RouteMismatch);
+            let cpi = Burn::construct_context(store.endpoint_program, accounts)?;
+            endpoint_interface::cpi::burn(
+                cpi.with_signer(&[seeds]),
+                BurnParams { receiver: oft_store, src_eid, sender, nonce, payload_hash },
+            )?;
+            BURN_ACCOUNTS
+        };
+        emit!(StuckMessageCancelled { src_eid, nonce, oft_store, payload_hash });
+
+        // Then notify. The mirror holds the request and the amount; the nonce and the path are
+        // all it needs to find them.
+        let notice = Settlement {
+            request_id: 0,
+            status: STATUS_CANCELLED,
+            reason: REASON_NONE,
+            amount_in: 0,
+            amount_out: 0,
+            lz_nonce: nonce,
+            recipient: [0u8; 32],
+            cancelled_path: sender,
+        };
+        send_notice(
+            store,
+            &ctx.accounts.notice_route,
+            &remaining[used..],
+            seeds,
+            src_eid,
+            peer_address,
+            notice.encode(),
+            notice_options,
+            max_notice_fee,
+        )
+    }
 }
 
 enum Decision {
@@ -540,6 +769,31 @@ pub fn verify_route(route: &ReturnRoute, supplied: &[AccountInfo]) -> Result<()>
     Ok(())
 }
 
+/// A plain message — no tokens — to a mirror's SwapRequest, through the recorded notice route.
+#[allow(clippy::too_many_arguments)]
+fn send_notice<'info>(
+    store: &Account<'info, RelayStore>,
+    route: &ReturnRoute,
+    accounts: &[AccountInfo<'info>],
+    seeds: &[&[u8]],
+    dst_eid: u32,
+    receiver: [u8; 32],
+    message: Vec<u8>,
+    options: Vec<u8>,
+    max_native_fee: u64,
+) -> Result<()> {
+    let accounts = accounts.get(..route.accounts.len()).ok_or(SwapRelayError::RouteMismatch)?;
+    verify_route(route, accounts)?;
+    endpoint_cpi::send(
+        store.endpoint_program,
+        store.key(),
+        accounts,
+        seeds,
+        SendParams { dst_eid, receiver, message, options, native_fee: max_native_fee, lz_token_fee: 0 },
+    )?;
+    Ok(())
+}
+
 /// LayerZero's OFT `send`, signed as this relay.
 #[allow(clippy::too_many_arguments)]
 fn oft_send<'info>(
@@ -645,6 +899,98 @@ pub struct SetReturnRoute<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(eid: u32)]
+pub struct SetNoticeRoute<'info> {
+    #[account(mut, constraint = admin.key() == store.admin @ SwapRelayError::Unauthorized)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [RelayStore::SEED], bump = store.bump)]
+    pub store: Account<'info, RelayStore>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = ReturnRoute::SIZE,
+        seeds = [ReturnRoute::SEED, NOTICE_MINT.as_ref(), &eid.to_be_bytes()],
+        bump
+    )]
+    pub route: Account<'info, ReturnRoute>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(eid: u32, request_id: u64)]
+pub struct StrandCompose<'info> {
+    #[account(mut, constraint = admin.key() == store.admin @ SwapRelayError::Unauthorized)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [RelayStore::SEED], bump = store.bump)]
+    pub store: Box<Account<'info, RelayStore>>,
+    #[account(seeds = [Peer::SEED, &eid.to_be_bytes()], bump = peer.bump)]
+    pub peer: Box<Account<'info, Peer>>,
+    #[account(
+        init,
+        payer = admin,
+        space = Stranded::SIZE,
+        seeds = [Stranded::SEED, &eid.to_be_bytes(), &request_id.to_be_bytes()],
+        bump
+    )]
+    pub stranded: Box<Account<'info, Stranded>>,
+    #[account(seeds = [ReturnRoute::SEED, NOTICE_MINT.as_ref(), &eid.to_be_bytes()], bump = notice_route.bump)]
+    pub notice_route: Box<Account<'info, ReturnRoute>>,
+    /// CHECK: the base mint, read for decimals.
+    #[account(address = store.base_mint)]
+    pub base_mint: UncheckedAccount<'info>,
+    /// CHECK: the quote mint, read for decimals.
+    #[account(address = store.quote_mint)]
+    pub quote_mint: UncheckedAccount<'info>,
+    /// CHECK: pinned to the endpoint recorded at init.
+    #[account(address = store.endpoint_program)]
+    pub endpoint_program: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(eid: u32, request_id: u64)]
+pub struct RetryReturn<'info> {
+    #[account(seeds = [RelayStore::SEED], bump = store.bump)]
+    pub store: Box<Account<'info, RelayStore>>,
+    #[account(seeds = [Peer::SEED, &eid.to_be_bytes()], bump = peer.bump)]
+    pub peer: Box<Account<'info, Peer>>,
+    #[account(
+        mut,
+        seeds = [Stranded::SEED, &eid.to_be_bytes(), &request_id.to_be_bytes()],
+        bump = stranded.bump,
+        close = rent_payer
+    )]
+    pub stranded: Box<Account<'info, Stranded>>,
+    /// CHECK: receives the stranded record's rent; pinned to whoever paid it.
+    #[account(mut, address = stranded.rent_payer)]
+    pub rent_payer: UncheckedAccount<'info>,
+    #[account(
+        seeds = [ReturnRoute::SEED, stranded.mint.as_ref(), &eid.to_be_bytes()],
+        bump = route.bump
+    )]
+    pub route: Box<Account<'info, ReturnRoute>>,
+    /// CHECK: pinned to the OFT program recorded at init.
+    #[account(address = store.oft_program)]
+    pub oft_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(src_eid: u32)]
+pub struct CancelStuckInbound<'info> {
+    #[account(mut, constraint = admin.key() == store.admin @ SwapRelayError::Unauthorized)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [RelayStore::SEED], bump = store.bump)]
+    pub store: Box<Account<'info, RelayStore>>,
+    #[account(seeds = [Peer::SEED, &src_eid.to_be_bytes()], bump = peer.bump)]
+    pub peer: Box<Account<'info, Peer>>,
+    #[account(seeds = [ReturnRoute::SEED, NOTICE_MINT.as_ref(), &src_eid.to_be_bytes()], bump = notice_route.bump)]
+    pub notice_route: Box<Account<'info, ReturnRoute>>,
+    /// CHECK: pinned to the endpoint recorded at init.
+    #[account(address = store.endpoint_program)]
+    pub endpoint_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
 pub struct LzComposeTypes<'info> {
     #[account(seeds = [RelayStore::SEED], bump = store.bump)]
     pub store: Account<'info, RelayStore>,
@@ -719,6 +1065,30 @@ pub struct OrderFailed {
     pub request_id: u64,
     pub reason: u8,
     pub amount_in: u64,
+}
+
+#[event]
+pub struct FundsStranded {
+    pub eid: u32,
+    pub request_id: u64,
+    pub mint: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct ReturnRetried {
+    pub eid: u32,
+    pub request_id: u64,
+    pub mint: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct StuckMessageCancelled {
+    pub src_eid: u32,
+    pub nonce: u64,
+    pub oft_store: Pubkey,
+    pub payload_hash: [u8; 32],
 }
 
 #[cfg(test)]
@@ -818,6 +1188,18 @@ mod tests {
             AddressLocator::Address(_) => {}
             _ => panic!("an account outside the table must be named in full"),
         }
+    }
+
+    /// The skip/burn slices are cut by these constants; they must be the endpoint's own counts
+    /// (which already count the program account that leads a CPI slice).
+    #[test]
+    fn kill_slices_match_the_endpoint_interface() {
+        assert_eq!(SKIP_ACCOUNTS, <Skip as ConstructCPIContext<Skip>>::MIN_ACCOUNTS_LEN);
+        assert_eq!(BURN_ACCOUNTS, <Burn as ConstructCPIContext<Burn>>::MIN_ACCOUNTS_LEN);
+        assert_eq!(
+            CLEAR_COMPOSE_ACCOUNTS,
+            <endpoint_interface::cpi::accounts::ClearCompose as ConstructCPIContext<endpoint_interface::cpi::accounts::ClearCompose>>::MIN_ACCOUNTS_LEN
+        );
     }
 
     #[test]

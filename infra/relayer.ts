@@ -172,6 +172,11 @@ export class Relayer {
   }
 
 
+  /** The backend for a Solana chain in the set, if there is one. */
+  solanaEndpoint(eid: number): SolanaRelayEndpoint | undefined {
+    return this.solana.get(eid);
+  }
+
   /** Composes that were delivered but reverted, still sitting in the endpoint's queue. */
   get stuckComposes(): number {
     return this.failedComposes.length;

@@ -320,6 +320,69 @@ export async function setupSolanaHomeRelay(
   }
   log.ok(`${routes} return routes recorded (${mirrors.length} mirrors × 2 assets)`);
 
+  // ---- notices: the relay's own messaging path to each mirror's SwapRequest
+  // A STRANDED or CANCELLED notice carries no tokens, so it is a plain endpoint `send` from the
+  // relay, not an OFT transfer. Its accounts are recorded like a return route; the fee payer is
+  // whoever sends the notice (the admin), so it is not pinned.
+  const lz = lzLocal(chain);
+  for (const m of mirrors) {
+    const receiver = evmAddressToBytes32(m.request);
+    if (isLocal(cfg)) await initOAppPath(chain, store.toBase58(), m.eid, receiver);
+    const metas = await lz.endpoint.getSendIXAccountMetaForCPI(rpc, publicKey(chain.payer.publicKey.toBase58()), {
+      path: { sender: publicKey(store.toBase58()), dstEid: m.eid, receiver },
+      msgLibProgram: lz.messageLib,
+    });
+    const accounts = metas.map((k) => {
+      const pubkey = new PublicKey(k.pubkey.toString());
+      return { pubkey, isWritable: k.isWritable, isPayer: pubkey.equals(chain.payer.publicKey) };
+    });
+    const [noticeRoute] = PublicKey.findProgramAddressSync(
+      [Buffer.from("Route"), PublicKey.default.toBuffer(), u32be(m.eid)],
+      program
+    );
+    const vec = Buffer.alloc(4);
+    vec.writeUInt32LE(accounts.length);
+    await send(
+      chain,
+      new TransactionInstruction({
+        programId: program,
+        keys: [
+          { pubkey: chain.payer.publicKey, isSigner: true, isWritable: true },
+          { pubkey: store, isSigner: false, isWritable: false },
+          { pubkey: noticeRoute, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: Buffer.concat([
+          disc("set_notice_route"),
+          u32le(m.eid),
+          vec,
+          ...accounts.map((a) => Buffer.concat([a.pubkey.toBuffer(), Buffer.from([a.isWritable ? 1 : 0, a.isPayer ? 1 : 0])])),
+        ]),
+      })
+    );
+    alt.add(noticeRoute.toBase58());
+    for (const a of accounts) if (!a.isPayer) alt.add(a.pubkey.toBase58());
+  }
+  log.ok(`notice routes recorded to ${mirrors.length} mirror SwapRequest(s)`);
+
+  // ---- the relay as each home OFT's endpoint delegate
+  // So it can kill an inbound OFT message that will never arrive (`cancel_stuck_inbound`), as
+  // `SwapRelay` is its OFTs' delegate on an EVM home. Done last: the delegate is also who may
+  // configure the OFT's paths, so every path above had to be set up first.
+  for (const asset of [home.assets.base, home.assets.quote]) {
+    await send(
+      chain,
+      toWeb3JsInstruction(
+        oft.setOFTConfig(
+          { oftStore: publicKey(asset.oftStore), admin: createNoopSigner(publicKey(chain.payer.publicKey.toBase58())) },
+          { __kind: "Delegate", delegate: publicKey(store.toBase58()) },
+          { oft: publicKey(home.programs.oft), endpoint: publicKey(endpoint.toBase58()) }
+        ).instruction
+      )
+    );
+  }
+  log.ok("relay set as both OFT stores' endpoint delegate (can cancel stuck inbound messages)");
+
   // ---- lookup table: everything static a delivery names
   const whirlpoolProgram = new PublicKey(WHIRLPOOL_PROGRAM_ID);
   const poolInfo = await chain.connection.getAccountInfo(whirlpool);

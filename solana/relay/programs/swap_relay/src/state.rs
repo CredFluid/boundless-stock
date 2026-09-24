@@ -84,3 +84,37 @@ impl ReturnRoute {
     pub const MAX_ACCOUNTS: usize = 40;
     pub const SIZE: usize = 8 + 32 + 4 + 4 + Self::MAX_ACCOUNTS * (32 + 1 + 1) + 1;
 }
+
+/// The notice route to a mirror: the accounts of the endpoint `send` that carries a plain
+/// message — a STRANDED or CANCELLED notice, no tokens — from this relay to that mirror's
+/// SwapRequest. Stored as a [`ReturnRoute`] under the default mint, so it is checked exactly
+/// like a return route. Index 0 is the endpoint program, index 1 this relay (the sender).
+pub const NOTICE_MINT: Pubkey = Pubkey::new_from_array([0u8; 32]);
+
+/// A result that could not be returned, held here until someone retries it.
+///
+/// Solana cannot catch a failed return the way `SwapRelay.sol` does, so a compose whose return
+/// cannot be sent simply reverts and stays queued — safe, but the mirror hears nothing. When the
+/// operator judges it will not clear soon, `strand_compose` consumes it, records it here, and
+/// tells the mirror; `retry_return` sends it back later, to the same peer, by anyone.
+#[account]
+pub struct Stranded {
+    pub eid: u32,
+    pub request_id: u64,
+    /// The asset held: the order's input, untraded.
+    pub mint: Pubkey,
+    /// In the mint's local decimals; a multiple of the bridge quantum, since it arrived by OFT.
+    pub amount: u64,
+    /// The same amount in shared decimals, as the settlement will carry it.
+    pub amount_sd: u64,
+    /// The user on the mirror chain, from the order.
+    pub recipient: [u8; 32],
+    /// Who paid this account's rent, and receives it back when it is closed.
+    pub rent_payer: Pubkey,
+    pub bump: u8,
+}
+
+impl Stranded {
+    pub const SEED: &'static [u8] = b"Stranded";
+    pub const SIZE: usize = 8 + 4 + 8 + 32 + 8 + 8 + 32 + 32 + 1;
+}

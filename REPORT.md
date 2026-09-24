@@ -442,8 +442,9 @@ transfer from the home chain; and a PDA cannot pay fees in the SDK's simulation.
 
 ### What remains
 
-- On a Solana home: strand/cancel paths on `swap_relay`; a bring-your-own SPL token; several
-  Solana chains in one deployment; SPL supply counters (see `agents.md` §12).
+- On a Solana home: a bring-your-own SPL token; several Solana chains in one deployment; SPL
+  supply counters (see `agents.md` §12). Strand, retry and cancel now work on a Solana home
+  (M28), each exercised end to end in scenario 8.
 - Measuring the Solana executor figures (compute units, lamports) on devnet. Messaging fees are
   now charged and paid locally on every Solana send — `open_request` and the relay's return leg
   — and return legs to Solana carry Solana-native executor options (M27).
@@ -479,7 +480,7 @@ environment variable at build time; and the endpoint CPI account ordering.
 | Deployment infra | 6 modules, fully config-driven, one command, no manual follow-up |
 | Peer wiring | Automated, bidirectional, **read back and verified** on every link |
 | Add-a-chain flow | **Confirmed** to reuse the same modules; verified by doing it on a live deployment |
-| Validation | 8 scenarios: 1–7 on an EVM home (incl. a Solana mirror), 8 on a Solana home; 65/65 Foundry, 43/43 Rust |
+| Validation | 8 scenarios: 1–7 on an EVM home (incl. a Solana mirror), 8 on a Solana home; 65/65 Foundry, 44/44 Rust |
 | Solana | **Works as a mirror and as the home chain**, verified on a local validator: buy, refund, sell and cross-VM supply both ways, plus strand and cancel as a mirror |
 | Biggest gap | No timeout/refund for a stalled message — funds recoverable but never automatically |
 

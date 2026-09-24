@@ -502,7 +502,9 @@ addresses its home relay by eid and does not care what VM it runs. Validation sc
 | Buy | 15,000 USDC on Base → **99.32568 tAAPL** on Base at 151.02 (spot 150.42: 0.3% fee + impact), priced by the Whirlpool on Solana |
 | Refund | unsatisfiable floor → the relay quotes, declines to swap, and returns 5,000 USDC in full |
 | Sell | 20 tAAPL on Base → 3,004.54 USDC on Base |
-| Supply | minted on Solana; Solana mint (9 dec, rescaled) + mirrors (18 dec) = exactly genesis, both assets |
+| Strand | return fee cap below the library's fee → the compose reverts and stays queued; `strand_compose` records it and the mirror shows STRANDED; after the fix, a permissionless `retry_return` refunds 3,000 USDC in full |
+| Cancel | an order's message never arrives → `cancel_stuck_inbound` skips it on Solana as the OFT's delegate, the mirror shows CANCELLED and re-creates 2,000 USDC; the killed nonce can never be verified again (next nonce checked as a control) |
+| Supply | minted on Solana; Solana mint (9 dec, rescaled) + mirrors (18 dec) = exactly genesis, both assets, after all of the above |
 
 ```bash
 npm run solana:build:orca && npm run solana:build:relay   # in addition to the builds above
@@ -522,6 +524,17 @@ How `swap_relay` differs from `SwapRelay.sol`, and why (details in `NOTES.md`, 2
   LayerZero's OFT SDK and records it as a `ReturnRoute`; every delivery is checked against it.
 - **A lookup table carries the static accounts**, and planning names them by index: a plan
   naming ~60 accounts in full exceeds Solana's 1 KB return-data limit.
+- **Stranding is an explicit step** (M28). `SwapRelay.sol` strands in the `catch` of a failed
+  return; on Solana a failed return reverts the whole compose, which stays queued — nothing is
+  lost, but the mirror hears nothing. `strand_compose` (admin) consumes that compose, records the
+  untraded input in a `Stranded` account and sends a STRANDED notice; `retry_return` (anyone)
+  later sends it back as a refund, closing the record. Notices are plain endpoint sends from the
+  relay over a recorded `notice route`, like return routes.
+- **Cancellation uses Solana's kill semantics** (M28). `cancel_stuck_inbound` runs as the OFT
+  stores' endpoint delegate (set at deploy, after every path is configured). An unverified
+  message is `skip`ped — which needs its payload-hash account, created first with the
+  permissionless `init_verify` — and a verified one `burn`ed; either way `init_verify` refuses the
+  nonce afterwards. Then the CANCELLED notice, exactly as on EVM.
 - **Its own Cargo workspace** (`solana/relay/`), seeded from Orca's lock: under the main
   workspace's lock, Orca's dependency tree needs Rust edition 2024, which the SBF cargo cannot
   parse. Orca's program is vendored (`solana/vendor/whirlpool`, two recorded local changes).
@@ -617,13 +630,9 @@ but the default `svm.executor` figures are local guesses and want measuring on d
 
 **Solana as the home chain:**
 
-1. **Strand and cancel on `swap_relay`.** An output below one bridgeable unit cannot happen — the
-   floor is raised to one quantum before quoting — but a return that cannot be *sent* reverts the
-   delivery (it stays retryable) rather than stranding, and there is no `cancel_stuck_inbound`
-   on Solana yet. The EVM relay has both.
-2. **Bring-your-own SPL token** on a Solana home: `init_adapter_oft` instead of a native OFT.
-3. **Several Solana chains in one deployment** (a Solana home with Solana mirrors) — refused today.
-4. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
+1. **Bring-your-own SPL token** on a Solana home: `init_adapter_oft` instead of a native OFT.
+2. **Several Solana chains in one deployment** (a Solana home with Solana mirrors) — refused today.
+3. **Supply accounting on SPL**: `bridgedOut`/`bridgedIn` counters for the Solana OFT, and
    `infra/supply.ts` plus the supply invariants extended to it. (Scenarios 7 and 8 already check
    conservation across VMs from mint supplies.)
 

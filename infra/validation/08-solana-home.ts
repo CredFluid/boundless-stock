@@ -10,6 +10,11 @@
  *   b. REFUND — an unsatisfiable floor; the relay quotes BEFORE swapping (Solana cannot catch a
  *               failed swap) and returns the USDC in full
  *   c. SELL   — tAAPL in on the mirror, USDC out on the mirror
+ *   e. STRAND — the return leg cannot be sent (its fee cap is below the library's fee), so the
+ *               compose reverts and stays queued; the operator strands it, the mirror is told,
+ *               and a permissionless retry later refunds the user in full
+ *   f. CANCEL — the order's message never arrives; the relay, as the Solana OFT's delegate,
+ *               kills it on Solana and the mirror re-creates the user's input
  *   d. SUPPLY — the whole supply was minted on Solana; after all of the above it is exactly
  *               accounted for across VMs, Solana's 9-decimal mint rescaled to the mirrors' 18
  *
@@ -32,7 +37,8 @@ import { forgeArtifact } from "../lib/artifacts.js";
 import { Options } from "../lib/options.js";
 import { SolanaChain } from "../solana/chain.js";
 import { lzLocal, SIMPLE_MESSAGELIB_PROGRAM_ID } from "../solana/lz-local.js";
-import { localMessageLibFee } from "../lib/svm-executor.js";
+import { localMessageLibFee, maxReturnFee } from "../lib/svm-executor.js";
+import { SolanaRelayAdmin } from "../solana/relay-admin.js";
 import { ataOf } from "../solana/client.js";
 import { solanaManifestPath } from "../solana/setup.js";
 import type { SolanaHomeDeployment } from "../solana/home.js";
@@ -172,6 +178,94 @@ export async function scenario8(h: Harness): Promise<ScenarioResult> {
   if (proceeds !== sell.r.amountOut) findings.push(`proceeds ${proceeds} differ from the request's ${sell.r.amountOut}`);
   if (proceeds < sellFloor) findings.push(`proceeds ${proceeds} below the floor ${sellFloor}`);
   metrics["sell: proceeds"] = `${formatUnits(proceeds, h.quoteDecimals)} ${h.quoteSymbol}`;
+
+  // ---------------------------------------------------------------- e. STRAND
+  log.step("e. the return cannot be sent — strand, notify, retry");
+  const admin = new SolanaRelayAdmin(sol, home);
+  const mirrorEid = h.eid(mirror);
+  const noticeOptions = Buffer.from(Options.new().addExecutorLzReceive(BigInt(h.config.relay.returnGas)).build().slice(2), "hex");
+  const feeCap = maxReturnFee(homeCfg);
+  const solEndpoint = h.relayer!.solanaEndpoint(sol.eid)!;
+
+  // A fee cap below the library's fee: the relay's return send is refused, so the whole compose
+  // reverts. On EVM the relay would catch that and strand; Solana cannot catch.
+  await admin.setMaxReturnFee(mirrorEid, 1n);
+  await fund("quote", "3000");
+  const strandSpend = parseUnits("3000", h.quoteDecimals);
+  const quoteBeforeStrand = await bal(quoteOnMirror);
+  await user.write(quoteOnMirror, tokenAbi, "approve", [request, strandSpend]);
+  const strandFee = await user.read<{ nativeFee: bigint }>(request, requestAbi, "quoteTrade", [Direction.BUY, strandSpend, 1n]);
+  const strandId = (await user.read<bigint>(request, requestAbi, "nextRequestId")) as bigint;
+  const failedBefore = solEndpoint.failedComposes.length;
+  await user.write(request, requestAbi, "buy", [strandSpend, 1n], strandFee.nativeFee);
+  const { ok: reverted } = await h.waitFor("the order's compose to revert on Solana", async () =>
+    solEndpoint.failedComposes.length > failedBefore);
+  if (!reverted) findings.push("the compose did not revert with the return fee capped below the library's fee");
+  const stillPending = (await h.getRequest(mirror, strandId)).status === Status.PENDING;
+  log.kv("compose", reverted ? "reverted, still queued — request PENDING on the mirror" : "did not revert");
+  if (!stillPending) findings.push("the request left PENDING although nothing was returned");
+
+  if (reverted) {
+    const compose = solEndpoint.failedComposes.pop()!;
+    const s = await admin.strandCompose(compose, noticeOptions, feeCap);
+    if (s.requestId !== strandId) findings.push(`stranded request ${s.requestId}, expected ${strandId}`);
+    const { ok: noticed } = await h.waitFor("the STRANDED notice to reach the mirror", async () =>
+      (await h.getRequest(mirror, strandId)).status === Status.STRANDED);
+    log.kv("status on mirror", noticed ? "STRANDED" : Status[(await h.getRequest(mirror, strandId)).status]);
+    if (!noticed) findings.push("the mirror never heard the request was stranded");
+
+    // The cause is fixed; anyone may now send it home.
+    await admin.setMaxReturnFee(mirrorEid, feeCap);
+    await admin.retryReturn(mirrorEid, strandId);
+    const { ok: retried } = await h.waitFor("the retried refund to reach the user", async () =>
+      (await bal(quoteOnMirror)) === quoteBeforeStrand);
+    const back = (await bal(quoteOnMirror)) - (quoteBeforeStrand - strandSpend);
+    log.kv("refunded by retry", `${formatUnits(back, h.quoteDecimals)} ${h.quoteSymbol}`);
+    if (!retried) findings.push(`retry returned ${back}, expected ${strandSpend}`);
+    if (await sol.accountInfo(admin.strandedAddress(mirrorEid, strandId).toBase58())) {
+      findings.push("the stranded record was not closed by the retry");
+    }
+    metrics["strand: refunded by retry"] = `${formatUnits(back, h.quoteDecimals)} ${h.quoteSymbol}`;
+  } else {
+    await admin.setMaxReturnFee(mirrorEid, feeCap);
+  }
+
+  // ---------------------------------------------------------------- f. CANCEL
+  log.step("f. the order never arrives — kill it on Solana, restore it on the mirror");
+  await fund("quote", "2000");
+  const cancelSpend = parseUnits("2000", h.quoteDecimals);
+  const quoteBeforeCancel = await bal(quoteOnMirror);
+  await user.write(quoteOnMirror, tokenAbi, "approve", [request, cancelSpend]);
+  const cancelFee = await user.read<{ nativeFee: bigint }>(request, requestAbi, "quoteTrade", [Direction.BUY, cancelSpend, 1n]);
+  const cancelId = (await user.read<bigint>(request, requestAbi, "nextRequestId")) as bigint;
+  await user.write(request, requestAbi, "buy", [cancelSpend, 1n], cancelFee.nativeFee);
+  // Stand in for a message that is never delivered: the relayer moves past it.
+  await h.relayer!.syncToHead();
+  const stalled = await h.getRequest(mirror, cancelId);
+  log.kv("stalled", `request ${cancelId}, LayerZero nonce ${stalled.lzNonce}`);
+
+  const killed = {
+    srcEid: mirrorEid,
+    sender: Buffer.from(h.oftAddr(mirror, "QuoteAsset").slice(2).padStart(64, "0"), "hex"),
+    oftStore: home.assets.quote.oftStore,
+    nonce: stalled.lzNonce,
+  };
+  await admin.cancelStuckInbound(killed, noticeOptions, feeCap);
+  // The safety argument: once restored on the mirror, the original must be undeliverable here.
+  // Control, so the check cannot pass vacuously: the path's next nonce is still verifiable.
+  if (!(await admin.isVerifiable({ ...killed, nonce: killed.nonce + 1n }))) {
+    findings.push("control failed: the next nonce on the path is not verifiable either");
+  }
+  if (await admin.isVerifiable(killed)) findings.push("the killed message can still be verified on Solana");
+  else log.ok("the killed message can never be verified on Solana");
+  const { ok: cancelled } = await h.waitFor("the CANCELLED notice to reach the mirror", async () =>
+    (await h.getRequest(mirror, cancelId)).status === Status.CANCELLED);
+  const restored = (await bal(quoteOnMirror)) - (quoteBeforeCancel - cancelSpend);
+  log.kv("status on mirror", Status[(await h.getRequest(mirror, cancelId)).status]);
+  log.kv("restored", `${formatUnits(restored, h.quoteDecimals)} ${h.quoteSymbol}`);
+  if (!cancelled) findings.push("the request was not cancelled on the mirror");
+  if (restored !== cancelSpend) findings.push(`cancellation restored ${restored}, expected ${cancelSpend}`);
+  metrics["cancel: restored"] = `${formatUnits(restored, h.quoteDecimals)} ${h.quoteSymbol}`;
 
   // ---------------------------------------------------------------- d. SUPPLY
   log.step("d. omnichain supply, across VMs (minted on Solana)");

@@ -37,6 +37,7 @@ import type { Hex } from "viem";
 
 import type { SolanaChain } from "./chain.js";
 import { ENDPOINT_PROGRAM_ID, lzLocal } from "./lz-local.js";
+import type { QueuedCompose } from "./relay-admin.js";
 import { decodePacket } from "../relayer.js";
 import { log } from "../lib/logger.js";
 
@@ -53,6 +54,11 @@ const hex = (b: Uint8Array): Hex => `0x${Buffer.from(b).toString("hex")}`;
 export class SolanaRelayEndpoint {
   /** Newest endpoint transaction already scanned. */
   private cursor?: string;
+  /**
+   * Composes that reverted. The endpoint keeps each queued with its hash, so any of them can be
+   * re-executed later — or, on a home relay, consumed by `strand_compose`.
+   */
+  readonly failedComposes: QueuedCompose[] = [];
   private readonly endpointProgram = new PublicKey(ENDPOINT_PROGRAM_ID);
 
   constructor(readonly chain: SolanaChain) {}
@@ -141,9 +147,15 @@ export class SolanaRelayEndpoint {
       maxSupportedTransactionVersion: 0,
     });
     for (const c of composes ?? []) {
-      await this.execute(await lzCompose(rpc, payer.publicKey, c));
-      log.dim(`compose index ${c.index} executed on ${c.to}`);
-      composed++;
+      try {
+        await this.execute(await lzCompose(rpc, payer.publicKey, c));
+        log.dim(`compose index ${c.index} executed on ${c.to}`);
+        composed++;
+      } catch (e) {
+        // The packet itself was delivered; only its compose failed, and it stays queued.
+        this.failedComposes.push({ from: c.from.toString(), to: c.to.toString(), guid: c.guid, index: c.index, message: c.message });
+        log.fail(`compose on ${c.to} reverted; still queued and retryable: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
+      }
     }
     return composed;
   }

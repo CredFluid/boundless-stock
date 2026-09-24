@@ -53,6 +53,8 @@ export enum Status {
   PENDING = 1,
   FILLED = 2,
   REFUNDED = 3,
+  STRANDED = 4,
+  CANCELLED = 5,
 }
 
 export interface RequestRecord {
@@ -67,6 +69,8 @@ export interface RequestRecord {
   settledAt: bigint;
   status: Status;
   failureReason: number;
+  /** The LayerZero nonce of the request's outbound message, on its OFT's path home. */
+  lzNonce: bigint;
 }
 
 export interface ScenarioResult {

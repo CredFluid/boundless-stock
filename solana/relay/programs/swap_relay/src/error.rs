@@ -18,4 +18,10 @@ pub enum SwapRelayError {
     RouteTooLong,
     #[msg("Executor options are longer than a peer can record")]
     OptionsTooLong,
+    #[msg("No SwapRequest is recorded for that mirror chain")]
+    NoPeer,
+    #[msg("The request or chain named does not match the compose message")]
+    ComposeMismatch,
+    #[msg("Not one of this relay's OFT stores")]
+    WrongOft,
 }

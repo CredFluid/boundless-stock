@@ -1585,3 +1585,53 @@ user's `open_request`, and on the relay's return leg, measured as the library's 
 rather than just that sends succeed. The default `svm.executor` figures are local estimates to
 be measured on devnet. Validation: EVM-only 8/8; EVM home + Solana mirror 8/8; Solana home
 scenario 8; Foundry 65/65; Rust 34 + 9.
+
+---
+
+### [2026-09-24] Strand, retry and cancel on a Solana home
+**Milestone:** M28
+
+**What happened / what to know:** `swap_relay` now has the recovery paths `SwapRelay.sol` has,
+adapted to what Solana can and cannot do.
+
+**Strand is a separate instruction, not a `catch`.** On EVM a failed return is caught inside the
+delivery and stranded there. On Solana the failed CPI reverts the whole compose. That outcome is
+already safe — the compose stays queued with its hash and can be executed again once the cause
+is fixed — so the relay does not need to strand to protect funds. What was missing is telling the
+mirror. `strand_compose` (admin) consumes the queued compose via `clear_compose`, records the
+untraded input in a `Stranded` PDA keyed by (eid, request id), and sends a STRANDED notice.
+`retry_return` is permissionless and sends the recorded amount back as a REFUNDED settlement
+through the same pinned return route, closing the record to whoever paid its rent. The mirror's
+SwapRequest already pays a late settlement after STRANDED (`LateSettlementPaid`), so nothing
+changed on EVM. Admin-only because stranding a compose that could have filled is not the user's
+outcome, even though they are refunded in full.
+
+**Notices need the relay to be a sender, not only a composer.** The relay previously only
+received composes and sent OFT transfers. A notice is a plain endpoint `send` from the relay's
+own OApp to the mirror's SwapRequest, so each mirror now gets a path for the relay store (nonce,
+send library) and a recorded notice route — the endpoint `send` accounts from LayerZero's SDK,
+checked exactly like a return route, fee payer unpinned.
+
+**Solana's endpoint kills messages differently.** `skip` requires the nonce to be exactly the
+next inbound one AND its payload-hash account to exist; it closes that account and advances the
+inbound nonce. For a message never seen at all, the account must first be created with
+`init_verify`, which is permissionless — the admin client does that. A verified message cannot be
+skipped (verification already advanced the nonce) and is `burn`ed instead. In both cases
+`init_verify` then refuses the nonce because it is not above the inbound nonce, so the message
+can never be verified or delivered again. Scenario 8 checks exactly that, with the next nonce
+as a control so the check cannot pass vacuously. The EVM contract needs skip-then-burn for a
+verified message; Solana needs burn alone.
+
+**The relay became the OFT stores' delegate — last.** The endpoint accepts `skip`/`burn` from
+the OApp or its delegate, so each home OFT store's delegate is now the relay. The delegate is
+also who may configure the OFT's messaging paths, so it is set after every path is initialised;
+adding a mirror later needs the relay (or an admin handover) to do that step.
+
+**The local relayer now keeps failed Solana composes** instead of failing the whole delivery,
+mirroring what it already did for EVM, and exposes them so the strand path can be driven.
+
+**Why it matters / what breaks if ignored:** the test induces the failure the realistic way —
+the relay's return fee cap set below the library's fee — rather than by breaking a peer, so it
+exercises exactly the case M27's fee cap introduced. Validation: Solana home scenario 8
+(buy, refund, sell, strand + retry, cancel, supply) on two consecutive runs of one deployment;
+EVM home + Solana mirror 8/8; EVM-only 8/8; Foundry 65/65; Rust 34 + 10.
