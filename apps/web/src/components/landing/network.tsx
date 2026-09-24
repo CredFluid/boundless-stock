@@ -41,6 +41,12 @@ export function NetworkVisual() {
                 ghost edge (straight down) uses a flat colour. */}
             <path d={d} stroke={n.ghost ? "var(--muted)" : "url(#edge)"} strokeOpacity={n.ghost ? 0.5 : 1} strokeWidth="1.25"
               strokeDasharray={n.ghost ? "4 6" : undefined} fill="none" />
+            {/* data flowing along the live edges */}
+            {!n.ghost && (
+              <path d={d} stroke="var(--accent)" strokeOpacity="0.55" strokeWidth="1.25" strokeDasharray="2 14" fill="none" className="packet">
+                <animate attributeName="stroke-dashoffset" from="0" to="-32" dur="1.6s" repeatCount="indefinite" />
+              </path>
+            )}
             {!n.ghost && (
               <>
                 {/* Hidden until their motion starts: before `begin` a packet would sit at the origin. */}
@@ -58,8 +64,14 @@ export function NetworkVisual() {
         );
       })}
 
-      {/* hub */}
+      {/* hub, with rings pulsing out of it */}
       <circle cx={HUB.x} cy={HUB.y} r="96" fill="url(#hubGlow)" />
+      {[0, 1.3, 2.6].map((begin) => (
+        <circle key={begin} cx={HUB.x} cy={HUB.y} r="90" fill="none" stroke="var(--accent)" strokeWidth="1" opacity="0" className="packet">
+          <animate attributeName="r" from="90" to="200" dur="3.9s" begin={`${begin}s`} repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0.45;0" dur="3.9s" begin={`${begin}s`} repeatCount="indefinite" />
+        </circle>
+      ))}
       <g>
         <rect x={HUB.x - 88} y={HUB.y - 42} width="176" height="84" rx="16" fill="var(--surface)" stroke="var(--accent)" strokeWidth="1.5" />
         <text x={HUB.x} y={HUB.y - 12} textAnchor="middle" fontSize="11" fill="var(--accent)" letterSpacing="1.5">HOME CHAIN</text>

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { NetworkVisual } from "@/components/landing/network";
 import { CodeWindow, C, K, N, S } from "@/components/landing/code-window";
+import { CountUp, Reveal, TypedTerminal } from "@/components/landing/motion";
 
 const REPO = "https://github.com/CredFluid/boundless-stock";
 
@@ -93,20 +94,20 @@ export default function Landing() {
         <div className="glow absolute inset-0" aria-hidden />
         <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-5 pt-16 pb-20 lg:grid-cols-[1.05fr_1fr] lg:pt-24 lg:pb-28">
           <div>
-            <a href="#architecture" className="inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pr-3 pl-1 text-xs text-muted hover:text-fg">
+            <a href="#architecture" className="enter enter-1 inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pr-3 pl-1 text-xs text-muted hover:text-fg">
               <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">New</span>
               Solana can now be the home chain
               <ArrowRight size={12} aria-hidden />
             </a>
-            <h1 className="mt-7 text-5xl font-semibold leading-[1.02] tracking-tight md:text-7xl">
+            <h1 className="enter enter-2 mt-7 text-5xl font-semibold leading-[1.02] tracking-tight md:text-7xl">
               The settlement layer for{" "}
-              <span className="bg-gradient-to-r from-accent to-evm bg-clip-text text-transparent">omnichain stocks</span>.
+              <span className="text-shimmer bg-gradient-to-r from-accent via-evm to-accent bg-clip-text text-transparent">omnichain stocks</span>.
             </h1>
-            <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted">
+            <p className="enter enter-3 mt-6 max-w-xl text-lg leading-relaxed text-muted">
               One deep market on a home chain. Mirrors everywhere else. Users trade a tokenized stock from whichever chain
               they&apos;re on — priced at home, settled back to them, with no liquidity needed where they stand.
             </p>
-            <div className="mt-9 flex flex-wrap gap-3">
+            <div className="enter enter-4 mt-9 flex flex-wrap gap-3">
               <Link href="/app/launch" className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-accent-contrast hover:opacity-90">
                 Launch an asset <ArrowRight size={16} aria-hidden />
               </Link>
@@ -114,14 +115,16 @@ export default function Landing() {
                 <Terminal size={16} aria-hidden /> Start building
               </a>
             </div>
-            <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2 font-mono text-xs text-muted">
+            <div className="enter enter-5 mt-10 flex flex-wrap gap-x-6 gap-y-2 font-mono text-xs text-muted">
               <span>▸ LayerZero V2 messaging</span>
               <span>▸ EVM + Solana</span>
               <span>▸ Open source</span>
             </div>
           </div>
-          <div className="relative">
-            <NetworkVisual />
+          <div className="enter enter-3 relative">
+            <div className="floaty">
+              <NetworkVisual />
+            </div>
           </div>
         </div>
       </section>
@@ -131,7 +134,7 @@ export default function Landing() {
         <div className="mx-auto grid max-w-7xl grid-cols-2 lg:grid-cols-4">
           {METRICS.map((m, i) => (
             <div key={m.label} className={`px-5 py-10 ${i > 0 ? "lg:border-l" : ""} ${i % 2 === 1 ? "border-l" : ""} ${i >= 2 ? "border-t lg:border-t-0" : ""} border-line`}>
-              <div className="text-3xl font-semibold tracking-tight tabular-nums md:text-4xl">{m.value}</div>
+              <div className="text-3xl font-semibold tracking-tight tabular-nums md:text-4xl"><CountUp value={m.value} /></div>
               <div className="mt-2 text-sm font-medium">{m.label}</div>
               <div className="mt-1 text-xs text-muted">{m.note}</div>
             </div>
@@ -143,49 +146,60 @@ export default function Landing() {
       <section className="border-b border-line">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-8 md:flex-row md:items-center">
           <div className="shrink-0 font-mono text-xs uppercase tracking-[0.2em] text-muted">Validated across</div>
-          <div className="flex flex-wrap gap-2">
-            {NETWORKS.map((n) => (
-              <span key={n} className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-muted">{n}</span>
-            ))}
+          {/* Scrolls when motion is on (the list twice, moved by half); a plain wrapped row otherwise. */}
+          <div className="marquee relative min-w-0 flex-1 overflow-hidden [mask-image:linear-gradient(to_right,transparent,#000_8%,#000_92%,transparent)]">
+            <div className="marquee-row flex">
+              {[false, true].map((copy) => (
+                <div key={String(copy)} aria-hidden={copy || undefined} className="marquee-track flex shrink-0 gap-2 pr-2">
+                  {NETWORKS.map((n) => (
+                    <span key={n} className="whitespace-nowrap rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-muted">{n}</span>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
       {/* ================================================================ problem */}
       <section className="mx-auto max-w-7xl px-5 py-24">
-        <Eyebrow>The problem</Eyebrow>
-        <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">
-          Liquidity shouldn&apos;t have to follow the token.
-        </h2>
+        <Reveal>
+          <Eyebrow>The problem</Eyebrow>
+          <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">
+            Liquidity shouldn&apos;t have to follow the token.
+          </h2>
+        </Reveal>
         <div className="mt-12 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl border border-line bg-surface p-8">
+          <Reveal delay={100}><div className="h-full rounded-2xl border border-line bg-surface p-8">
             <div className="text-sm font-medium text-bad">Today</div>
             <ul className="mt-5 space-y-4 text-muted">
               <li className="flex gap-3"><XCircle size={18} className="mt-0.5 shrink-0 text-bad" aria-hidden />A pool on every chain, each thin, each needing its own market maker.</li>
               <li className="flex gap-3"><XCircle size={18} className="mt-0.5 shrink-0 text-bad" aria-hidden />Users bridge first, then trade — two products, two fees, two ways to lose funds.</li>
               <li className="flex gap-3"><XCircle size={18} className="mt-0.5 shrink-0 text-bad" aria-hidden />Wrapped copies and prices that drift from chain to chain.</li>
             </ul>
-          </div>
-          <div className="rounded-2xl border border-accent/40 bg-gradient-to-b from-accent-soft to-surface p-8">
+          </div></Reveal>
+          <Reveal delay={250}><div className="h-full rounded-2xl border border-accent/40 bg-gradient-to-b from-accent-soft to-surface p-8">
             <div className="text-sm font-medium text-accent">With CrossStock</div>
             <ul className="mt-5 space-y-4">
               <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />One market, on the home chain. Every other chain is a mirror with no market of its own.</li>
               <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />One transaction for the user; the order, the funds and the result travel together.</li>
               <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />One asset, not wrapped copies — its supply provably conserved across chains.</li>
             </ul>
-          </div>
+          </div></Reveal>
         </div>
       </section>
 
       {/* ================================================================ architecture */}
       <section id="architecture" className="scroll-mt-20 border-y border-line bg-surface/40">
         <div className="mx-auto max-w-7xl px-5 py-24">
-          <Eyebrow>Architecture</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">Four layers. One market.</h2>
-          <p className="mt-5 max-w-2xl text-lg text-muted">
-            CrossStock sits between the applications users touch and the messaging layer that moves value — so the chain a
-            user is on stops mattering.
-          </p>
+          <Reveal>
+            <Eyebrow>Architecture</Eyebrow>
+            <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">Four layers. One market.</h2>
+            <p className="mt-5 max-w-2xl text-lg text-muted">
+              CrossStock sits between the applications users touch and the messaging layer that moves value — so the chain a
+              user is on stops mattering.
+            </p>
+          </Reveal>
 
           <div className="mt-14 grid gap-10 lg:grid-cols-[1.1fr_1fr]">
             {/* stack */}
@@ -195,8 +209,8 @@ export default function Landing() {
                 { tag: "CrossStock", title: "Omnichain asset + request/relay protocol", tone: "border-accent/60 bg-accent-soft/40", items: ["SwapRequest on every mirror", "Relay at the home market", "OFT supply accounting"] },
                 { tag: "LayerZero V2", title: "Verified messaging between chains", tone: "border-line", items: ["DVN verification", "Executor delivery", "Compose messages"] },
                 { tag: "Chains", title: "EVM and SVM networks", tone: "border-line", items: ["Uniswap V3 on EVM homes", "Orca Whirlpool on Solana homes"] },
-              ].map((l) => (
-                <div key={l.tag} className={`rounded-xl border bg-surface p-5 ${l.tone}`}>
+              ].map((l, i) => (
+                <Reveal key={l.tag} delay={i * 120}><div className={`lift rounded-xl border bg-surface p-5 ${l.tone}`}>
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <span className="font-mono text-xs uppercase tracking-[0.18em] text-accent">{l.tag}</span>
                     <span className="text-sm font-medium">{l.title}</span>
@@ -206,15 +220,19 @@ export default function Landing() {
                       <span key={i} className="rounded-md bg-surface-2 px-2.5 py-1 text-xs text-muted">{i}</span>
                     ))}
                   </div>
-                </div>
+                </div></Reveal>
               ))}
             </div>
 
             {/* lifecycle */}
-            <ol className="relative space-y-8 border-l border-line pl-8">
+            <Reveal className="rail relative">
+            {/* the rail, and its fill that draws down as the section comes into view */}
+            <span aria-hidden className="absolute top-0 bottom-0 left-0 w-px bg-line" />
+            <span aria-hidden className="rail-fill absolute top-0 bottom-0 left-0 w-px bg-gradient-to-b from-accent to-evm" />
+            <ol className="relative space-y-8 pl-8">
               {LIFECYCLE.map((s) => (
                 <li key={s.n} className="relative">
-                  <span className="absolute top-0 -left-[45px] grid h-7 w-7 place-items-center rounded-full border border-line bg-bg font-mono text-[11px] text-accent">
+                  <span className="absolute top-0 -left-[46px] grid h-7 w-7 place-items-center rounded-full border border-line bg-bg font-mono text-[11px] text-accent">
                     {s.n}
                   </span>
                   <h3 className="font-semibold">{s.title}</h3>
@@ -222,6 +240,7 @@ export default function Landing() {
                 </li>
               ))}
             </ol>
+            </Reveal>
           </div>
         </div>
       </section>
@@ -229,7 +248,7 @@ export default function Landing() {
       {/* ================================================================ developers */}
       <section id="developers" className="scroll-mt-20 mx-auto max-w-7xl px-5 py-24">
         <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
-          <div className="min-w-0">
+          <Reveal className="min-w-0">
             <Eyebrow>For developers</Eyebrow>
             <h2 className="mt-4 text-4xl font-semibold tracking-tight md:text-5xl">From config to live market in one command.</h2>
             <p className="mt-5 text-lg text-muted">
@@ -249,9 +268,9 @@ export default function Landing() {
                 </li>
               ))}
             </ul>
-          </div>
+          </Reveal>
 
-          <div className="min-w-0 space-y-4">
+          <Reveal delay={150} className="min-w-0 space-y-4">
             <CodeWindow title="config/my-asset.json — abridged">
 {`{
   `}<K>&quot;token&quot;</K>{`: { `}<K>&quot;symbol&quot;</K>{`: `}<S>&quot;tAAPL&quot;</S>{`, `}<K>&quot;initialSupply&quot;</K>{`: `}<S>&quot;1000000&quot;</S>{` },
@@ -262,15 +281,18 @@ export default function Landing() {
   `}<K>&quot;pool&quot;</K>{`: { `}<K>&quot;initialPrice&quot;</K>{`: `}<S>&quot;150&quot;</S>{`, `}<K>&quot;feeTier&quot;</K>{`: `}<N>3000</N>{` }
 }`}
             </CodeWindow>
-            <CodeWindow title="terminal">
-{``}<C>$</C>{` npm run deploy -- --config config/my-asset.json
-  `}<S>✓</S>{` deployment complete · 3 mirrors · 21/21 links verified
-`}<C>$</C>{` npm run validate -- --config config/my-asset.json
-  `}<S>✓</S>{` scenarios passed: buy · refund · sell · strand · cancel
-`}<C>$</C>{` npm run supply -- --config config/my-asset.json
-  `}<S>✓</S>{` conserved: equals the genesis supply exactly`}
-            </CodeWindow>
-          </div>
+            <TypedTerminal
+              title="terminal"
+              lines={[
+                { kind: "cmd", text: "npm run deploy -- --config config/my-asset.json" },
+                { kind: "out", text: "deployment complete · 3 mirrors · 21/21 links verified" },
+                { kind: "cmd", text: "npm run validate -- --config config/my-asset.json" },
+                { kind: "out", text: "scenarios passed: buy · refund · sell · strand · cancel" },
+                { kind: "cmd", text: "npm run supply -- --config config/my-asset.json" },
+                { kind: "out", text: "conserved: equals the genesis supply exactly" },
+              ]}
+            />
+          </Reveal>
         </div>
       </section>
 
@@ -278,22 +300,22 @@ export default function Landing() {
       <section id="security" className="scroll-mt-20 border-y border-line bg-surface/40">
         <div className="mx-auto max-w-7xl px-5 py-24">
           <div className="grid gap-6 lg:grid-cols-[1fr_1.4fr] lg:items-end">
-            <div>
+            <Reveal>
               <Eyebrow>Guarantees</Eyebrow>
               <h2 className="mt-4 text-4xl font-semibold tracking-tight md:text-5xl">Funds are never lost. Every failure has a path home.</h2>
-            </div>
-            <p className="text-lg text-muted">
+            </Reveal>
+            <Reveal delay={150}><p className="text-lg text-muted">
               Cross-chain systems fail in the gaps between chains. CrossStock names each of those gaps and gives it a recovery
               path — then tests every one end to end, on EVM and on Solana.
-            </p>
+            </p></Reveal>
           </div>
           <div className="mt-14 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
-            {GUARANTEES.map((g) => (
-              <div key={g.title} className="bg-surface p-7">
+            {GUARANTEES.map((g, i) => (
+              <Reveal key={g.title} delay={(i % 3) * 110} className="bg-surface"><div className="h-full p-7 transition-colors hover:bg-surface-2">
                 <g.icon size={20} className="text-accent" aria-hidden />
                 <h3 className="mt-5 font-semibold">{g.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted">{g.body}</p>
-              </div>
+              </div></Reveal>
             ))}
           </div>
           <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
@@ -306,18 +328,20 @@ export default function Landing() {
 
       {/* ================================================================ audiences */}
       <section className="mx-auto max-w-7xl px-5 py-24">
-        <Eyebrow>Who it&apos;s for</Eyebrow>
-        <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">One asset, three ways in.</h2>
+        <Reveal>
+          <Eyebrow>Who it&apos;s for</Eyebrow>
+          <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">One asset, three ways in.</h2>
+        </Reveal>
         <div className="mt-12 grid gap-4 lg:grid-cols-3">
-          {AUDIENCES.map((a) => (
-            <div key={a.title} className="group flex flex-col rounded-2xl border border-line bg-surface p-8 transition-colors hover:border-accent/50">
+          {AUDIENCES.map((a, i) => (
+            <Reveal key={a.title} delay={i * 120}><div className="lift group flex h-full flex-col rounded-2xl border border-line bg-surface p-8 hover:border-accent/50">
               <a.icon size={22} className="text-accent" aria-hidden />
               <h3 className="mt-6 text-xl font-semibold">{a.title}</h3>
               <p className="mt-3 flex-1 text-muted">{a.body}</p>
               <Link href={a.cta.href} className="mt-8 inline-flex items-center gap-1.5 text-sm font-medium text-accent">
                 {a.cta.label} <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" aria-hidden />
               </Link>
-            </div>
+            </div></Reveal>
           ))}
         </div>
       </section>
@@ -326,7 +350,7 @@ export default function Landing() {
       <section className="relative overflow-hidden border-t border-line">
         <div className="bg-grid mask-fade absolute inset-0 opacity-60" aria-hidden />
         <div className="glow absolute inset-0" aria-hidden />
-        <div className="relative mx-auto max-w-4xl px-5 py-28 text-center">
+        <Reveal className="relative mx-auto max-w-4xl px-5 py-28 text-center">
           <h2 className="text-4xl font-semibold tracking-tight md:text-6xl">Make your asset tradable on every chain.</h2>
           <p className="mx-auto mt-6 max-w-xl text-lg text-muted">
             Start from the issuer console, or read the code — it&apos;s all open.
@@ -339,7 +363,7 @@ export default function Landing() {
               <GitBranch size={16} aria-hidden /> View on GitHub
             </a>
           </div>
-        </div>
+        </Reveal>
       </section>
 
       {/* ================================================================ footer */}

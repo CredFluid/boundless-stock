@@ -129,3 +129,79 @@ body {
   .packet { display: none; }
   .pulse { animation: none !important; }
 }
+
+/* ------------------------------------------------------------------------------------------
+ * Motion. Everything below is gated on [data-anim="on"], which the root layout sets only when
+ * JavaScript runs and the visitor has not asked for reduced motion. Without it, every element
+ * is simply visible and still.
+ * ---------------------------------------------------------------------------------------- */
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes shimmer {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes blink {
+  50% { opacity: 0; }
+}
+@keyframes float {
+  50% { transform: translateY(-6px); }
+}
+@keyframes glow-breathe {
+  50% { opacity: 0.55; }
+}
+
+/* Hero entrance: children with .enter-N rise in, staggered. */
+[data-anim="on"] .enter { animation: fade-up 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+[data-anim="on"] .enter-1 { animation-delay: 0.05s; }
+[data-anim="on"] .enter-2 { animation-delay: 0.15s; }
+[data-anim="on"] .enter-3 { animation-delay: 0.3s; }
+[data-anim="on"] .enter-4 { animation-delay: 0.45s; }
+[data-anim="on"] .enter-5 { animation-delay: 0.6s; }
+
+/* The gradient headline slowly drifts. */
+.text-shimmer { background-size: 200% auto; }
+[data-anim="on"] .text-shimmer { animation: shimmer 8s linear infinite; }
+
+[data-anim="on"] .floaty { animation: float 6s ease-in-out infinite; }
+[data-anim="on"] .glow { animation: glow-breathe 7s ease-in-out infinite; }
+
+/* Scroll reveal: .reveal elements wait until <Reveal> marks them visible. */
+[data-anim="on"] .reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.8s cubic-bezier(0.2, 0.7, 0.2, 1), transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition-delay: var(--delay, 0ms);
+}
+[data-anim="on"] .reveal[data-visible] { opacity: 1; transform: none; }
+
+/* Marquee: the list is rendered twice and scrolls by half its width, seamlessly. */
+[data-anim="on"] .marquee-track { animation: marquee 32s linear infinite; }
+[data-anim="on"] .marquee:hover .marquee-track { animation-play-state: paused; }
+/* Still, the list simply wraps; moving, it is one long row the width of both copies. */
+.marquee-track { flex-wrap: wrap; }
+.marquee-track[aria-hidden] { display: none; }
+[data-anim="on"] .marquee-row { width: max-content; }
+[data-anim="on"] .marquee-track { flex-wrap: nowrap; }
+[data-anim="on"] .marquee-track[aria-hidden] { display: flex; }
+
+.cursor { display: inline-block; width: 0.55em; height: 1.1em; vertical-align: text-bottom; background: var(--accent); }
+[data-anim="on"] .cursor { animation: blink 1s step-end infinite; }
+
+/* The lifecycle rail fills as it comes into view. */
+.rail-fill { transform-origin: top; }
+[data-anim="on"] .rail-fill { transform: scaleY(0); transition: transform 1.6s cubic-bezier(0.2, 0.7, 0.2, 1) 0.2s; }
+[data-anim="on"] [data-visible] > .rail-fill,
+[data-anim="on"] .rail[data-visible] .rail-fill { transform: scaleY(1); }
+
+/* Cards lift a little under the pointer. */
+.lift { transition: transform 0.25s ease, border-color 0.25s ease, background-color 0.25s ease; }
+.lift:hover { transform: translateY(-3px); }
+@media (prefers-reduced-motion: reduce) { .lift:hover { transform: none; } }
