@@ -362,8 +362,10 @@ property notices. An invariant that cannot fail is not evidence.
 
 ## 8. Solana
 
-**Status: the mirror-chain stack is built, deployed and initialised on a local validator.
-Trades cannot round-trip yet.**
+**Status: Solana works as a mirror chain, end to end, on a local validator.** A user on Solana
+bought 99.605634 tAAPL with 15,000 USDC (the same figure as an EVM mirror's first buy), was
+refunded in full on an unsatisfiable floor, and sold; omnichain supply is conserved exactly
+across VMs. Validation: 7/7 on the mixed deployment, 6/6 unchanged on EVM-only.
 
 ```bash
 npm run solana:up      # validator with LayerZero's real EndpointV2 cloned from devnet
@@ -422,13 +424,19 @@ now in shared decimals on both VMs; `test/MixedDecimals.t.sol` fails on the prev
 These Solana changes are compiled and unit-tested on the host but were not built to SBF in that
 session; see `NOTES.md`.
 
+### Found by running it
+
+Three more defects passed every host-side test and failed only on the runtime: `open_request`
+never marked the store PDA as a signer on its OFT CPI, so it could never send; `setup.ts` peered
+each Solana OFT with the relay instead of that asset's OFT, so it would have rejected every
+transfer from the home chain; and a PDA cannot pay fees in the SDK's simulation. See `NOTES.md`.
+
 ### What remains
 
-- A local verification path: the cloned endpoint has no state, so the setup must initialise it
-  (permissionless on a fresh validator) and register LayerZero's `simple-messagelib` — the
-  Solana counterpart of the EVM `LocalMessageLib`.
-- Relayer support for the SVM delivery path.
 - `lz_receive` on the mirror program, so STRANDED and CANCELLED notices reach Solana requests.
+- Live-cluster concerns the local run cannot show: LayerZero's messaging fee on the OFT `send`
+  inside `open_request`, and executor options for a Solana destination expressed in compute
+  units and lamports rather than EVM gas.
 - **Solana as the base chain**, which needs a `swap_relay` CPI-ing into Orca Whirlpools or
   Raydium CLMM. Uniswap V3 has no Solana deployment, so this is a new venue integration rather
   than a port — and account pre-declaration makes a concentrated-liquidity swap materially
@@ -451,8 +459,8 @@ environment variable at build time; and the endpoint CPI account ordering.
 | Deployment infra | 6 modules, fully config-driven, one command, no manual follow-up |
 | Peer wiring | Automated, bidirectional, **read back and verified** on every link |
 | Add-a-chain flow | **Confirmed** to reuse the same modules; verified by doing it on a live deployment |
-| Validation | 6/6 scenarios, 63/63 Foundry tests, 23/23 Rust tests |
-| Solana | Mirror-chain stack built and deployed; settlement handling fixed in M24; trades not yet round-tripping (no local message library or SVM relayer) |
+| Validation | 7/7 scenarios (incl. a Solana mirror), 63/63 Foundry tests, 23/23 Rust tests |
+| Solana | **Works as a mirror**: buy, refund, sell and cross-VM supply conservation verified on a local validator. Not yet a home chain |
 | Biggest gap | No timeout/refund for a stalled message — funds recoverable but never automatically |
 
 The repo carries its own findings: `agents.md` for current state and architecture, `NOTES.md`

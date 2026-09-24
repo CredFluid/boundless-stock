@@ -197,9 +197,11 @@ pub mod swap_request {
         };
 
         let store_bump = store.bump;
+        let store_key = store.key();
         dispatch_oft_send(
             &ctx.accounts.oft_program.key(),
             ctx.remaining_accounts,
+            &store_key,
             &[Store::SEED, &[store_bump]],
             OftSendArgs {
                 dst_eid: store.home_eid,
@@ -520,6 +522,7 @@ const OFT_SEND_DISCRIMINATOR: [u8; 8] = [0x66, 0xfb, 0x14, 0xbb, 0x41, 0x4b, 0x0
 fn dispatch_oft_send(
     oft_program: &Pubkey,
     accounts: &[AccountInfo],
+    signer: &Pubkey,
     signer_seeds: &[&[u8]],
     args: OftSendArgs,
 ) -> Result<()> {
@@ -538,7 +541,10 @@ fn dispatch_oft_send(
         .iter()
         .map(|a| AccountMeta {
             pubkey: *a.key,
-            is_signer: a.is_signer,
+            // The store PDA never signs the outer transaction — it has no key — so its flag
+            // arrives false. It signs THIS call through `invoke_signed`, but only if the meta
+            // says so; copying the incoming flag made the OFT reject every send.
+            is_signer: a.is_signer || a.key == signer,
             is_writable: a.is_writable,
         })
         .collect();

@@ -1,6 +1,6 @@
 {
   "name": "crossstock-solana",
-  "_comment": "Solana as a MIRROR chain. Demonstrates the multi-VM config schema: an SVM chain carries `vm: \"svm\"` and an `svm` block instead of `chainId`, while `eid` works exactly as it does for EVM because LayerZero routes on eid regardless of VM. NOT YET RUNNABLE END TO END -- see agents.md section 12 for precisely what remains.",
+  "_comment": "EVM home chain (Base) with three mirrors, one of them Solana. An SVM chain carries `vm: \"svm\"` and an `svm` block instead of `chainId`; `eid` works exactly as for EVM because LayerZero routes on eid regardless of VM. Runnable end to end locally \u2014 see agents.md section 12 for the command sequence.",
   "token": {
     "name": "Tokenized Apple Inc.",
     "symbol": "tAAPL",

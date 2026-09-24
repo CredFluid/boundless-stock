@@ -1400,9 +1400,60 @@ downloads, `binaries.soliditylang.org`, the Solana/Anza installer and Solana dev
 `raw.githubusercontent.com/ethereum/solc-bin` (sha256 checked against its `list.json`), copied to
 `~/.svm/0.8.22/solc-0.8.22` so `forge --offline` finds it. The Solana program's host-side tests
 run with plain `cargo` (crates.io is reachable). `cargo build-sbf` and `solana-test-validator`
-could not be installed, so **the Solana changes in M24 are compiled and unit-tested on the host
-but have not been built to SBF or run on a validator.**
+could not be installed at first, so the M24a/b Solana changes were initially only host-tested.
+**Superseded the same day** — see the next entry: GitHub release assets turned out to be
+reachable, and everything since has run on a real validator.
 
 **Why it matters / what breaks if ignored:** Before trusting the Solana half end to end, build it
 with `npm run solana:build` on a machine with the Solana toolchain and run it against a local
 validator. The host tests cover the codec and every `lz_compose` rejection, but not the CPIs.
+
+---
+
+### [2026-09-23] Solana end to end: what it took, and three more bugs found by running it
+**Milestone:** M24c/d
+
+**What happened / what to know:** A buy from a Solana mirror now completes: 15,000 USDC in on
+Solana, 99.605634 tAAPL out on Solana — the same figure an EVM mirror's first buy gets — with
+refund, sell and cross-VM supply conservation all passing as validation scenario 7.
+
+**Toolchain.** `github.com/.../releases/download/...` works through the proxy even where the
+releases *page* returns 403, so the Agave 3.0.14 CLI tarball (3.0.15 is not published on GitHub)
+and platform-tools install normally. LayerZero's anchor-0.29 program tree needs
+`cargo-build-sbf --tools-version v1.41` (Rust 1.75): with the default v1.51 a transitive `ahash`
+fails on the removed `stdsimd` feature.
+
+**No devnet.** `solana-test-validator --upgradeable-program <id> <so> <authority>` loads a program
+at ANY id without its keypair, so LayerZero's endpoint and `simple-messagelib` are built from the
+vendored commit and loaded at their canonical ids. That is both more reproducible than cloning and
+the only way to get a message library the local relayer can drive.
+
+**Use LayerZero's SDK for LayerZero accounts.** Endpoint admin, per-OApp path accounts, the OFT
+`send` account list and the Executor's delivery planning all come from
+`@layerzerolabs/lz-solana-sdk-v2` and `@layerzerolabs/oft-v2-solana-sdk` (umi entry points). The
+lists are long, order-sensitive and version-specific; the SDK is generated from the program
+source loaded on the validator. Its `lzReceive`/`lzCompose` helpers are LayerZero's own Executor
+logic — running `swap_request`'s V2 planning through them is a conformance check, and it passed
+once `lz_compose_types_info` accepted the params the Executor sends.
+
+**Pin `@solana/web3.js` to the SDK's exact 1.95.8** (with an npm `overrides` entry). The SDK does
+`instanceof web3.Connection` against its own nested copy; a second version fails it with
+"Invalid connection".
+
+**Three bugs found only by running it:**
+
+1. **`open_request` could never send.** It forwarded the OFT `send` CPI with each account's
+   incoming signer flag. The store PDA has no key, so its flag is always false, and
+   `invoke_signed` only makes a PDA a signer if the meta says `is_signer`. Fixed by marking the
+   store explicitly.
+2. **`setup.ts` peered each Solana OFT with the SwapRelay**, not with that asset's OFT on the
+   other chain. Every genuine transfer from the home chain would have been rejected. Now each OFT
+   peers with its own asset on every EVM chain (full mesh, not only home).
+3. **A PDA cannot be a fee payer in simulation.** The OFT SDK simulates with its `payer`, so the
+   account list is built with the user as payer and only the OFT's token authority (account 0)
+   is swapped for the store — which also leaves any fee payer the message library names as the
+   user, the right party to pay for their own trade.
+
+**Why it matters / what breaks if ignored:** All three passed every host-side test. Unit tests
+proved the logic; only the runtime could prove the accounts. Re-run scenario 7 after any change
+to `swap_request`, `setup.ts` or the relayer.

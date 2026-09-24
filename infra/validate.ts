@@ -15,6 +15,7 @@ import { scenario3 } from "./validation/03-bad-slippage.js";
 import { scenario4 } from "./validation/04-stalled-message.js";
 import { scenario5 } from "./validation/05-multi-mirror.js";
 import { scenario6 } from "./validation/06-sell-direction.js";
+import { scenario7 } from "./validation/07-solana-mirror.js";
 import { log } from "./lib/logger.js";
 
 function arg(name: string): string | undefined {
@@ -45,6 +46,7 @@ async function main(): Promise<void> {
     { id: "4", run: () => scenario4(h) },
     { id: "5", run: () => scenario5(h) },
     { id: "6", run: () => scenario6(h, mirror) },
+    { id: "7", run: () => scenario7(h) },
   ];
 
   const selected = only ? all.filter((s) => s.id === only) : all;

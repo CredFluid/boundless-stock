@@ -2,12 +2,15 @@ import { parseAbi, formatUnits, type Address, type Hex } from "viem";
 import type { Manifest, DeploymentConfig } from "../lib/types.js";
 import { Chain, buildChains } from "../lib/chains.js";
 import { privateKeyToAccount } from "viem/accounts";
-import { loadConfig, allChains } from "../lib/config.js";
+import { loadConfig, allChains, vmOf } from "../lib/config.js";
 import { loadManifestAt, loadManifest } from "../lib/manifest.js";
 import { forgeArtifact } from "../lib/artifacts.js";
 import { Options } from "../lib/options.js";
 import { toBytes32 } from "../lib/address.js";
 import { Relayer } from "../relayer.js";
+import { SolanaChain } from "../solana/chain.js";
+import { SolanaRelayEndpoint } from "../solana/relay.js";
+import { SolanaSwapClient } from "../solana/client.js";
 
 /** Anvil account #1 — the end user, deliberately not the deployer. */
 const ANVIL_KEY_1: Hex = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
@@ -79,12 +82,21 @@ export class Harness {
   readonly config: DeploymentConfig;
   readonly chains: Map<string, Chain>;
   readonly relayer: Relayer | null;
+  /** One client per Solana mirror chain in the deployment. Empty for an EVM-only deployment. */
+  readonly solana: SolanaSwapClient[];
 
   constructor(config: DeploymentConfig, manifest: Manifest) {
     this.config = config;
     this.manifest = manifest;
-    this.chains = buildChains(allChains(config));
-    this.relayer = manifest.environment === "local" ? new Relayer(manifest, this.chains) : null;
+    this.chains = buildChains(allChains(config).filter((c) => vmOf(c) === "evm"));
+    const svm = allChains(config)
+      .filter((c) => vmOf(c) === "svm")
+      .map((c) => new SolanaChain(c));
+    this.solana = svm.map((c) => new SolanaSwapClient(config, c));
+    this.relayer =
+      manifest.environment === "local"
+        ? new Relayer(manifest, this.chains, svm.map((c) => new SolanaRelayEndpoint(c)))
+        : null;
     if (this.relayer) this.relayer.verbose = process.env.RELAY_VERBOSE === "1";
   }
 
@@ -141,6 +153,19 @@ export class Harness {
     to: Address,
     amount: bigint
   ): Promise<void> {
+    await this.bridgeFromHomeTo(this.eid(mirrorKey), toBytes32(to), contract, amount);
+  }
+
+  /**
+   * Bridge from the home chain to any eid and 32-byte recipient — including a Solana wallet,
+   * which has no EVM address and no entry in the EVM manifest.
+   */
+  async bridgeFromHomeTo(
+    dstEid: number,
+    to: Hex,
+    contract: "TokenizedStock" | "QuoteAsset",
+    amount: bigint
+  ): Promise<void> {
     const homeKey = this.manifest.homeChainKey;
     const oft = this.oftAddr(homeKey, contract);
 
@@ -149,8 +174,8 @@ export class Harness {
     }
 
     const sendParam = {
-      dstEid: this.eid(mirrorKey),
-      to: toBytes32(to),
+      dstEid,
+      to,
       amountLD: amount,
       minAmountLD: 0n,
       extraOptions: Options.new().addExecutorLzReceive(200_000n).build(),
