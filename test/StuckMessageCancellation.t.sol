@@ -84,7 +84,11 @@ contract StuckMessageCancellation is RelayFixture {
     function test_theOutboundNonceIsRecorded() public {
         (uint64 id, uint64 nonce) = _submitAndStall();
         assertGt(nonce, 0, "the LayerZero nonce must be recorded against the request");
-        assertEq(request.requestIdByNonce(nonce), id, "and must resolve back to the request");
+        assertEq(
+            request.requestIdByNonce(address(mirrorQuote), nonce),
+            id,
+            "and must resolve back to the request, keyed by the OFT that sent it"
+        );
     }
 
     /// @dev While stalled, the amount is on no chain at all — and the counters say so.
@@ -199,6 +203,61 @@ contract StuckMessageCancellation is RelayFixture {
         assertEq(mirrorQuote.balanceOf(user), afterFirst, "a repeat cancellation must pay nothing");
         (, , , , , , , , , SwapTypes.Status status, , ) = request.requests(id);
         assertEq(uint8(status), uint8(SwapTypes.Status.CANCELLED), "and must stay CANCELLED");
+    }
+
+    /**
+     * @notice A buy and a sell can carry the SAME LayerZero nonce, and cancelling one must not
+     *         touch the other.
+     * @dev Nonces are per path. A buy leaves through the quote OFT and a sell through the stock
+     *      OFT, so the first of each is nonce 1 on its own path. Keyed by nonce alone, the second
+     *      record overwrites the first — and cancelling the stuck BUY would instead restore the
+     *      SELL's input while the sell itself is still deliverable: the double spend the
+     *      kill-then-authorise ordering exists to prevent.
+     */
+    function test_aBuyAndASellWithTheSameNonceAreNotConfused() public {
+        // Give the user stock on the mirror so they can sell.
+        SendParam memory p = SendParam({
+            dstEid: MIRROR_EID,
+            to: bytes32(uint256(uint160(user))),
+            amountLD: 10e18,
+            minAmountLD: 0,
+            extraOptions: OptionsBuilder.newOptions().addExecutorLzReceiveOption(200_000, 0),
+            composeMsg: "",
+            oftCmd: ""
+        });
+        MessagingFee memory f = homeStock.quoteSend(p, false);
+        homeStock.send{ value: f.nativeFee }(p, f, address(this));
+        deliverAll();
+
+        (uint64 buyId, uint64 buyNonce) = _submitAndStall();
+
+        vm.startPrank(user);
+        mirrorStock.approve(address(request), 10e18);
+        MessagingFee memory fee = request.quoteTrade(SwapTypes.Direction.SELL, 10e18, 0);
+        uint64 sellId = request.sell{ value: fee.nativeFee }(10e18, 0);
+        vm.stopPrank();
+        (, , , , , , , , , , , uint64 sellNonce) = request.requests(sellId);
+        assertEq(buyNonce, sellNonce, "precondition: both are the first message on their own path");
+
+        uint256 stockBefore = mirrorStock.balanceOf(user);
+        uint256 quoteBefore = mirrorQuote.balanceOf(user);
+
+        // Kill the BUY only.
+        relay.cancelStuckInbound(
+            MIRROR_EID,
+            bytes32(uint256(uint160(address(mirrorQuote)))),
+            address(homeQuote),
+            buyNonce,
+            bytes32(0)
+        );
+        deliverOnlyTo(MIRROR_EID, address(request));
+
+        (, , , , , , , , , SwapTypes.Status buyStatus, , ) = request.requests(buyId);
+        (, , , , , , , , , SwapTypes.Status sellStatus, , ) = request.requests(sellId);
+        assertEq(uint8(buyStatus), uint8(SwapTypes.Status.CANCELLED), "the cancelled buy must close");
+        assertEq(uint8(sellStatus), uint8(SwapTypes.Status.PENDING), "the sell must be untouched");
+        assertEq(mirrorQuote.balanceOf(user) - quoteBefore, SPEND, "the buy's USDC is restored");
+        assertEq(mirrorStock.balanceOf(user), stockBefore, "the sell's stock is NOT restored");
     }
 
     /// @dev Only the mirror OFT's designated minter may restore supply.

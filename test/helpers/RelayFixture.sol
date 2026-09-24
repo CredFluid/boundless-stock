@@ -70,7 +70,7 @@ abstract contract RelayFixture is TestHelperOz5 {
 
         homeStock = new MintableOmniToken("Stock", "STK", STOCK_DECIMALS, endpoints[HOME_EID], address(this), stockSupply);
         homeQuote = new MintableOmniToken("USDC", "USDC", QUOTE_DECIMALS, endpoints[HOME_EID], address(this), quoteSupply);
-        mirrorStock = new MintableOmniToken("Stock", "STK", STOCK_DECIMALS, endpoints[MIRROR_EID], address(this), 0);
+        mirrorStock = new MintableOmniToken("Stock", "STK", _mirrorStockDecimals(), endpoints[MIRROR_EID], address(this), 0);
         mirrorQuote = new MintableOmniToken("USDC", "USDC", QUOTE_DECIMALS, endpoints[MIRROR_EID], address(this), 0);
 
         _wirePeer(homeStock, MIRROR_EID, address(mirrorStock));
@@ -115,6 +115,16 @@ abstract contract RelayFixture is TestHelperOz5 {
         vm.deal(address(relay), 100 ether);
     }
 
+    /**
+     * @notice Local decimals of the stock on the mirror chain.
+     * @dev The same as the home chain by default. Overridden to model a mirror that cannot use
+     *      the home chain's precision — a Solana SPL mint, where a u64 cannot hold 18-decimal
+     *      amounts — which is what proves wire amounts are decimal-independent.
+     */
+    function _mirrorStockDecimals() internal view virtual returns (uint8) {
+        return STOCK_DECIMALS;
+    }
+
     function _wirePeer(OmniToken _token, uint32 _eid, address _peerAddr) private {
         _token.setPeer(_eid, bytes32(uint256(uint160(_peerAddr))));
     }
@@ -132,6 +142,10 @@ abstract contract RelayFixture is TestHelperOz5 {
     }
 
     PendingCompose[] internal pendingComposes;
+
+    /// @notice The most recent composed payload queued for each receiver, so a test can inspect
+    ///         exactly what crossed the wire. The fixture consumes the recorded logs itself.
+    mapping(address => bytes) internal lastComposeTo;
 
     /**
      * @notice Native value the executor forwards with each `lzCompose`.
@@ -226,6 +240,7 @@ abstract contract RelayFixture is TestHelperOz5 {
                 (address, address, bytes32, uint16, bytes)
             );
             // The emitter is the endpoint holding the queued compose.
+            lastComposeTo[to] = message;
             pendingComposes.push(PendingCompose(_logs[i].emitter, from, to, guid, index, message));
         }
     }

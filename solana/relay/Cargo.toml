@@ -1,0 +1,24 @@
+# The home-chain relay lives in its own workspace, seeded from Orca's Cargo.lock.
+#
+# It depends on Orca's Whirlpool crate as well as LayerZero's OApp crates. Resolved under the
+# main workspace's lock (seeded from LayerZero's), Whirlpool's dependency tree walks into crates
+# that declare Rust edition 2024, which the SBF toolchain's cargo 1.84 cannot parse. Orca's own
+# lock is already known to build with that cargo, so this workspace starts from it and adds only
+# what the LayerZero crates need. Same rule as the main workspace: pin, do not upgrade.
+[workspace]
+members = ["programs/*"]
+resolver = "2"
+
+[workspace.dependencies]
+anchor-lang = "0.32.1"
+oapp = { path = "../vendor/layerzero/oapp", package = "oapp-latest" }
+endpoint-interface = { path = "../vendor/layerzero/endpoint-interface" }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 20
+[profile.release.build-override]
+opt-level = 0
+incremental = false
+codegen-units = 20

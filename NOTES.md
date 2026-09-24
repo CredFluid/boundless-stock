@@ -1280,3 +1280,454 @@ endpoint charges and the executor forwards; a revert there means a quote that fa
 the caller cannot act on. The local message library is not production code, but the same parsing
 shape appears in anything that reads LayerZero options, and "the header fits" is not the same
 check as "the option fits".
+
+---
+
+### [2026-09-23] Wire amounts were in local decimals, which a Solana mirror cannot share
+**Milestone:** M24 — any chain as home, part 1
+
+**What happened / what to know:** `Order.minAmountOut` and the settlement amounts crossed the
+wire in each chain's *local* decimals. That only worked because every chain happened to use the
+same decimals. A Solana mirror cannot: an SPL amount is a u64, which holds at most ~18.4 whole
+units of an 18-decimal token, and `infra/solana/setup.ts` was creating the tAAPL mint at 18
+decimals — so any delivery above ~18 tAAPL would have overflowed. Once the mirror uses, say, 9
+decimals, a floor of `101e9` ("101 stock") arrives on the home chain and is read as `101e9` at 18
+decimals — 0.000000101 stock — and an unsatisfiable order fills. No error, just no slippage
+protection.
+
+Every wire amount is now in **shared decimals** (6), the OFT's own cross-chain unit, and each
+side converts at its edge using the OFT's conversion rate. The floor rounds **up** on the way
+out (rounding down would let the home chain accept up to one quantum less than asked); the relay
+**saturates** rather than overflowing when scaling it back, because a revert inside `lzCompose`
+leaves the compose permanently failing with the input stuck, whereas an unreachable floor just
+refunds. Solana mints now take per-chain decimals (`svm.decimals`, default
+`min(asset decimals, 9)`), and config loading refuses a u64 overflow or sub-shared decimals
+before anything is deployed.
+
+**Why it matters / what breaks if ignored:** `test/MixedDecimals.t.sol` runs the relay with an
+18-decimal home and a 9-decimal mirror. `test_slippageFloorIsHonouredAcrossDecimals` and
+`test_subQuantumFloorRoundsUpNotDown` **fail on the previous contracts** — checked by stashing
+the change and re-running, not assumed. The whole suite already passed before this fix, because
+every test used matching decimals on both ends: the property was never exercised.
+
+The full local pipeline was re-run afterwards — `chains:up`, `deploy --fresh`, `validate` — and
+passes 6/6, with the core buy delivering 99.605634 tAAPL, identical to the pre-change figure.
+
+---
+
+### [2026-09-23] The Solana mirror had never been able to close a trade
+**Milestone:** M24
+
+**What happened / what to know:** Reading `swap_request::lz_compose` against the vendored OFT's
+`compose_msg_codec.rs` turned up five defects, any one of which blocks the mirror:
+
+1. **It decoded the wrong bytes.** The OFT wraps a composed message as
+   `nonce (8) | src_eid (4) | amount_ld (8) | compose_from (32) | msg`. `lz_compose` decoded
+   that whole frame as the Settlement; the nonce in the first word fails the u64 range check, so
+   **every** settlement delivered to Solana would have been rejected. (The EVM frame differs
+   too: its `amountLD` is 32 bytes, Solana's is 8.)
+2. **It never paid the user.** Tokens are minted into the store's token account; the handler
+   recorded FILLED and left them there.
+3. **It did not authenticate the sender.** `UnauthorizedSource` and `UnexpectedOrigin` existed
+   in the error enum but nothing raised them. Anyone can bridge the stock to the store with a
+   compose message attached; only the home relay's are settlements.
+4. **It did not bind the request.** The Executor is permissionless and chooses the accounts;
+   `request` was `#[account(mut)]` with no seed check, so a settlement for request 7 could close
+   request 8. `RequestMismatch` also existed unused.
+5. **The planning instructions were the wrong protocol version.** `lz_compose_types_v2`
+   returned a V1-style `Vec<LzAccount>`, and `lz_compose_types_info` (the Executor's first call,
+   version discovery) did not exist.
+
+All fixed. Paying the user needs their token account named *before* delivery, from the message
+alone — the planning instruction cannot read the request to find the user — so **Settlement now
+carries `recipient`**, copied from the order by the relay. The handler checks it against the
+request's own record rather than trusting it, derives both token accounts rather than accepting
+them (a submitter who could name the destination could take the payout), and the plan creates
+the user's token account idempotently first, paid by the Executor.
+
+**Why it matters / what breaks if ignored:** The checks live in `verify_settlement`, a pure
+function, specifically so they can be tested without a Solana runtime.
+`src/verify_tests.rs` starts from one valid delivery and breaks one thing per test; the baseline
+test asserts the valid case passes, so none of the rejections can be vacuous. The Rust codec
+also now pins Solidity's actual bytes (generated with `cast abi-encode`) rather than only
+round-tripping itself — a round-trip passes happily if both directions drift together.
+
+**What remains open on the mirror:** STRANDED and CANCELLED notices are plain OApp messages from
+the relay, not composes, and the program has **no `lz_receive`** — so a Solana request cannot
+yet reach those states, and restoring a cancelled input needs a mint path through the OFT.
+
+---
+
+### [2026-09-23] Relayer spike: the local Solana endpoint is uninitialised, and that is the way in
+**Milestone:** M24
+
+**What happened / what to know:** `solana:up` clones only the endpoint **program** from devnet —
+none of its state. There is no `EndpointSettings` PDA, no registered message library and no
+default send/receive library locally. `register_oapp` works without any of that (it only writes
+the OApp's registry PDA), which is why M17 succeeded; but no message can be sent or verified.
+
+Reading the endpoint source at the vendored commit (`9c741e7`) settles how to proceed:
+
+- `init_endpoint` has **no access control** — it `init`s the `[b"Endpoint"]` PDA and records
+  whatever `admin` the caller passes. On a fresh local validator the setup script becomes the
+  endpoint's admin, and can then `register_library` and set default libraries per remote eid.
+- LayerZero ships **`simple-messagelib`**, whose `validate_packet` lets a whitelisted caller
+  verify a packet directly into the endpoint. It is the exact counterpart of this repo's EVM
+  `LocalMessageLib`, so the local relayer keeps doing what it does on EVM: observe, verify via
+  the test library, execute.
+- It lives in LayerZero's **anchor 0.29** program tree (`programs/simple-messagelib`), not the
+  interface-only `anchor-latest` one. Vendor and build it the way `vendor/oft-solana` was: its own
+  lock and toolchain pin.
+
+The relayer's Solana side then needs: packet observation (the endpoint emits `PacketSent` as an
+Anchor event CPI, so it is read from the transaction's inner instructions, not a log topic);
+verification via `validate_packet`; and execution as the Executor does it — `*_types_info` →
+`*_types_v2` → run the returned instructions, substituting the relayer for `Payer`.
+
+**Why it matters / what breaks if ignored:** None of this is needed against real devnet/testnet,
+where LayerZero's own DVNs and Executor deliver. It is purely what the local environment needs
+to exercise Solana end to end — the same role `LocalMessageLib` and `infra/relayer.ts` play on
+EVM.
+
+---
+
+### [2026-09-23] This session's toolchain: what is reachable and how it was installed
+**Milestone:** M24
+
+**What happened / what to know:** The cloud environment used for M24 blocks GitHub release
+downloads, `binaries.soliditylang.org`, the Solana/Anza installer and Solana devnet. What works:
+`forge` and `anvil` from npm (`@foundry-rs/forge`, `@foundry-rs/anvil`), and solc 0.8.22 from
+`raw.githubusercontent.com/ethereum/solc-bin` (sha256 checked against its `list.json`), copied to
+`~/.svm/0.8.22/solc-0.8.22` so `forge --offline` finds it. The Solana program's host-side tests
+run with plain `cargo` (crates.io is reachable). `cargo build-sbf` and `solana-test-validator`
+could not be installed at first, so the M24a/b Solana changes were initially only host-tested.
+**Superseded the same day** — see the next entry: GitHub release assets turned out to be
+reachable, and everything since has run on a real validator.
+
+**Why it matters / what breaks if ignored:** Before trusting the Solana half end to end, build it
+with `npm run solana:build` on a machine with the Solana toolchain and run it against a local
+validator. The host tests cover the codec and every `lz_compose` rejection, but not the CPIs.
+
+---
+
+### [2026-09-23] Solana end to end: what it took, and three more bugs found by running it
+**Milestone:** M24c/d
+
+**What happened / what to know:** A buy from a Solana mirror now completes: 15,000 USDC in on
+Solana, 99.605634 tAAPL out on Solana — the same figure an EVM mirror's first buy gets — with
+refund, sell and cross-VM supply conservation all passing as validation scenario 7.
+
+**Toolchain.** `github.com/.../releases/download/...` works through the proxy even where the
+releases *page* returns 403, so the Agave 3.0.14 CLI tarball (3.0.15 is not published on GitHub)
+and platform-tools install normally. LayerZero's anchor-0.29 program tree needs
+`cargo-build-sbf --tools-version v1.41` (Rust 1.75): with the default v1.51 a transitive `ahash`
+fails on the removed `stdsimd` feature.
+
+**No devnet.** `solana-test-validator --upgradeable-program <id> <so> <authority>` loads a program
+at ANY id without its keypair, so LayerZero's endpoint and `simple-messagelib` are built from the
+vendored commit and loaded at their canonical ids. That is both more reproducible than cloning and
+the only way to get a message library the local relayer can drive.
+
+**Use LayerZero's SDK for LayerZero accounts.** Endpoint admin, per-OApp path accounts, the OFT
+`send` account list and the Executor's delivery planning all come from
+`@layerzerolabs/lz-solana-sdk-v2` and `@layerzerolabs/oft-v2-solana-sdk` (umi entry points). The
+lists are long, order-sensitive and version-specific; the SDK is generated from the program
+source loaded on the validator. Its `lzReceive`/`lzCompose` helpers are LayerZero's own Executor
+logic — running `swap_request`'s V2 planning through them is a conformance check, and it passed
+once `lz_compose_types_info` accepted the params the Executor sends.
+
+**Pin `@solana/web3.js` to the SDK's exact 1.95.8** (with an npm `overrides` entry). The SDK does
+`instanceof web3.Connection` against its own nested copy; a second version fails it with
+"Invalid connection".
+
+**Three bugs found only by running it:**
+
+1. **`open_request` could never send.** It forwarded the OFT `send` CPI with each account's
+   incoming signer flag. The store PDA has no key, so its flag is always false, and
+   `invoke_signed` only makes a PDA a signer if the meta says `is_signer`. Fixed by marking the
+   store explicitly.
+2. **`setup.ts` peered each Solana OFT with the SwapRelay**, not with that asset's OFT on the
+   other chain. Every genuine transfer from the home chain would have been rejected. Now each OFT
+   peers with its own asset on every EVM chain (full mesh, not only home).
+3. **A PDA cannot be a fee payer in simulation.** The OFT SDK simulates with its `payer`, so the
+   account list is built with the user as payer and only the OFT's token authority (account 0)
+   is swapped for the store — which also leaves any fee payer the message library names as the
+   user, the right party to pay for their own trade.
+
+**Why it matters / what breaks if ignored:** All three passed every host-side test. Unit tests
+proved the logic; only the runtime could prove the accounts. Re-run scenario 7 after any change
+to `swap_request`, `setup.ts` or the relayer.
+
+---
+
+### [2026-09-24] Cancellation named a message by nonce alone — a double spend on EVM too
+**Milestone:** M25 — recovery on Solana
+
+**What happened / what to know:** Building CANCELLED handling for Solana meant asking how a
+notice that carries only a nonce finds its request. On EVM, `SwapRequest.requestIdByNonce` was
+keyed by nonce alone — but nonces are **per path**. A buy leaves through the quote OFT and a sell
+through the stock OFT, so the first of each is nonce 1, and the second overwrote the first.
+Cancelling a stuck buy then restored the input of a pending **sell** while that sell was still
+deliverable: the exact double spend the kill-then-authorise ordering exists to prevent.
+`test_aBuyAndASellWithTheSameNonceAreNotConfused` fails on the M23 contracts.
+
+Fixed by carrying `cancelledPath` in the settlement — the mirror-side OFT that sent the killed
+message, which `cancelStuckInbound` already receives as `_sender` — and keying the lookup by
+(OFT, nonce) on both VMs.
+
+**Solana recovery, as built.**
+- `open_request` reads the outbound nonce from the OFT `send`'s return data and creates a
+  `NonceIndex` PDA at `[b"Nonce", oft_store, nonce]` holding the request id, user and input mint.
+  The address depends on the nonce, so the client predicts it (`outbound_nonce + 1`) and the
+  program verifies it.
+- `lz_receive_types_info` derives that index from the notice and passes it to planning, which
+  reads the user and mint from it — planning cannot read the request itself. The plan creates the
+  user's token account if needed; `lz_receive` checks every account (`verify_notice`,
+  `verify_cancellation`, 11 unit tests), `clear`s the message, and mints back.
+- Minting needs the OFT: a native Solana OFT burns what it sends and only its store can mint. The
+  vendored OFT gains `set_recovery_minter` / `recovery_credit` (see `LOCAL_CHANGES.md`), with the
+  request store as the sole minter — the Solana counterpart of `OmniToken.recoveryCredit`.
+
+**A second security bug, found while adding the minter.** `open_request` CPI'd into whatever
+`oft_program` the caller passed, signed as the store. Any caller could hand the store's signature
+to their own program — enough to send as the CrossStock OApp, and once the store is a recovery
+minter, to mint without limit. The OFT program is now pinned in the store at init.
+
+**Why it matters / what breaks if ignored:** Scenario 7 now strands a return (by unpeering the
+home stock OFT, so the return cannot even be quoted) and cancels an order the relayer never
+delivers; both reach the Solana request, the retry and the mint-back each pay exactly once, and
+supply stays exact across VMs. 7/7 on the mixed deployment; Foundry 64/64; Rust 34/34.
+
+---
+
+### [2026-09-24] Solana as the home chain: what was different, and what it took
+**Milestone:** M26
+
+**What happened / what to know:** With `homeChain` on Solana, `npm run deploy` mints the full
+supply on Solana, creates an Orca Whirlpool, deploys `swap_relay`, and points EVM mirrors'
+SwapRequests at it. Scenario 8: a user on Base spends 15,000 USDC and receives 99.32568 tAAPL
+priced by the Whirlpool; an unsatisfiable floor refunds without swapping; a sell pays out on
+Base; supply is exact across VMs.
+
+**Refund has to be decided before the swap.** On EVM, `SwapRelay` tries the swap and refunds in
+the `catch`. Solana cannot catch a failed CPI — a reverting swap takes the whole delivery with it,
+leaving the order queued and the user unrefunded. So `swap_relay` quotes first, with Orca's own
+`swap_manager::swap` over the same accounts, read only; the same code then executes the fill.
+Orca's crate exposes everything needed (`SparseSwapTickSequenceBuilder`, `OracleAccessor`,
+`swap_manager::swap`). If the price moves between quote and swap, the swap fails on the user's
+own floor and the delivery reverts — still retryable, never a loss.
+
+**The tick arrays are checked, not trusted.** The Executor chooses the accounts; a submitter who
+could pass the wrong tick arrays could make a fillable order quote as unfillable and force a
+refund. The handler derives the three Orca itself would use (a port of Orca's private
+`get_start_tick_indexes`) and requires exactly those.
+
+**The return leg's account list is recorded at setup.** A return is a full OFT `send` —
+the OFT's accounts, the endpoint's, the message library's, ~20 in all — and planning cannot
+derive them on chain without re-implementing each library's account logic. They are static per
+(asset, destination), so setup derives them once with LayerZero's OFT SDK and records a
+`ReturnRoute`; the handler requires the supplied accounts to match exactly, except the fee
+payer, which the Executor supplies (`AddressLocator::Payer`) and must sign. Planning cannot know
+whether the order will fill or refund — it cannot read the tick arrays to quote — so it names
+both routes; most accounts are shared.
+
+**Two Solana limits shaped the plan.** Return data is capped at 1 KB and a plan naming ~60
+accounts in full is 2,192 bytes; planning therefore reads the relay's address lookup table and
+names accounts by index (`AddressLocator::AltIndex`), ~4 bytes each. And a legacy transaction
+cannot list that many accounts at all; the local relayer now compiles V0 transactions with the
+plan's lookup tables, as LayerZero's Executor does.
+
+**Build notes.** Orca's program builds cleanly from source with platform-tools v1.51 and loads at
+its canonical id. As a library it needs its own workspace (Orca's lock, since the main lock
+walks into edition-2024 crates) and one vendored change: its heap/panic handlers are gated on its
+own entrypoint feature, or they clash with the depending program's. Creating a WhirlpoolsConfig
+requires one of Orca's admin keys; the localnet build accepts two published test keys, which the
+pool module uses. The Orca legacy SDK (0.22.0) works on the pinned `@solana/web3.js` 1.95.8.
+
+**Two bugs found by running it.** Planning omitted the two mint accounts the handler's struct
+ends with; and `initLocalEndpoint` was not idempotent — re-setting a default library to its
+current value fails with `SameValue` — which only shows on a validator reused across deployments.
+
+**Why it matters / what breaks if ignored:** the `swap_relay` binary includes Orca's
+liquidity-management instructions, which the SBF linker flags for stack size; they are never
+called by the relay — only the swap path is reachable — but a change that starts calling them
+must revisit that. Validation: scenario 8 on a Solana home; 8/8 (7 + skip) on EVM home with a
+Solana mirror; EVM-only unchanged; Foundry 64/64; Rust 34/34 + 9/9.
+
+---
+
+### [2026-09-24] Messaging fees and Solana-native executor options
+**Milestone:** M27
+
+**What happened / what to know:** Until now the local `simple-messagelib` charged nothing, so
+every Solana send passed `native_fee: 0` and nothing proved a fee could be paid. It now charges
+`svm.localMessageLibFeeLamports` (default 50,000) per send, set with its `set_fee` instruction.
+
+- `open_request`: the client quotes the OFT send with LayerZero's SDK as it will be made — same
+  path and options, a 128-byte composeMsg for the order, since a real library prices by size —
+  and passes the result through as the send's `native_fee`. The user is the send's payer, so the
+  user pays; the program never holds lamports for fees.
+- `swap_relay`'s return leg: `native_fee` is a per-mirror cap (`Peer.max_return_fee`, default
+  5,000,000 lamports), not a price. The library charges the actual fee to the route's `Payer` —
+  the Executor's fee payer — and refuses the send above the cap. What reimburses the Executor is
+  the compose value the mirror's SwapRequest asks for, which a Solana home sets to that cap.
+- Executor options now speak the destination's units. `SwapRelay` gains
+  `returnValue[eid]` and `returnOptions(eid)`; for a Solana mirror, `deploy.ts` sets its return
+  gas and compose gas to compute units and `returnValue` to lamports for rent
+  (`svm.executor`). A mirror SwapRequest facing a Solana home asks for compute units and a
+  lamport compose value instead of EVM gas and wei.
+
+**Why it matters / what breaks if ignored:** EVM options against a Solana destination are not
+wrong by a factor — they are in the wrong units: `homeComposeValue: "0.01"` ETH is 1e16, which on
+Solana reads as 10 million SOL. Nothing local would have caught it, because the local relayer
+ignores options. Scenarios 7 and 8 now assert the fee actually charged (50,000 lamports on the
+user's `open_request`, and on the relay's return leg, measured as the library's balance change)
+rather than just that sends succeed. The default `svm.executor` figures are local estimates to
+be measured on devnet. Validation: EVM-only 8/8; EVM home + Solana mirror 8/8; Solana home
+scenario 8; Foundry 65/65; Rust 34 + 9.
+
+---
+
+### [2026-09-24] Strand, retry and cancel on a Solana home
+**Milestone:** M28
+
+**What happened / what to know:** `swap_relay` now has the recovery paths `SwapRelay.sol` has,
+adapted to what Solana can and cannot do.
+
+**Strand is a separate instruction, not a `catch`.** On EVM a failed return is caught inside the
+delivery and stranded there. On Solana the failed CPI reverts the whole compose. That outcome is
+already safe — the compose stays queued with its hash and can be executed again once the cause
+is fixed — so the relay does not need to strand to protect funds. What was missing is telling the
+mirror. `strand_compose` (admin) consumes the queued compose via `clear_compose`, records the
+untraded input in a `Stranded` PDA keyed by (eid, request id), and sends a STRANDED notice.
+`retry_return` is permissionless and sends the recorded amount back as a REFUNDED settlement
+through the same pinned return route, closing the record to whoever paid its rent. The mirror's
+SwapRequest already pays a late settlement after STRANDED (`LateSettlementPaid`), so nothing
+changed on EVM. Admin-only because stranding a compose that could have filled is not the user's
+outcome, even though they are refunded in full.
+
+**Notices need the relay to be a sender, not only a composer.** The relay previously only
+received composes and sent OFT transfers. A notice is a plain endpoint `send` from the relay's
+own OApp to the mirror's SwapRequest, so each mirror now gets a path for the relay store (nonce,
+send library) and a recorded notice route — the endpoint `send` accounts from LayerZero's SDK,
+checked exactly like a return route, fee payer unpinned.
+
+**Solana's endpoint kills messages differently.** `skip` requires the nonce to be exactly the
+next inbound one AND its payload-hash account to exist; it closes that account and advances the
+inbound nonce. For a message never seen at all, the account must first be created with
+`init_verify`, which is permissionless — the admin client does that. A verified message cannot be
+skipped (verification already advanced the nonce) and is `burn`ed instead. In both cases
+`init_verify` then refuses the nonce because it is not above the inbound nonce, so the message
+can never be verified or delivered again. Scenario 8 checks exactly that, with the next nonce
+as a control so the check cannot pass vacuously. The EVM contract needs skip-then-burn for a
+verified message; Solana needs burn alone.
+
+**The relay became the OFT stores' delegate — last.** The endpoint accepts `skip`/`burn` from
+the OApp or its delegate, so each home OFT store's delegate is now the relay. The delegate is
+also who may configure the OFT's messaging paths, so it is set after every path is initialised;
+adding a mirror later needs the relay (or an admin handover) to do that step.
+
+**The local relayer now keeps failed Solana composes** instead of failing the whole delivery,
+mirroring what it already did for EVM, and exposes them so the strand path can be driven.
+
+**Why it matters / what breaks if ignored:** the test induces the failure the realistic way —
+the relay's return fee cap set below the library's fee — rather than by breaking a peer, so it
+exercises exactly the case M27's fee cap introduced. Validation: Solana home scenario 8
+(buy, refund, sell, strand + retry, cancel, supply) on two consecutive runs of one deployment;
+EVM home + Solana mirror 8/8; EVM-only 8/8; Foundry 65/65; Rust 34 + 10.
+
+---
+
+### [2026-09-24] Bring-your-own SPL token on a Solana home
+**Milestone:** M29
+
+**What happened / what to know:** An issuer whose tokenized stock already exists as an SPL mint
+can now make Solana the home chain without replacing it. `token.existingToken` names the mint;
+`initOft` initialises the OFT as `OFTType::Adapter` — the vendored OFT supports it unchanged —
+so tokens leaving Solana are locked in the OFT's escrow and released on return. Nothing is
+minted, the mint authority is not transferred, and holders keep their balances and the mint's
+address: the SPL counterpart of `OmniTokenAdapter`.
+
+The mint is checked in a preflight before any CrossStock contract is deployed: it must exist, be
+a classic SPL Token mint (Token-2022 is not in this OFT build), and have exactly the decimals the
+config expects on Solana (`svm.decimals`, default min(configured, 9)). A mismatch is refused with
+the value to set, as EVM adapt mode refuses a decimals mismatch. The first version ran the check
+inside `initOft`, which refused correctly but only after the EVM mirrors had been deployed.
+
+`deploy:legacy` creates a stand-in mint on a Solana home (supply and authority with the
+deployer), and `config/localnet-solana-home-adapter.json` is the Solana-home config with only the
+name and `token.existingToken` changed. Scenario 8's supply step now distinguishes the modes: for
+an adapted asset, escrow must equal the mirrors' total supply exactly, the mint's supply must be
+unchanged, and the adapter must not hold the mint authority.
+
+**Why it matters / what breaks if ignored:** validation: adapt mode (base adapted, quote
+launched) passes scenario 8 on two consecutive runs — 99.32568 then 198.50123 tAAPL locked,
+equal to the mirrors' supply each time; launch mode unchanged; the decimals refusal fires before
+any mirror contract is deployed.
+
+---
+
+### [2026-09-24] Several Solana chains in one deployment
+**Milestone:** M30
+
+**What happened / what to know:** "Any chain can be the home chain" now also means any
+number of Solana chains, in any role. Two topologies are validated end to end: an EVM home with
+two Solana mirrors (9/9), and a Solana home with a Solana mirror beside three EVM mirrors (8 + 9).
+In the latter, a user on the Solana mirror is funded, buys and sells with every message going
+Solana to Solana: 15,000 USDC arrived in ~0.7 s, a 10,000 USDC buy filled at 66.14 tAAPL via the
+Whirlpool, and supply is exact across all six chains.
+
+Four things were EVM-shaped and had to change:
+
+- **Remote addresses.** Every place a remote was turned into LayerZero's 32 bytes assumed EVM hex
+  (`evmAddressToBytes32`). `toBytes32` takes either — hex is left-padded, base58 is decoded — and
+  every call site uses it: peers, paths, the home relay, return and notice routes.
+- **Chicken and egg.** A Solana mirror's OFTs must peer with the home's, and the home's with the
+  mirror's, and a Solana OFT store's address is a PDA of a fresh escrow keypair — unknowable
+  until created. The Solana-home pipeline sets up Solana mirrors twice: first with the EVM
+  mirrors and the home relay (a PDA, so known in advance) as remotes, then — after the home's
+  OFTs exist — again, which rewires peers and paths through the existing reuse path. With an EVM
+  home, Solana mirrors get a second pass to peer with each other.
+- **Return options by destination.** `swap_relay` gives a Solana mirror compute units and
+  lamports (`svm.executor`), an EVM mirror gas.
+- **Local clusters.** `solana:up -- --config` starts a validator per local Solana chain, each
+  with its own ledger, faucet, gossip port and dynamic port range; without a config it behaves
+  as before. The relayer and harness already iterated over every Solana chain.
+
+Scenario 9 is new: SVM ↔ SVM transfer and trading from a Solana mirror, in whichever form the
+topology allows. Scenarios 7 and 8 now count every Solana chain in their supply checks — with
+more than one, counting only the first would have been wrong the moment tokens reached another.
+
+**Why it matters / what breaks if ignored:** the second local chain uses eid 40999, a local-only
+id; a live deployment uses the chains' real eids. Both multi-Solana topologies, the single-Solana
+ones (EVM home + Solana mirror; Solana home) and EVM-only were rerun after the change.
+
+---
+
+### [2026-09-24] Supply accounting across VMs, in-flight amounts included
+**Milestone:** M31
+
+**What happened / what to know:** The omnichain supply invariant was checkable from chain state
+on EVM only, where `OmniToken` counts `bridgedOut`/`bridgedIn`. The Solana OFT had no
+equivalent, so scenarios 7 and 8 could compare mint supplies only once everything had landed.
+The vendored OFT now carries the same two counters, appended to `OFTStore` (u128, local
+decimals): `send` counts what goes on the wire (dust and fee removed), `lz_receive` what comes
+off it, and `recovery_credit` counts as an arrival — exactly how `OmniToken.recoveryCredit`
+counts. That last one needs the OFT store writable in `recovery_credit`, so `swap_request`'s
+cancellation plan and CPI now pass it writable.
+
+`infra/lib/omnisupply.ts` measures every chain of every VM: each chain's share (for an adapter,
+its supply less what is locked), the home pool's holding, and in flight = Σ out − Σ in over
+every OFT, rescaled to the finest local decimals so the comparison is exact. `npm run supply`
+reports it for any topology and exits non-zero if supply + in flight differs from genesis (or,
+for an adapted asset, from the underlying token's supply). Scenario 9 checks it mid-flight — an
+SVM → SVM transfer, burned on the source and not yet minted, is exactly the counters' in-flight
+figure — and after delivery, measured against a baseline because scenario 4 may leave an EVM
+message stalled.
+
+**Why it matters / what breaks if ignored:** the counters are appended fields, so upstream tools
+still read every field they know, but an `OFTStore` created by an unmodified build is shorter and
+will not load under this one: deploy fresh. Validation, with the new programs: EVM home + two
+Solana mirrors 9/9 (15,000 USDC shown in flight mid-transfer; exact across five chains after);
+Solana home + Solana mirror 2/2 (the same, across six chains); Solana home with an adapted mint
+2/2, and `npm run supply` conserved for all three.

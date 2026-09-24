@@ -1,0 +1,27 @@
+[package]
+name = "swap-relay"
+version = "0.1.0"
+edition = "2021"
+description = "CrossStock home-chain relay on Solana: executes cross-chain orders against Orca Whirlpools"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "swap_relay"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build"]
+custom-heap = []
+custom-panic = []
+anchor-debug = []
+
+[dependencies]
+anchor-lang = { workspace = true, features = ["init-if-needed"] }
+oapp = { workspace = true }
+endpoint-interface = { workspace = true, features = ["cpi"] }
+swap-request = { path = "../../../programs/swap_request", features = ["no-entrypoint"] }
+whirlpool = { path = "../../../vendor/whirlpool", default-features = false, features = ["cpi"] }

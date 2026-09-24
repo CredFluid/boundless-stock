@@ -15,6 +15,9 @@ import { scenario3 } from "./validation/03-bad-slippage.js";
 import { scenario4 } from "./validation/04-stalled-message.js";
 import { scenario5 } from "./validation/05-multi-mirror.js";
 import { scenario6 } from "./validation/06-sell-direction.js";
+import { scenario7 } from "./validation/07-solana-mirror.js";
+import { scenario8 } from "./validation/08-solana-home.js";
+import { scenario9 } from "./validation/09-solana-to-solana.js";
 import { log } from "./lib/logger.js";
 
 function arg(name: string): string | undefined {
@@ -29,7 +32,8 @@ async function main(): Promise<void> {
 
   log.banner(`CrossStock validation — ${h.manifest.name}`);
   log.kv("environment", h.manifest.environment);
-  log.kv("home chain", `${h.name(h.home.key)} (eid ${h.eid(h.home.key)})`);
+  const solanaHome = (h.config.homeChain.vm ?? "evm") === "svm";
+  log.kv("home chain", `${h.config.homeChain.name} (eid ${h.config.homeChain.eid})${solanaHome ? " — Solana" : ""}`);
   log.kv("mirror chains", h.mirrorKeys.map((k) => h.name(k)).join(", "));
   log.kv("pool", h.manifest.pool?.address ?? "none");
 
@@ -45,9 +49,16 @@ async function main(): Promise<void> {
     { id: "4", run: () => scenario4(h) },
     { id: "5", run: () => scenario5(h) },
     { id: "6", run: () => scenario6(h, mirror) },
+    { id: "7", run: () => scenario7(h) },
+    { id: "8", run: () => scenario8(h) },
+    { id: "9", run: () => scenario9(h) },
   ];
 
-  const selected = only ? all.filter((s) => s.id === only) : all;
+  // Scenarios 1–7 exercise an EVM home chain's pool and relay directly; with the home on Solana
+  // the same claims are made by scenario 8, through `swap_relay` and the Whirlpool. Scenario 9
+  // (Solana to Solana) applies to either, when the deployment has the chains for it.
+  const applicable = solanaHome ? all.filter((s) => s.id === "8" || s.id === "9") : all;
+  const selected = only ? applicable.filter((s) => s.id === only) : applicable;
   if (selected.length === 0) throw new Error(`No scenario matching --only ${only}`);
 
   const results: ScenarioResult[] = [];

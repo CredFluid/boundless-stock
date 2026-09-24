@@ -51,12 +51,20 @@ pub struct Store {
     /// Monotonic, so a request id is never reused.
     pub next_request_id: u64,
     pub bump: u8,
+    /// The OFTs' cross-chain precision. Wire amounts are in these units, so a floor typed in
+    /// this chain's local decimals is converted before it leaves. See `SwapTypes.sol`.
+    pub shared_decimals: u8,
+    /// LayerZero's OFT program. `open_request` CPIs into it signed as this store, so it must
+    /// be pinned: a caller-supplied program would receive the store's signature, and with it
+    /// the power to send as this OApp and to mint through the OFT's recovery path.
+    pub oft_program: Pubkey,
 }
 
 impl Store {
     pub const SEED: &'static [u8] = b"Store";
-    /// discriminator + 4 pubkeys + 3 × [u8;32]/pubkey + eid + id + bump, rounded up.
-    pub const SIZE: usize = 8 + 32 + 4 + 32 + 32 + 32 + 32 + 32 + 32 + 8 + 1 + 64;
+    /// discriminator + 4 pubkeys + 3 × [u8;32]/pubkey + eid + id + bump + shared decimals,
+    /// plus headroom.
+    pub const SIZE: usize = 8 + 32 + 4 + 32 + 32 + 32 + 32 + 32 + 32 + 8 + 1 + 1 + 32 + 64;
 }
 
 /// One user's trade. The Solana counterpart to `SwapRequest.Request`.
@@ -84,6 +92,9 @@ pub struct Request {
     /// `SwapTypes.FailureReason`, zero unless refunded.
     pub failure_reason: u8,
     pub bump: u8,
+    /// LayerZero nonce of the outbound message, on the path of the input asset's OFT. The
+    /// only handle by which a message that never arrives can later be named and cancelled.
+    pub lz_nonce: u64,
 }
 
 impl Request {
@@ -110,4 +121,22 @@ pub struct LzComposeTypesAccounts {
 
 impl LzComposeTypesAccounts {
     pub const SIZE: usize = 8 + 32 + 32 + 32 + 32;
+}
+
+/// Finds a request from the LayerZero message it sent: `[b"Nonce", oft_store, nonce]`.
+///
+/// A CANCELLED notice names a killed message by path and nonce — the home chain never saw the
+/// payload, so it cannot name the request. Delivering that notice also has to name the user's
+/// token account BEFORE it runs, from the message alone, so the index carries the user and the
+/// input mint as well as the request id; planning reads this account, not the request.
+#[account]
+pub struct NonceIndex {
+    pub request_id: u64,
+    pub user: Pubkey,
+    pub token_in: Pubkey,
+}
+
+impl NonceIndex {
+    pub const SEED: &'static [u8] = b"Nonce";
+    pub const SIZE: usize = 8 + 8 + 32 + 32;
 }

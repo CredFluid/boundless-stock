@@ -325,9 +325,9 @@ Two non-overlapping layers, because they prove different things.
 
 | Layer | Proves | Scale |
 |---|---|---|
-| **Foundry** (`test/`) | The *contracts* are correct under adversarial input | 39 tests: 16 fuzz at 512 runs, 12 invariants at 48×160 calls |
+| **Foundry** (`test/`) | The *contracts* are correct under adversarial input | 65 tests: 16 fuzz at 512 runs, 12 invariants at 48×160 calls |
 | **TypeScript** (`infra/validation/`) | The *deployment* works across separate chains with a real relayer | 6 scenarios |
-| **Rust** (`solana/`) | The Solana wire format matches Solidity's byte for byte | 5 codec tests |
+| **Rust** (`solana/`) | The Solana wire format matches Solidity byte for byte, and `lz_compose` refuses every tampered delivery | 23 tests |
 
 ### The invariant suite found two real bugs
 
@@ -362,8 +362,10 @@ property notices. An invariant that cannot fail is not evidence.
 
 ## 8. Solana
 
-**Status: the mirror-chain stack is built, deployed and initialised on a local validator.
-Trades cannot round-trip yet.**
+**Status: Solana works as a mirror chain, end to end, on a local validator.** A user on Solana
+bought 99.605634 tAAPL with 15,000 USDC (the same figure as an EVM mirror's first buy), was
+refunded in full on an unsatisfiable floor, and sold; omnichain supply is conserved exactly
+across VMs. Validation: 7/7 on the mixed deployment, 6/6 unchanged on EVM-only.
 
 ```bash
 npm run solana:up      # validator with LayerZero's real EndpointV2 cloned from devnet
@@ -405,13 +407,64 @@ implements `init_adapter_oft`, giving bring-your-own-token a direct Solana count
 originating on Solana would have been undecodable on the home chain. Now `bytes32`, with the
 codec fuzzed over the full domain rather than just left-padded addresses.
 
+### Fixed in M24
+
+Reading the mirror program against LayerZero's actual Solana OFT showed it could never have
+closed a trade: it decoded the OFT's compose frame as though it were the settlement (so every
+delivery was rejected), never paid the user, did not authenticate the home relay, did not bind
+the request account to the settlement, and spoke the wrong version of the Executor's planning
+protocol. All five are fixed, with the checks in a pure `verify_settlement` unit-tested one
+rejection at a time.
+
+Separately, wire amounts were in each chain's local decimals. A Solana mint cannot use 18
+decimals — a u64 holds ~18.4 whole units at that precision — and once decimals differ, a
+mirror's slippage floor is read at the wrong scale and an unmet floor fills. Wire amounts are
+now in shared decimals on both VMs; `test/MixedDecimals.t.sol` fails on the previous contracts.
+
+These Solana changes are compiled and unit-tested on the host but were not built to SBF in that
+session; see `NOTES.md`.
+
+### Recovery on Solana (M25)
+
+STRANDED and CANCELLED notices now reach Solana requests, and a cancelled input is minted back
+through a gated `recovery_credit` added to the vendored OFT. Building it exposed a double spend in
+the EVM contracts: cancellations were keyed by nonce alone, and a buy and a sell routinely share a
+nonce on their different paths. Fixed on both VMs by carrying the path in the notice. It also
+exposed that `open_request` would CPI any caller-supplied program signed as the store; the OFT
+program is now pinned.
+
+### Found by running it
+
+Three more defects passed every host-side test and failed only on the runtime: `open_request`
+never marked the store PDA as a signer on its OFT CPI, so it could never send; `setup.ts` peered
+each Solana OFT with the relay instead of that asset's OFT, so it would have rejected every
+transfer from the home chain; and a PDA cannot pay fees in the SDK's simulation. See `NOTES.md`.
+
 ### What remains
 
-- Relayer support for the SVM delivery path.
-- **Solana as the base chain**, which needs a `swap_relay` CPI-ing into Orca Whirlpools or
-  Raydium CLMM. Uniswap V3 has no Solana deployment, so this is a new venue integration rather
-  than a port — and account pre-declaration makes a concentrated-liquidity swap materially
-  harder to express, since the tick arrays a swap touches depend on the price at execution time.
+Nothing functional, for any topology: any chain can be the home chain, Solana included, with any
+mix of EVM and Solana mirrors. Since M26: messaging fees charged and paid on every Solana send,
+with Solana-native executor options (M27); strand, retry and cancel on a Solana home (M28); a
+bring-your-own SPL token (M29); several Solana chains in one deployment, trading Solana to Solana
+(M30); and supply accounting across VMs from chain state, in-flight amounts included (M31).
+
+Left is live-cluster work (see `agents.md` §12): measuring the Solana executor figures on
+devnet, a timelock and handover procedure for the Solana relay's admin and delegate roles, and
+Token-2022 mints.
+
+### Solana as the home chain (M26)
+
+**Works end to end locally.** The supply is minted on Solana, the market is an Orca Whirlpool,
+and EVM mirrors trade against it through `swap_relay`: 15,000 USDC on Base → 99.32568 tAAPL on
+Base; an unsatisfiable floor refunds without swapping; a sell pays out on Base; supply is exact
+across VMs (scenario 8). The mirrors' contracts are unchanged — a SwapRequest addresses its home
+by eid, whatever VM it runs.
+
+Two things had to be designed rather than ported. Solana cannot catch a failed CPI, so the relay
+quotes with Orca's own swap maths before swapping instead of refunding in a `catch`. And every
+account must be named in advance, so the return leg's ~20 OFT `send` accounts are recorded per
+(asset, mirror) at setup and checked on every delivery, with a lookup table so the plan fits
+Solana's 1 KB return-data limit and the transaction fits at all.
 
 Four build traps, each of which cost real time, are recorded in `NOTES.md` and
 `solana/README.md`: Rust edition 2024 versus the SBF toolchain's cargo; LayerZero shipping two
@@ -430,8 +483,8 @@ environment variable at build time; and the endpoint CPI account ordering.
 | Deployment infra | 6 modules, fully config-driven, one command, no manual follow-up |
 | Peer wiring | Automated, bidirectional, **read back and verified** on every link |
 | Add-a-chain flow | **Confirmed** to reuse the same modules; verified by doing it on a live deployment |
-| Validation | 6/6 scenarios, 39/39 Foundry tests, 5/5 Rust codec tests |
-| Solana | Mirror-chain stack built, deployed and initialised; trades not yet round-tripping |
+| Validation | 8 scenarios: 1–7 on an EVM home (incl. a Solana mirror), 8 on a Solana home; 65/65 Foundry, 44/44 Rust |
+| Solana | **Works as a mirror and as the home chain**, verified on a local validator: buy, refund, sell and cross-VM supply both ways, plus strand and cancel as a mirror |
 | Biggest gap | No timeout/refund for a stalled message — funds recoverable but never automatically |
 
 The repo carries its own findings: `agents.md` for current state and architecture, `NOTES.md`

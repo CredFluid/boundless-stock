@@ -52,6 +52,34 @@ contract RelayFlow is RelayFixture {
         deliverAll();
     }
 
+    /// @dev A Solana mirror is addressed in its own terms: compute units, and lamports the
+    ///      executor forwards for rent. The options must carry exactly what was configured.
+    function test_returnOptionsCarryPerDestinationGasAndValue() public {
+        uint32 solanaEid = 40_168;
+        assertEq(
+            relay.returnOptions(solanaEid),
+            OptionsBuilder
+                .newOptions()
+                .addExecutorLzReceiveOption(relay.DEFAULT_RETURN_GAS(), 0)
+                .addExecutorLzComposeOption(0, relay.DEFAULT_RETURN_COMPOSE_GAS(), 0)
+        );
+
+        relay.setReturnGas(solanaEid, 400_000);
+        relay.setReturnComposeGas(solanaEid, 600_000);
+        relay.setReturnValue(solanaEid, 2_500_000);
+        assertEq(
+            relay.returnOptions(solanaEid),
+            OptionsBuilder
+                .newOptions()
+                .addExecutorLzReceiveOption(400_000, 2_500_000)
+                .addExecutorLzComposeOption(0, 600_000, 0)
+        );
+
+        vm.prank(user);
+        vm.expectRevert();
+        relay.setReturnValue(solanaEid, 1);
+    }
+
     function test_buyDeliversStockOnTheMirrorChain() public {
         uint256 spend = 15_000e6;
         _fundUserOnMirror(spend);
@@ -127,6 +155,26 @@ contract RelayFlow is RelayFixture {
         assertEq(uint8(r.status), uint8(SwapTypes.Status.REFUNDED), "must settle as REFUNDED");
         assertEq(mirrorQuote.balanceOf(user), spend, "the user must get every unit back");
         assertEq(mirrorStock.balanceOf(user), 0, "no stock on a failed buy");
+    }
+
+    /**
+     * @notice With matching 18-decimal tokens, a floor one wei above the output still refunds.
+     * @dev The floor crosses in shared decimals (6). Rounded down, 100e18 + 1 would arrive as
+     *      exactly 100 and the swap would fill below what the user asked for.
+     */
+    function test_floorFinerThanSharedPrecisionRoundsUp() public {
+        uint256 spend = 15_000e6;
+        _fundUserOnMirror(spend);
+
+        vm.startPrank(user);
+        mirrorQuote.approve(address(request), spend);
+        MessagingFee memory fee = request.quoteTrade(SwapTypes.Direction.BUY, spend, 100e18 + 1);
+        uint64 id = request.buy{ value: fee.nativeFee }(spend, 100e18 + 1);
+        vm.stopPrank();
+        deliverAll();
+
+        assertEq(uint8(_getRequest(id).status), uint8(SwapTypes.Status.REFUNDED), "must not fill below the floor");
+        assertEq(mirrorQuote.balanceOf(user), spend, "refunded in full");
     }
 
     /// @dev Helper mirroring SwapRequest.Request, since structs don't cross the ABI cleanly.

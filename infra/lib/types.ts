@@ -38,6 +38,40 @@ export interface SvmConfig {
   keypairPath?: string;
   /** Commitment level for reads. */
   commitment?: "processed" | "confirmed" | "finalized";
+  /**
+   * Local decimals of each asset's SPL mint on this chain. Default: the asset's configured
+   * decimals, capped at 9.
+   *
+   * Solana amounts are u64, which holds at most ~18.4 whole units of an 18-decimal token, so a
+   * Solana mint generally cannot use the home chain's precision. It does not have to: amounts
+   * cross the wire in shared decimals, so each chain picks its own. See `lib/decimals.ts`.
+   */
+  decimals?: { base?: number; quote?: number };
+  /**
+   * LOCAL validators only: the native fee, in lamports, the test message library charges per
+   * send. Default 50,000. Nonzero on purpose — a real network always charges, and a client or
+   * program that forgets to quote and pay should fail here, not on devnet.
+   */
+  localMessageLibFeeLamports?: number;
+  /**
+   * What a message delivered TO this chain asks the executor for, in Solana's own terms —
+   * compute units, and lamports forwarded to the receiver — rather than EVM gas. Used by every
+   * other chain's return legs to this one. Defaults suit the local validator.
+   */
+  executor?: {
+    /** Compute units for `lz_receive`. Default 400,000. */
+    lzReceiveComputeUnits?: number;
+    /** Lamports forwarded with `lz_receive`: rent for token accounts it opens. Default 2,500,000. */
+    lzReceiveValueLamports?: number;
+    /** Compute units for `lz_compose`. Default 600,000. */
+    lzComposeComputeUnits?: number;
+  };
+  /**
+   * Solana HOME only: the most the relay lets one return leg cost, in lamports, per mirror.
+   * The executor's fee payer pays it; the mirror's compose value is what reimburses it.
+   * Default 5,000,000.
+   */
+  maxReturnFeeLamports?: number;
 }
 
 export interface ChainConfig {

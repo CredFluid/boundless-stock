@@ -1,0 +1,137 @@
+{
+  "name": "crossstock-solana-home-svm-mirror",
+  "vm": "svm",
+  "role": "home",
+  "createdAt": "2026-09-24T08:49:00.808Z",
+  "chain": {
+    "key": "solana-devnet",
+    "name": "Solana Devnet (local)",
+    "eid": 40168,
+    "rpcUrl": "http://127.0.0.1:8899"
+  },
+  "payer": "4WPDQSysV72d8xUjEGjKVDzpTN8T7d2dRtkfsMYV6ohB",
+  "programs": {
+    "endpoint": "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6",
+    "oft": "9xcb9TquFyK9wELi4TpghRVfMxu12NzcgQYMPqG4cFLA",
+    "swapRelay": "ADjsJxDJ4zCr54P2ioDin4uWRi8AQaofvSzh9ZyMWC5b",
+    "whirlpool": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+  },
+  "assets": {
+    "base": {
+      "symbol": "tAAPL",
+      "decimals": 9,
+      "mint": "yKTQ8QDgUZV56TFxB2cVQkmhy9eHrGFjib3tmgKuXTe",
+      "oftStore": "5NQECkY2uS7NZjuYCR1BFdqKH4ZonyE2yYcDK4fYSDfM",
+      "escrow": "9SnGQcHSP8HiSm5hXQ6aWCwM4SDRFVW6U6H5AfUkd3rS",
+      "peers": [
+        {
+          "remoteEid": 40245,
+          "address": "0x000000000000000000000000b7f8bc63bbcad18155201308c8f3540b07f84f5e",
+          "verified": true
+        },
+        {
+          "remoteEid": 40231,
+          "address": "0x000000000000000000000000b7f8bc63bbcad18155201308c8f3540b07f84f5e",
+          "verified": true
+        },
+        {
+          "remoteEid": 40232,
+          "address": "0x000000000000000000000000b7f8bc63bbcad18155201308c8f3540b07f84f5e",
+          "verified": true
+        },
+        {
+          "remoteEid": 40999,
+          "address": "0x998111dd3b756943bd77feb5aa7788c3b516e325b52fd0a8dcb818fcede6dea4",
+          "verified": true
+        }
+      ],
+      "mode": "launch"
+    },
+    "quote": {
+      "symbol": "USDC",
+      "decimals": 6,
+      "mint": "HKy3aNHi2j1fgyA6qrqsLAHo9P8M97ad5zahvSRnQjA2",
+      "oftStore": "4fUXF3iLDYeKaCW89ydJeTvqdNw63WL8y3ghnjoc2rKT",
+      "escrow": "6UUE9MZvLDpKnR7khdyxzUm7QYa9KJcvVQZ8afkmtUv",
+      "peers": [
+        {
+          "remoteEid": 40245,
+          "address": "0x000000000000000000000000a51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+          "verified": true
+        },
+        {
+          "remoteEid": 40231,
+          "address": "0x000000000000000000000000a51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+          "verified": true
+        },
+        {
+          "remoteEid": 40232,
+          "address": "0x000000000000000000000000a51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+          "verified": true
+        },
+        {
+          "remoteEid": 40999,
+          "address": "0x8d891fbe9f4291e4f72d3c9e494ce1a7e4615fe472ac35960816d934c6eed3a7",
+          "verified": true
+        }
+      ],
+      "mode": "launch"
+    }
+  },
+  "pool": {
+    "whirlpool": "2nroauTg5KKgNTbcskga7xUtAkzLw3ka4uSQJVDdgHLR",
+    "config": "8vVJvKu678BpkZNHQCSp1giUB1txbjz8LTC5LQRZKgVd",
+    "tickSpacing": 64,
+    "mintA": "yKTQ8QDgUZV56TFxB2cVQkmhy9eHrGFjib3tmgKuXTe",
+    "mintB": "HKy3aNHi2j1fgyA6qrqsLAHo9P8M97ad5zahvSRnQjA2",
+    "tickArrays": [
+      "FNTubp6c62fPdFG8ZNVYkrym44gZj6LrQLMXRy5Za9uD",
+      "3sSdz5Ju5D8GwqqMjk4YyJSadDUUG244kGyV9S9ni88K",
+      "GnGbkvegnhupLAqthCZtEhZdsFT5HerbzQxCSjPy15tw",
+      "3qMRbZr1KBo2VcG1gbAEPnVw9911LvmC3qiv35hi34Cz",
+      "8iiCSjMrQwDrYEzvcsTgcNwFEhXcLtAa4Rk6RHWgmDyo",
+      "CbVyTfafU2uc4u9EcUwBcAWnZJZuxGpw8kpbnWatfe7w",
+      "4eWYvyCs4QktRAA8jDX9FJbjoehwBxuaxNrTkEDTEZ2H",
+      "Cp78RB6kLUZFrAkgnuSTdCfc4G5ENmkvFjb9PcsxgFaC",
+      "36isrkYSp9Q8AXmtZEA4mMJJdanaJQLZWeQnJMYMZzv2",
+      "GewC7vzvXfzb2E2Ade2Re7ZLWYnSffseMB3BSypDqpwm",
+      "BshzXKoZDBg3omttiQQkG8iYYWwfqt4MLTFsdJtkzQTn",
+      "UjEZqcpVVUGM2RMMVKncrGNrX1JbFW4WRwDSCWAnPAD",
+      "3c8jHZe5ADepHReM8TyqhKZQVHzQkajRf6JB3e6NNC1V",
+      "J73aXcyqwW63ztQr44cw2o767Y6QpuxuehPTJakwgsTi",
+      "8ctepQ1Bhd1gGSB7CwjePyxgWR2mFJCpf9TzNuTyyZs5",
+      "FDHnnvkcXo7ThnwpfLysAKXv4bJUWGo56B2huVk3morc",
+      "HcM9X2quCsyjpUb8me8VXNzj9wkVwyLaZf3ZawqPQYLV",
+      "GKB3CaMBMnXTopQ89JrLbUNq5ejCTAdhGDJWpDcBzqGP",
+      "7BZjjKi5k4m8FTkyYLBpNKVZuVrPpdUuqJ2Xq4ZcFQXg",
+      "2SwNSSZtZMhCps9HbTUQ8AfnX3dpa1g1QL884pyygjbf",
+      "CTGajD9hbwxUyZpSJhe8fE1pRE9XuiWqBabKRLiLsohY",
+      "9v39Y6BDB7nu3MrV17vmodZpp5GdKHTcAPt57jbfUL9U",
+      "DFp9NeHNA76AMgQ2guT8jRB6HGvFzKjop1WaVmwqMDhw"
+    ],
+    "position": "Emxk3Yi1vSx8oKwHyihj3HUbwFDnYRkycGyMSrp5WZHS"
+  },
+  "relay": {
+    "store": "FbkNjoe4TriNAbZ14XurB8gGviR4FVN8yCzBWeTCRxBC",
+    "alt": "88LnqQFk3umasL29L4CrWtF61gCtfrsptbzMT713aLq9",
+    "peers": [
+      {
+        "eid": 40245,
+        "request": "0x59b670e9fa9d0a427751af201d676719a970857b"
+      },
+      {
+        "eid": 40231,
+        "request": "0x59b670e9fa9d0a427751af201d676719a970857b"
+      },
+      {
+        "eid": 40232,
+        "request": "0x59b670e9fa9d0a427751af201d676719a970857b"
+      },
+      {
+        "eid": 40999,
+        "request": "56BnsBhzGT7X94mjW5dm7fg4Mk5f6P2jjetP3wFWYqoZ"
+      }
+    ],
+    "routes": 8
+  }
+}

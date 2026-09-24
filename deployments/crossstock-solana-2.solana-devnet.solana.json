@@ -1,0 +1,88 @@
+{
+  "name": "crossstock-solana-2",
+  "vm": "svm",
+  "createdAt": "2026-09-24T08:46:22.839Z",
+  "chain": {
+    "key": "solana-devnet",
+    "name": "Solana Devnet (local)",
+    "eid": 40168,
+    "rpcUrl": "http://127.0.0.1:8899"
+  },
+  "homeChain": {
+    "key": "base-sepolia",
+    "eid": 40245,
+    "relay": "0x4a679253410272dd5232b3ff7cf5dbb88f295319"
+  },
+  "payer": "4WPDQSysV72d8xUjEGjKVDzpTN8T7d2dRtkfsMYV6ohB",
+  "programs": {
+    "endpoint": "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6",
+    "oft": "9xcb9TquFyK9wELi4TpghRVfMxu12NzcgQYMPqG4cFLA",
+    "swapRequest": "6cMiunhoxEcYYT29Cp4PgDT97FjtqsuqZ27ChTbr41vL"
+  },
+  "assets": {
+    "base": {
+      "symbol": "tAAPL",
+      "decimals": 9,
+      "mint": "3UUDE3hy54hMNEjmSZm82bUhUM2f52WayxxQKrBvvhk2",
+      "oftStore": "3BFjmVVvnHgzMg8Zy5S6E6MJiY6TXTT7oRbxvJpCpFP5",
+      "escrow": "B5fAyuD4KoNZVue3tPVCd4wEQuGN6CJHPtE1FPgs57vT",
+      "peers": [
+        {
+          "remoteEid": 40245,
+          "address": "0x000000000000000000000000b7f8bc63bbcad18155201308c8f3540b07f84f5e",
+          "verified": true
+        },
+        {
+          "remoteEid": 40231,
+          "address": "0x000000000000000000000000b7f8bc63bbcad18155201308c8f3540b07f84f5e",
+          "verified": true
+        },
+        {
+          "remoteEid": 40232,
+          "address": "0x000000000000000000000000b7f8bc63bbcad18155201308c8f3540b07f84f5e",
+          "verified": true
+        },
+        {
+          "remoteEid": 40999,
+          "address": "0xd88d92d2a5e6fafbfd42fc281441d3c08c16090a3ad4c585e0d355ef3b16e066",
+          "verified": true
+        }
+      ],
+      "mode": "launch"
+    },
+    "quote": {
+      "symbol": "USDC",
+      "decimals": 6,
+      "mint": "C8o4hfvKQib8q46w1MAgx1PAKtbvH8MdaZkUqPQatH7b",
+      "oftStore": "2p1ANL8oPiPzXG6mrNA33rmedR4JwhjtaaxdjMm5sTpP",
+      "escrow": "B46LuQHbaeanbUdj3twvN7zNu8M4NnycQmdUiYj64ueX",
+      "peers": [
+        {
+          "remoteEid": 40245,
+          "address": "0x000000000000000000000000a51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+          "verified": true
+        },
+        {
+          "remoteEid": 40231,
+          "address": "0x000000000000000000000000a51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+          "verified": true
+        },
+        {
+          "remoteEid": 40232,
+          "address": "0x000000000000000000000000a51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+          "verified": true
+        },
+        {
+          "remoteEid": 40999,
+          "address": "0xfc899176aaf030a74683aa8502656064dd760f09659ee59c0eccbdc45437d0ca",
+          "verified": true
+        }
+      ],
+      "mode": "launch"
+    }
+  },
+  "swapRequest": {
+    "store": "56BnsBhzGT7X94mjW5dm7fg4Mk5f6P2jjetP3wFWYqoZ",
+    "lzComposeTypes": "AtEm5kzjmq3qPUWP2bXyHgdAvtEAvj9dmwhQaEEqZ1m1"
+  }
+}

@@ -18,6 +18,14 @@ pub struct OFTStore {
     pub paused: bool,
     pub pauser: Option<Pubkey>,
     pub unpauser: Option<Pubkey>,
+    // CrossStock: flow counters, in local decimals, as `OmniToken.bridgedOut`/`bridgedIn` on
+    // EVM. Across every chain, Σ bridged_out − Σ bridged_in is exactly what is in flight, so
+    // the omnichain supply invariant is checkable from chain state alone.
+    /// Everything that has left this chain on the wire, cumulative.
+    pub bridged_out: u128,
+    /// Everything that has arrived from the wire — and every recovery credit, which restores
+    /// something that left and never arrived — cumulative.
+    pub bridged_in: u128,
 }
 
 #[derive(InitSpace, Clone, AnchorSerialize, AnchorDeserialize, PartialEq, Eq)]

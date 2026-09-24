@@ -10,7 +10,13 @@ export interface PeerNode {
   chainKey: string;
   chainName: string;
   eid: number;
-  address: Address;
+  /** An EVM address, or a 32-byte hex id for a non-EVM OApp (a Solana PDA). */
+  address: Address | Hex;
+  /**
+   * Defaults to EVM. Links FROM a non-EVM node are skipped here: that chain's peers are
+   * accounts written by its own backend (see `infra/solana/setup.ts`), not `setPeer` calls.
+   */
+  vm?: "evm" | "svm";
 }
 
 export type Topology = "mesh" | "star";
@@ -47,16 +53,18 @@ export async function wirePeers(opts: {
   const abi = forgeArtifact("TokenizedStock").abi;
 
   const pairs = buildPairs(nodes, topology, hubKey);
-  log.info(`${label}: ${pairs.length} directed peer links (${topology})`);
+  const evmPairs = pairs.filter(([from]) => (from.vm ?? "evm") === "evm").length;
+  log.info(`${label}: ${evmPairs} directed peer links written from EVM chains (${topology})`);
 
   let verified = 0;
   const failures: PeerRecord[] = [];
 
   for (const [from, to] of pairs) {
+    if ((from.vm ?? "evm") !== "evm") continue;
     const chain = chains.get(from.chainKey)!;
-    const expected = toBytes32(to.address);
+    const expected = to.address.length === 66 ? (to.address.toLowerCase() as Hex) : toBytes32(to.address as Address);
 
-    const current = await chain.read<Hex>(from.address, abi, "peers", [to.eid]);
+    const current = await chain.read<Hex>(from.address as Address, abi, "peers", [to.eid]);
     let txHash: string | undefined;
 
     if (current.toLowerCase() === expected.toLowerCase()) {
@@ -67,12 +75,12 @@ export async function wirePeers(opts: {
         // live path, so make it visible rather than letting it pass unremarked.
         log.warn(`${from.chainName} → eid ${to.eid} was pointing at ${current}; repointing`);
       }
-      const receipt = await chain.write(from.address, abi, "setPeer", [to.eid, expected]);
+      const receipt = await chain.write(from.address as Address, abi, "setPeer", [to.eid, expected]);
       txHash = receipt.transactionHash;
     }
 
     // Read back from chain state — never assume the write landed.
-    const actual = await chain.read<Hex>(from.address, abi, "peers", [to.eid]);
+    const actual = await chain.read<Hex>(from.address as Address, abi, "peers", [to.eid]);
     const ok = actual.toLowerCase() === expected.toLowerCase();
 
     const record: PeerRecord = {
@@ -101,10 +109,10 @@ export async function wirePeers(opts: {
     manifest,
     `03-peers:${label}`,
     failures.length === 0 ? "ok" : "failed",
-    `${verified}/${pairs.length} verified`
+    `${verified}/${evmPairs} verified`
   );
 
-  return { wired: pairs.length, verified, failures };
+  return { wired: evmPairs, verified, failures };
 }
 
 function buildPairs(nodes: PeerNode[], topology: Topology, hubKey?: string): [PeerNode, PeerNode][] {

@@ -130,17 +130,26 @@ pub struct Settlement {
     /// settlement concerns a message the home chain never received: it knows the nonce it
     /// killed but not the request id, since the payload never arrived to be decoded.
     pub lz_nonce: u64,
+    /// Who the returned tokens are for — copied from the order by the home chain. Needed here
+    /// because a delivery must name the user's token account before it runs, from the message
+    /// alone. Checked against the request's own record rather than trusted.
+    pub recipient: [u8; 32],
+    /// CANCELLED only: this chain's OFT store that sent the killed message. Nonces are per
+    /// path — a buy and a sell routinely share one — so `lz_nonce` alone names no request.
+    pub cancelled_path: [u8; 32],
 }
 
 impl Settlement {
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(6 * WORD);
+        let mut out = Vec::with_capacity(8 * WORD);
         write_u64(&mut out, self.request_id);
         write_u8(&mut out, self.status);
         write_u8(&mut out, self.reason);
         write_u128(&mut out, self.amount_in);
         write_u128(&mut out, self.amount_out);
         write_u64(&mut out, self.lz_nonce);
+        write_bytes32(&mut out, &self.recipient);
+        write_bytes32(&mut out, &self.cancelled_path);
         out
     }
 
@@ -152,8 +161,73 @@ impl Settlement {
             amount_in: read_u128(data, 3)?,
             amount_out: read_u128(data, 4)?,
             lz_nonce: read_u64(data, 5)?,
+            recipient: read_bytes32(data, 6)?,
+            cancelled_path: read_bytes32(data, 7)?,
         })
     }
+}
+
+// ---------------------------------------------------------------------------- OFT compose frame
+
+/// The envelope LayerZero's Solana OFT wraps around a composed message.
+///
+/// `lz_compose` does not receive the Settlement directly. The OFT queues
+/// `nonce (8) | src_eid (4) | amount_ld (8) | compose_from (32) | compose_msg`, all big-endian —
+/// see `compose_msg_codec.rs` in the vendored OFT. Two of those fields are load-bearing here:
+/// `amount_ld` is what the OFT actually minted into the store, which is the figure to pay out,
+/// and `compose_from` is who sent the order, which is how a settlement is authenticated.
+///
+/// Note `amount_ld` is 8 bytes here, where the EVM OFT's frame uses 32.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComposeFrame {
+    pub nonce: u64,
+    pub src_eid: u32,
+    pub amount_ld: u64,
+    pub compose_from: [u8; 32],
+    pub compose_msg: Vec<u8>,
+}
+
+impl ComposeFrame {
+    pub const HEADER: usize = 8 + 4 + 8 + 32;
+
+    pub fn parse(message: &[u8]) -> Result<Self> {
+        require!(message.len() >= Self::HEADER, SwapRequestError::MalformedPayload);
+        Ok(Self {
+            nonce: u64::from_be_bytes(message[0..8].try_into().unwrap()),
+            src_eid: u32::from_be_bytes(message[8..12].try_into().unwrap()),
+            amount_ld: u64::from_be_bytes(message[12..20].try_into().unwrap()),
+            compose_from: message[20..52].try_into().unwrap(),
+            compose_msg: message[52..].to_vec(),
+        })
+    }
+
+    /// The inverse of [`ComposeFrame::parse`], matching the OFT's own encoder. Used by tests
+    /// and by off-chain tooling that has to predict the composed-message hash.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(Self::HEADER + self.compose_msg.len());
+        out.extend_from_slice(&self.nonce.to_be_bytes());
+        out.extend_from_slice(&self.src_eid.to_be_bytes());
+        out.extend_from_slice(&self.amount_ld.to_be_bytes());
+        out.extend_from_slice(&self.compose_from);
+        out.extend_from_slice(&self.compose_msg);
+        out
+    }
+}
+
+// ---------------------------------------------------------------------------- decimals
+
+/// Local-decimal amount to shared decimals, rounded UP.
+///
+/// Used for the slippage floor, which must never loosen in conversion: rounding down would let
+/// the home chain accept up to one quantum less than the user asked for. Wire amounts are in
+/// shared decimals because the two ends of a trade need not agree on local decimals — this
+/// mint may be 9 decimals against an 18-decimal ERC-20 on the home chain.
+pub fn ld_to_sd_ceil(amount_ld: u64, local_decimals: u8, shared_decimals: u8) -> Result<u64> {
+    require!(local_decimals >= shared_decimals, SwapRequestError::UnsupportedDecimals);
+    let rate = 10u64
+        .checked_pow(u32::from(local_decimals - shared_decimals))
+        .ok_or(SwapRequestError::UnsupportedDecimals)?;
+    Ok(amount_ld / rate + u64::from(amount_ld % rate != 0))
 }
 
 #[cfg(test)]
@@ -181,14 +255,25 @@ mod tests {
             amount_in: 15_000_000_000,
             amount_out: 99_605_634,
             lz_nonce: 17,
+            recipient: [3u8; 32],
+            cancelled_path: [0u8; 32],
         };
         assert_eq!(Settlement::decode(&s.encode()).unwrap(), s);
-        assert_eq!(s.encode().len(), 6 * WORD, "must match abi.encode of six value types");
+        assert_eq!(s.encode().len(), 8 * WORD, "must match abi.encode of eight value types");
     }
 
     #[test]
     fn truncated_payload_is_rejected() {
-        let s = Settlement { request_id: 1, status: 2, reason: 0, amount_in: 1, amount_out: 1, lz_nonce: 1 };
+        let s = Settlement {
+            request_id: 1,
+            status: 2,
+            reason: 0,
+            amount_in: 1,
+            amount_out: 1,
+            lz_nonce: 1,
+            recipient: [0u8; 32],
+            cancelled_path: [0u8; 32],
+        };
         let encoded = s.encode();
         assert!(Settlement::decode(&encoded[..encoded.len() - 1]).is_err());
     }
@@ -196,8 +281,97 @@ mod tests {
     #[test]
     fn oversized_value_is_rejected_not_truncated() {
         // A uint256 that does not fit u64 means the two sides disagree about the type.
-        let mut data = vec![0u8; 6 * WORD];
+        let mut data = vec![0u8; 8 * WORD];
         data[0] = 1; // high byte of the first word
         assert!(Settlement::decode(&data).is_err());
+    }
+
+    /// Byte-for-byte what `SwapTypes.encodeSettlement` produces in Solidity for these values,
+    /// generated with `cast abi-encode`. Pins the cross-VM layout, not just self-consistency:
+    /// a round-trip test passes happily if both directions drift together.
+    #[test]
+    fn settlement_matches_solidity_encoding() {
+        let s = Settlement {
+            request_id: 7,
+            status: 2,
+            reason: 0,
+            amount_in: 15_000_000_000,
+            amount_out: 100_000_000,
+            lz_nonce: 0,
+            recipient: [0xAB; 32],
+            cancelled_path: [0u8; 32],
+        };
+        let expected = hex_words(&[
+            "0000000000000000000000000000000000000000000000000000000000000007",
+            "0000000000000000000000000000000000000000000000000000000000000002",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "000000000000000000000000000000000000000000000000000000037e11d600",
+            "0000000000000000000000000000000000000000000000000000000005f5e100",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "abababababababababababababababababababababababababababababababab",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        ]);
+        assert_eq!(s.encode(), expected);
+    }
+
+    fn hex_words(words: &[&str]) -> Vec<u8> {
+        words
+            .iter()
+            .flat_map(|w| (0..32).map(move |i| u8::from_str_radix(&w[i * 2..i * 2 + 2], 16).unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn compose_frame_round_trips_and_exposes_the_settlement() {
+        let settlement = Settlement {
+            request_id: 5,
+            status: 2,
+            reason: 0,
+            amount_in: 1,
+            amount_out: 100_000_000,
+            lz_nonce: 0,
+            recipient: [9u8; 32],
+            cancelled_path: [0u8; 32],
+        };
+        let frame = ComposeFrame {
+            nonce: 3,
+            src_eid: 40245,
+            amount_ld: 100_000_000_000,
+            compose_from: [4u8; 32],
+            compose_msg: settlement.encode(),
+        };
+        let parsed = ComposeFrame::parse(&frame.encode()).unwrap();
+        assert_eq!(parsed, frame);
+        assert_eq!(Settlement::decode(&parsed.compose_msg).unwrap(), settlement);
+    }
+
+    /// The bug this parser fixes: the frame was decoded as though it WERE the settlement.
+    /// The nonce and eid in the first word make that decode fail, so every settlement delivered
+    /// to Solana would have been rejected.
+    #[test]
+    fn a_raw_frame_is_not_a_settlement() {
+        let frame = ComposeFrame {
+            nonce: 1,
+            src_eid: 40245,
+            amount_ld: 1,
+            compose_from: [4u8; 32],
+            compose_msg: vec![0u8; 8 * WORD],
+        };
+        assert!(Settlement::decode(&frame.encode()).is_err());
+    }
+
+    #[test]
+    fn short_frame_is_rejected() {
+        assert!(ComposeFrame::parse(&[0u8; ComposeFrame::HEADER - 1]).is_err());
+    }
+
+    #[test]
+    fn floor_rounds_up_to_shared_decimals() {
+        // 9 local decimals, 6 shared: one shared unit is 1,000 local units.
+        assert_eq!(ld_to_sd_ceil(95_000_000_000, 9, 6).unwrap(), 95_000_000);
+        assert_eq!(ld_to_sd_ceil(95_000_000_001, 9, 6).unwrap(), 95_000_001, "never rounds a floor down");
+        assert_eq!(ld_to_sd_ceil(0, 9, 6).unwrap(), 0);
+        assert_eq!(ld_to_sd_ceil(1_234, 6, 6).unwrap(), 1_234, "equal decimals is the identity");
+        assert!(ld_to_sd_ceil(1, 5, 6).is_err(), "local below shared cannot be represented");
     }
 }

@@ -244,6 +244,10 @@ funds, and the residue is real (see `NOTES.md`). See §6 for what each scenario 
 | 3 | Failure case: bad slippage | Swap reverts safely, user's locked input is **not** lost |
 | 4 | Failure case: stalled message | Documents what happens to locked funds when the destination call never completes; flags whether timeout/refund is needed before production |
 | 5 | Multi-mirror check | Scenario 2 repeated against a **second** mirror chain — proves per-chain wiring generalizes |
+| 6 | Reverse direction (sell) | A mirror user sells; proceeds arrive on the mirror chain |
+| 7 | **Solana mirror** | Buy, refund and sell from a **Solana** mirror, plus supply conservation across VMs. Skipped when no Solana chain is configured |
+| 8 | **Solana home** | Buy, refund, sell, strand + retry and cancel from EVM mirrors against an Orca Whirlpool on a **Solana home chain**; supply conserved across VMs. Runs only when the home chain is Solana |
+| 9 | **Solana to Solana** | Tokens moved directly between two Solana chains, then a buy and a sell from a Solana mirror — against a Solana home, or, with an EVM home, from a second Solana mirror funded by the first; supply conserved across every chain. Skipped without two Solana chains |
 
 ---
 
@@ -275,7 +279,7 @@ funds, and the residue is real (see `NOTES.md`). See §6 for what each scenario 
 > Reproduced on a second mirror chain (Optimism Sepolia, scenario 5) and in reverse (selling,
 > scenario 6, proceeds delivered on the mirror chain).
 
-**All deployment milestones complete. All 6 validation scenarios passing.**
+**All deployment milestones complete. All 8 validation scenarios passing** (7 needs a Solana mirror, 8 a Solana home; see §12).
 
 | Area | State |
 |---|---|
@@ -290,13 +294,16 @@ funds, and the residue is real (see `NOTES.md`). See §6 for what each scenario 
 | Validation 4 — stalled message | ✅ characterised — **recovery is never automatic** |
 | Validation 5 — multi-mirror | ✅ generalises to a second chain |
 | Validation 6 — reverse direction (sell) | ✅ proceeds delivered on the mirror chain |
+| Validation 7 — Solana mirror | ✅ buy, refund, sell, strand, cancel from Solana; supply conserved across VMs |
+| Validation 8 — Solana home | ✅ EVM mirrors trade against an Orca Whirlpool on Solana; supply conserved across VMs |
 
 ### What runs today
 
 ```bash
 npm run chains:up
 npm run deploy   -- --config config/localnet.json
-npm run validate -- --config config/localnet.json      # 6/6 pass
+npm run validate -- --config config/localnet.json      # 6/6 pass, 7 skipped (no Solana chain)
+# with a Solana mirror: see §12 for the full sequence — 7/7
 ```
 
 ### Headline numbers
@@ -409,7 +416,11 @@ Two layers, deliberately non-overlapping.
 | **Foundry** (`test/`) | The *contracts* are correct, including under adversarial inputs no sensible scenario would pick | `npm test` |
 | **TypeScript** (`infra/validation/`) | The *deployment* works across separate chains with a real relayer | `npm run validate -- --config config/localnet.json` |
 
-40 Foundry tests: 16 fuzz (512 runs each) and 12 invariants (48 runs × 160 calls).
+65 Foundry tests, including 16 fuzz (512 runs each) and 12 invariants (48 runs × 160 calls), plus
+34 Rust tests in `solana/` (`npm run solana:test`).
+
+`test/MixedDecimals.t.sol` runs the relay with an 18-decimal home and a 9-decimal mirror — the
+shape of a Solana mirror — and is what proves wire amounts are decimal-independent.
 
 ```bash
 npm test                # everything
@@ -449,28 +460,117 @@ zero-output swaps and whether delivery completes:
 
 ## 12. Solana support — status and what remains
 
-**Status: the mirror-chain program is live on a local validator and registered with LayerZero
-as an OApp.** Trades cannot round-trip yet — the OFT still has to be deployed and peer wiring
-and relayer support are missing — but the program itself builds, deploys, executes, and CPIs
-into the genuine EndpointV2.
-
-```bash
-npm run solana:up       # validator + real EndpointV2 cloned from devnet
-npm run solana:build    # -> solana/target/deploy/swap_request.so (361 KB)
-npm run solana:deploy   # deploys BOTH LayerZero's OFT and swap_request
-npm run solana:init     # init_store: creates the store PDA and registers the OApp
-npm run solana:oft      # init_oft per asset, mint authority, peer wiring (read-back verified)
-npm run solana:test     # wire-format codec tests
-```
-
-Verified on a local validator:
+**Status: Solana works as a MIRROR chain, end to end, locally.** A user on Solana buys, is
+refunded and sells against the home chain's pool, and omnichain supply is conserved across
+VMs. Validation scenario 7, run 2026-09-23 on three anvils + a local validator:
 
 | | |
 |---|---|
-| LayerZero OFT | `9xcb9TquFyK9wELi4TpghRVfMxu12NzcgQYMPqG4cFLA`, built from vendored source, executable |
-| `swap_request` | `6cMiunhoxEcYYT29Cp4PgDT97FjtqsuqZ27ChTbr41vL`, executable, owned by `BPFLoaderUpgradeab1e` |
-| Store PDA | 309 bytes, owned by the program |
-| OApp registry PDA | 41 bytes, **owned by LayerZero's EndpointV2** — the endpoint accepted the registration |
+| Buy | 15,000 USDC on Solana → **99.605634 tAAPL** in the user's Solana wallet (fresh deployment; identical to the EVM mirrors' figure), ~1.6 s locally |
+| Refund | unsatisfiable floor → 5,000 USDC returned in full |
+| Sell | 20 tAAPL on Solana → ~3,000 USDC on Solana |
+| Stranded | return leg unsendable → STRANDED notice reaches the Solana request; permissionless `retryReturn` later delivers the result |
+| Cancelled | order never delivered → killed on the home chain → the input is minted back on Solana, exactly once |
+| Supply | EVM Σ + Solana mint (rescaled 9 → 18 decimals) = exactly what was minted, both assets |
+
+Full suite on the mixed deployment: **7/7**. EVM-only regression: 6/6 with unchanged figures.
+
+```bash
+# once: toolchains — Agave 3.0.14 CLI (solana-test-validator, cargo-build-sbf, spl-token)
+npm run solana:lz-build     # LayerZero endpoint + simple-messagelib, from the vendored commit
+npm run solana:build        # swap_request.so
+npm run solana:build:oft    # LayerZero's OFT, with OFT_ID baked in
+
+npm run solana:up && npm run chains:up
+npm run solana:deploy                                   # OFT + swap_request onto the validator
+npm run deploy   -- --config config/localnet-solana.json   # EVM + Solana, one pipeline
+npm run validate -- --config config/localnet-solana.json   # 7/7
+```
+
+**No devnet access is needed.** `solana:up` loads LayerZero's endpoint and `simple-messagelib`
+at their canonical ids from source builds; `--clone-devnet` keeps the old behaviour.
+
+### Solana as the HOME chain (M26)
+
+**Status: works end to end, locally.** With the home chain on Solana, the full supply is minted
+there, the market is an **Orca Whirlpool**, and orders from EVM mirrors execute through
+**`swap_relay`**. The EVM mirrors run exactly the contracts an EVM home uses — a SwapRequest
+addresses its home relay by eid and does not care what VM it runs. Validation scenario 8, run
+2026-09-24 on a local validator + three anvils, with Base, Arbitrum and Optimism as mirrors:
+
+| | |
+|---|---|
+| Buy | 15,000 USDC on Base → **99.32568 tAAPL** on Base at 151.02 (spot 150.42: 0.3% fee + impact), priced by the Whirlpool on Solana |
+| Refund | unsatisfiable floor → the relay quotes, declines to swap, and returns 5,000 USDC in full |
+| Sell | 20 tAAPL on Base → 3,004.54 USDC on Base |
+| Strand | return fee cap below the library's fee → the compose reverts and stays queued; `strand_compose` records it and the mirror shows STRANDED; after the fix, a permissionless `retry_return` refunds 3,000 USDC in full |
+| Cancel | an order's message never arrives → `cancel_stuck_inbound` skips it on Solana as the OFT's delegate, the mirror shows CANCELLED and re-creates 2,000 USDC; the killed nonce can never be verified again (next nonce checked as a control) |
+| Supply | minted on Solana; Solana mint (9 dec, rescaled) + mirrors (18 dec) = exactly genesis, both assets, after all of the above |
+
+```bash
+npm run solana:build:orca && npm run solana:build:relay   # in addition to the builds above
+npm run solana:up && npm run chains:up && npm run solana:deploy
+npm run deploy   -- --config config/localnet-solana-home.json
+npm run validate -- --config config/localnet-solana-home.json   # scenario 8
+```
+
+### Several Solana chains in one deployment (M30)
+
+A deployment may hold any number of Solana (SVM) chains, as home or mirrors, beside EVM
+chains. Locally each is its own validator: `npm run solana:up -- --config <file>` starts one per
+local Solana chain in the config, each with its own ledger, faucet, gossip and port range.
+
+| Config | Chains | Validated |
+|---|---|---|
+| `localnet-solana-2.json` | EVM home, two EVM mirrors, **two Solana mirrors** | 9/9: scenario 7 on the first Solana mirror; scenario 9 moves 15,000 USDC Solana → Solana and trades from the second |
+| `localnet-solana-home-svm-mirror.json` | **Solana home**, three EVM mirrors, **a Solana mirror** | 2/2: scenario 8, and scenario 9 — 15,000 USDC home → mirror SVM to SVM, then a buy (66.14 tAAPL) and a sell against the Whirlpool, orders and returns never touching an EVM chain |
+
+```bash
+npm run solana:up -- --config config/localnet-solana-home-svm-mirror.json && npm run chains:up
+npm run solana:deploy -- --config config/localnet-solana-home-svm-mirror.json
+npm run deploy   -- --config config/localnet-solana-home-svm-mirror.json
+npm run validate -- --config config/localnet-solana-home-svm-mirror.json   # scenarios 8, 9
+```
+
+What it took: remote addresses are 32 bytes of either kind (EVM hex, left-padded, or a Solana
+pubkey), not EVM hex assumed; Solana mirrors of a Solana home are set up in two passes — their
+OFTs first, pointed at the home relay by its PDA address, then again once the home's OFTs exist —
+because each side needs the other's addresses and Solana OFT stores are not predictable in
+advance; the home relay's return options to a Solana mirror are compute units and lamports; and
+with an EVM home, Solana mirrors are peered with each other in a second pass.
+
+How `swap_relay` differs from `SwapRelay.sol`, and why (details in `NOTES.md`, 2026-09-24):
+
+- **It quotes before it swaps.** Solana cannot catch a failed CPI, so "try the swap, refund in
+  the catch" is impossible. The relay runs Orca's own swap maths (`swap_manager::swap`, the
+  function Orca's `swap` instruction runs) read-only over the same accounts, and swaps only when
+  the result clears the user's floor — which is also passed to Orca as the swap's threshold.
+- **The return leg's accounts are recorded, not derived.** The return is a full OFT `send`
+  (~20 accounts). For each (asset, mirror) that list is static, so setup derives it once with
+  LayerZero's OFT SDK and records it as a `ReturnRoute`; every delivery is checked against it.
+- **A lookup table carries the static accounts**, and planning names them by index: a plan
+  naming ~60 accounts in full exceeds Solana's 1 KB return-data limit.
+- **Stranding is an explicit step** (M28). `SwapRelay.sol` strands in the `catch` of a failed
+  return; on Solana a failed return reverts the whole compose, which stays queued — nothing is
+  lost, but the mirror hears nothing. `strand_compose` (admin) consumes that compose, records the
+  untraded input in a `Stranded` account and sends a STRANDED notice; `retry_return` (anyone)
+  later sends it back as a refund, closing the record. Notices are plain endpoint sends from the
+  relay over a recorded `notice route`, like return routes.
+- **Cancellation uses Solana's kill semantics** (M28). `cancel_stuck_inbound` runs as the OFT
+  stores' endpoint delegate (set at deploy, after every path is configured). An unverified
+  message is `skip`ped — which needs its payload-hash account, created first with the
+  permissionless `init_verify` — and a verified one `burn`ed; either way `init_verify` refuses the
+  nonce afterwards. Then the CANCELLED notice, exactly as on EVM.
+- **Bring-your-own SPL token** (M29). `token.existingToken` (or `quoteAsset.existingToken`) may
+  name an SPL mint on a Solana home: the OFT is initialised as an **adapter** that locks it in
+  escrow, the mint and its authority stay with the issuer, and nothing is minted. The mint is
+  checked before any contract is deployed (classic SPL Token, decimals as configured).
+  `npm run deploy:legacy -- --config config/localnet-solana-home.json` creates a stand-in;
+  `config/localnet-solana-home-adapter.json` deploys against it. Scenario 8 then checks the
+  adapter's invariant — escrow = Σ mirror supply, issuer's supply untouched, authority kept.
+- **Its own Cargo workspace** (`solana/relay/`), seeded from Orca's lock: under the main
+  workspace's lock, Orca's dependency tree needs Rust edition 2024, which the SBF cargo cannot
+  parse. Orca's program is vendored (`solana/vendor/whirlpool`, two recorded local changes).
 
 ### What is built and verified
 
@@ -507,28 +607,83 @@ everything around it — deployment, addressing, and what a "pool" is.
 - **LayerZero already ships a complete Solana OFT program** (`programs/oft` in that repo), so
   the token side does not need to be written — only deployed and initialised.
 
-### What remains, in dependency order
+### Fixed in M24a/b (see `NOTES.md`, 2026-09-23)
 
-**Solana as a mirror chain** (the smaller half):
+- **Wire amounts are in shared decimals** on both VMs, so a mirror may use different local
+  decimals than the home chain. Solana mints default to `min(asset decimals, 9)` via
+  `svm.decimals`; config loading refuses a u64 overflow. Previously an 18-decimal tAAPL mint was
+  being created on Solana, and a mirror's slippage floor would have been read at the wrong scale.
+- **`swap_request::lz_compose` now works.** It parses the OFT's compose frame, authenticates the
+  home relay, binds the request to the settlement, checks the recipient and both token accounts,
+  and pays the user. It could not close a single trade before. The checks are
+  `verify_settlement`, unit-tested case by case.
+- **Compose planning speaks V2**: `lz_compose_types_info` added, `lz_compose_types_v2` returns
+  the instruction plan (create the user's token account, then `lz_compose`).
+- **Settlement carries `recipient`**, which Solana needs to name the user's token account
+  before delivery.
 
-1. ~~Anchor workspace~~ **done.** Builds against `anchor-latest/libs/oapp`.
-2. ~~Deploy LayerZero's OFT program and initialise the mint + its PDAs~~ **done.** Vendored,
-   deployed, `init_oft` run per asset, mint authority handed to the OFT store, and peers wired
-   with read-back verification.
-3. ~~A `swap_request` Anchor program~~ **done.** Store and request PDAs, SPL escrow,
-   `lz_compose_types_v2` and `lz_compose`, and an OFT `send` CPI. Registered as an OApp.
-4. ~~A `SolanaChain` backend~~ **done for deployment and reads.** Peer configuration still to
-   come — Solana peers are PDAs on the OFT, not a `setPeer` mapping.
-5. Relayer support for the SVM delivery path. **This is the next step** — without it a packet
-   sent from Solana has nothing to deliver it locally.
+All of the above is now exercised on a local validator by scenario 7, not only host-tested.
 
-**Solana as the base chain** (the larger half, and what makes trades *happen* on Solana):
+### Built in M24 (see `NOTES.md`, 2026-09-23)
 
-6. A `swap_relay` program equivalent, executing swaps by CPI into **Orca Whirlpools or Raydium
-   CLMM** — Uniswap V3 does not exist on Solana, so this is a genuinely different venue
-   integration, not a port.
-7. A pool-deployment module for that venue: create the pool, seed liquidity, read reserves.
-8. Reformulating `infra/supply.ts` and the supply invariants for SPL mint semantics.
+- **One pipeline for both VMs.** `npm run deploy` runs the EVM modules over the EVM chains,
+  routes every EVM endpoint to every chain, then sets up each Solana chain and points every EVM
+  OFT and the home relay at the Solana accounts. Solana OFTs peer with every EVM chain (full
+  mesh). Peer wiring verifies all links by read-back, EVM → Solana included.
+- **Local LayerZero on Solana** (`infra/solana/lz-local.ts`): endpoint initialised (permissionless
+  on a fresh validator), `simple-messagelib` registered as the default library, per-OApp nonce /
+  library / config accounts for every path. Built with LayerZero's SDK, not hand-encoded.
+- **Relayer speaks SVM** (`infra/solana/relay.ts`): reads `PacketSent` from Solana event CPIs;
+  delivers into Solana via `init_verify` → `validate_packet` → the receiver's own
+  `lz_receive`/`lz_compose` plan, executed by LayerZero's SDK Executor helpers. So a program that
+  plans a delivery wrongly fails here as it would under LayerZero's real Executor.
+- **`lz_receive` on `swap_request`** (M25): STRANDED and CANCELLED notices reach Solana
+  requests. A CANCELLED input is minted back through `recovery_credit`, a gated instruction
+  CrossStock adds to the vendored OFT (`solana/vendor/oft-solana/LOCAL_CHANGES.md`), callable
+  only by the request store. Each request records its outbound nonce in a `NonceIndex` PDA keyed
+  by (OFT store, nonce), which is how a notice naming only a killed message finds its request.
+- **A Solana user client** (`infra/solana/client.ts`) for `open_request`, deriving the forwarded
+  OFT `send` accounts with LayerZero's OFT SDK.
+- **Real messaging fees and Solana-native executor options** (M27). The local
+  `simple-messagelib` charges a fee per send (`svm.localMessageLibFeeLamports`, default 50,000
+  lamports), so nothing passes by sending zero. `open_request` sends with a quoted fee — the
+  client quotes the OFT send as it will be made, with an order-sized composeMsg, and the user,
+  who signs as the send's payer, pays it. `swap_relay`'s return leg passes a per-mirror cap
+  (`Peer.max_return_fee`); the Executor's payer pays the actual fee. Return legs from an EVM
+  relay to a Solana mirror carry compute units and lamports (`SwapRelay.returnValue`,
+  `returnOptions(eid)`, set from `svm.executor`), and mirror SwapRequests facing a Solana home
+  ask for compute units and a lamport compose value that covers the return fee. Scenarios 7 and
+  8 check the fee actually charged, not merely that sends succeed.
+
+### Supply accounting across VMs (M31)
+
+The vendored Solana OFT carries `bridged_out`/`bridged_in` — `OmniToken`'s counters on SPL,
+appended to `OFTStore` (see `solana/vendor/oft-solana/LOCAL_CHANGES.md`): `send` counts what
+goes on the wire, `lz_receive` what comes off it, `recovery_credit` counts as an arrival. So
+`Σ supply + (Σ bridged_out − Σ bridged_in) == what exists` is checkable from chain state alone on
+every chain of every VM. `infra/lib/omnisupply.ts` measures it; `npm run supply` reports it for
+any topology (and exits non-zero if it does not hold); scenario 9 checks it mid-flight — an
+SVM → SVM transfer burned on the source and not yet minted is exactly the counters' in-flight
+figure — and after delivery.
+
+### What remains
+
+Functionally, nothing for any topology in scope: any chain can be the home chain, Solana
+included, with any mix of EVM and Solana mirrors. What is left is live-cluster work the local
+setup cannot show:
+
+- **Measure the Solana executor figures on devnet.** Fees are charged and paid on every Solana
+  send locally, but only through `simple-messagelib`; the ULN debits the same `payer` account,
+  and the default `svm.executor` compute units and lamports are local estimates.
+- **Operational roles.** `swap_relay`'s admin strands and cancels, and the relay is its OFT
+  stores' endpoint delegate — adding a mirror after deployment needs that delegate to configure
+  the OFT's new path. Both roles want a timelock and a handover procedure before production, as
+  the EVM relay's owner and delegate roles do (§9).
+- **Proof of reserves** — parked; see `PROOF_OF_RESERVES.md`. The on-chain half (omnichain
+  supply, in flight included) exists; the reserve half needs an issuer, custodian or oracle feed.
+- **Token-2022 mints** cannot be adapted yet. The OFT itself uses Anchor's token interface, but
+  CrossStock's programs and infra address the classic SPL Token program and its associated
+  accounts directly, so the preflight refuses a Token-2022 mint rather than half-supporting it.
 
 ### The real difficulties
 

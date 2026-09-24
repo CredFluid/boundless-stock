@@ -20,12 +20,14 @@
  *   npm run relayer -- --config config/localnet.json --watch
  */
 import { parseAbi, type Address, type Hex, type Log } from "viem";
-import { loadConfig, allChains } from "./lib/config.js";
+import { loadConfig, allChains, vmOf } from "./lib/config.js";
 import { Chain, buildChains } from "./lib/chains.js";
 import { loadManifest } from "./lib/manifest.js";
 import { fromBytes32 } from "./lib/address.js";
 import { log } from "./lib/logger.js";
 import type { Manifest } from "./lib/types.js";
+import { SolanaChain } from "./solana/chain.js";
+import { SolanaRelayEndpoint } from "./solana/relay.js";
 
 const ENDPOINT_ABI = parseAbi([
   "event PacketSent(bytes encodedPayload, bytes options, address sendLibrary)",
@@ -140,13 +142,16 @@ export interface RelayStats {
 
 export class Relayer {
   private endpoints = new Map<number, Endpoint>();
+  /** Solana chains in the set, by eid. Delivered to and scanned by their own backend. */
+  private solana = new Map<number, SolanaRelayEndpoint>();
   private seen = new Set<string>();
   /** Composes whose execution reverted. Kept so an operator can retry them with more gas. */
   private failedComposes: { eid: number; from: Address; to: Address; guid: Hex; index: number; message: Hex; value: bigint }[] = [];
   readonly stats: RelayStats = { delivered: 0, composed: 0, failed: 0 };
   verbose = true;
 
-  constructor(private manifest: Manifest, chains: Map<string, Chain>) {
+  constructor(private manifest: Manifest, chains: Map<string, Chain>, solana: SolanaRelayEndpoint[] = []) {
+    for (const s of solana) this.solana.set(s.eid, s);
     for (const [key, cd] of Object.entries(manifest.chains)) {
       const chain = chains.get(key);
       if (!chain) continue;
@@ -166,6 +171,11 @@ export class Relayer {
     }
   }
 
+
+  /** The backend for a Solana chain in the set, if there is one. */
+  solanaEndpoint(eid: number): SolanaRelayEndpoint | undefined {
+    return this.solana.get(eid);
+  }
 
   /** Composes that were delivered but reverted, still sitting in the endpoint's queue. */
   get stuckComposes(): number {
@@ -208,6 +218,7 @@ export class Relayer {
     for (const ep of this.endpoints.values()) {
       ep.cursor = await ep.chain.publicClient.getBlockNumber();
     }
+    for (const s of this.solana.values()) await s.syncToHead();
   }
 
   /** One pass over every chain. Returns how many packets were delivered. */
@@ -215,6 +226,9 @@ export class Relayer {
     let delivered = 0;
     for (const ep of this.endpoints.values()) {
       delivered += await this.drainChain(ep);
+    }
+    for (const s of this.solana.values()) {
+      delivered += await this.drainSolana(s);
     }
     return delivered;
   }
@@ -285,8 +299,35 @@ export class Relayer {
     return count;
   }
 
+  /** Packets sent from a Solana chain, delivered wherever they are addressed. */
+  private async drainSolana(src: SolanaRelayEndpoint): Promise<number> {
+    const packets = await src.scanOutbound();
+    if (this.verbose && packets.length > 0) log.dim(`scan eid ${src.eid} (Solana): ${packets.length} PacketSent`);
+    let count = 0;
+    for (const p of packets) {
+      try {
+        await this.deliver(p.encodedPacket, p.options);
+        count++;
+      } catch (e) {
+        this.stats.failed++;
+        log.fail(`delivery failed: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
+      }
+    }
+    return count;
+  }
+
   private async deliver(encodedPacket: Hex, options: Hex): Promise<void> {
     const packet = decodePacket(encodedPacket);
+
+    // A Solana destination plans its own delivery (lz_receive_types), so executor options
+    // expressed as EVM gas do not apply; its backend does all three steps.
+    const solanaDst = this.solana.get(packet.dstEid);
+    if (solanaDst) {
+      this.stats.composed += await solanaDst.deliver(encodedPacket);
+      this.stats.delivered++;
+      return;
+    }
+
     const dst = this.endpoints.get(packet.dstEid);
     if (!dst) {
       throw new Error(`No local chain for destination eid ${packet.dstEid}`);
@@ -395,8 +436,11 @@ export async function buildRelayer(configPath: string): Promise<Relayer> {
   const cfg = loadConfig(configPath);
   const manifest = loadManifest(cfg.name);
   if (!manifest) throw new Error(`No manifest for "${cfg.name}" — run the deployment first.`);
-  const chains = buildChains(allChains(cfg));
-  return new Relayer(manifest, chains);
+  const chains = buildChains(allChains(cfg).filter((c) => vmOf(c) === "evm"));
+  const solana = allChains(cfg)
+    .filter((c) => vmOf(c) === "svm")
+    .map((c) => new SolanaRelayEndpoint(new SolanaChain(c)));
+  return new Relayer(manifest, chains, solana);
 }
 
 // --------------------------------------------------------------------------- CLI

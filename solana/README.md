@@ -22,15 +22,32 @@ cargo test -p swap-request --lib                                   # wire-format
 ## Running it
 
 ```bash
-npm run solana:up        # validator + LayerZero EndpointV2 cloned from devnet
-npm run solana:build     # swap_request.so
-npm run solana:deploy    # deploys BOTH the OFT and swap_request
-npm run solana:init      # init_store: store PDA + OApp registration
-npm run solana:oft       # init_oft per asset, mint authority, peer wiring
+npm run solana:lz-build    # LayerZero endpoint + simple-messagelib, from the vendored commit
+npm run solana:build       # swap_request.so
+npm run solana:build:oft   # LayerZero's OFT, with OFT_ID baked in
+
+npm run solana:up && npm run chains:up
+npm run solana:deploy      # OFT + swap_request onto the validator
+npm run deploy   -- --config config/localnet-solana.json   # EVM + Solana in one pipeline
+npm run validate -- --config config/localnet-solana.json   # scenario 7 trades from Solana
 ```
 
-After that, three programs are live on the validator: LayerZero's endpoint (cloned), LayerZero's
-OFT (built from vendored source), and CrossStock's `swap_request`.
+For Solana as the **home** chain, also build Orca Whirlpools and the relay, then deploy with
+`config/localnet-solana-home.json`:
+
+```bash
+npm run solana:build:orca    # Orca Whirlpools, from solana/vendor/whirlpool (loaded by solana:up)
+npm run solana:build:relay   # swap_relay, in its own workspace: solana/relay/
+```
+
+`solana/relay/` is a separate Cargo workspace seeded from Orca's lock — under this workspace's
+lock, Orca's dependency tree needs Rust edition 2024, which the SBF cargo cannot parse.
+
+Four LayerZero programs run on the validator: the endpoint and `simple-messagelib` (both built
+from source and loaded at their canonical ids — no devnet access needed), LayerZero's OFT, and
+CrossStock's `swap_request`. `infra/solana/lz-local.ts` initialises the endpoint locally and
+registers `simple-messagelib` as the default library; the relayer then verifies and delivers
+packets exactly as it does on EVM. Toolchain: the Agave 3.0.14 CLI.
 
 ## The two things that are genuinely different from EVM
 

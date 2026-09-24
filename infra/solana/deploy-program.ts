@@ -10,6 +10,7 @@
  *   npm run solana:deploy -- --config config/localnet-solana.json --chain solana-devnet
  */
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { loadConfig, allChains, vmOf } from "../lib/config.js";
 import { SolanaChain } from "./chain.js";
 import { log } from "../lib/logger.js";
@@ -42,7 +43,15 @@ const PROGRAMS = [
     keypair: "solana/keys/swap_request-keypair.json",
     manifestKey: "SwapRequestProgram",
   },
-] as const;
+  {
+    // Only needed when Solana is the HOME chain; built by `npm run solana:build:relay`.
+    label: "swap_relay (CrossStock)",
+    so: "solana/relay/target/deploy/swap_relay.so",
+    keypair: "solana/keys/swap_relay-keypair.json",
+    manifestKey: "SwapRelayProgram",
+    optional: true,
+  },
+] as { label: string; so: string; keypair: string; manifestKey: string; optional?: boolean }[];
 
 async function main(): Promise<void> {
   const cfg = loadConfig(arg("config", "config/localnet-solana.json"));
@@ -79,6 +88,10 @@ async function main(): Promise<void> {
     const deployed: Record<string, string> = {};
     for (const program of PROGRAMS) {
       log.step(program.label);
+      if (program.optional && !existsSync(resolve(program.so))) {
+        log.dim(`not built (${program.so}) — skipped; only a Solana home chain needs it`);
+        continue;
+      }
       const programId = await chain.deployProgram(program.so, program.keypair);
       const info = await chain.accountInfo(programId);
       log.ok(`deployed and executable: ${programId}`);
@@ -88,10 +101,7 @@ async function main(): Promise<void> {
 
     log.banner("Solana programs deployed");
     for (const [key, id] of Object.entries(deployed)) log.kv(key, id);
-    log.info("\nStill required before a trade can round-trip through this chain:");
-    log.info("  - init_oft for each asset, and init_store on swap_request");
-    log.info("  - peer wiring, and relayer support for the SVM delivery path");
-    log.info("See agents.md section 12.");
+    log.info(`\nNext: npm run deploy -- --config <this config> — it initialises the OFTs, stores and peers.`);
   }
 }
 

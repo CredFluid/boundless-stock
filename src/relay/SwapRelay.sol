@@ -76,6 +76,15 @@ contract SwapRelay is OApp, IOAppComposer {
     mapping(uint32 eid => uint128 gas) public returnGas;
     /// @notice Gas granted to `SwapRequest.lzCompose` on each mirror chain.
     mapping(uint32 eid => uint128 gas) public returnComposeGas;
+    /**
+     * @notice Native value the executor delivers with the return's `lzReceive`, in the mirror
+     *         chain's own units.
+     * @dev Zero for an EVM mirror. A Solana mirror needs lamports here: its OFT creates the
+     *      recipient's token account on arrival, and that rent is paid from this value. "Gas" on
+     *      a Solana destination is likewise compute units, not EVM gas — the figures are set per
+     *      eid, so each mirror gets options in its own terms.
+     */
+    mapping(uint32 eid => uint128 value) public returnValue;
 
     /// @notice Input that could not be swapped *and* could not be sent home. Retryable.
     mapping(uint32 eid => mapping(uint64 requestId => uint256 amount)) public stranded;
@@ -166,15 +175,7 @@ contract SwapRelay is OApp, IOAppComposer {
         // Authenticate the originator: the order must come from the SwapRequest registered as
         // this relay's peer on that chain.
         if (peers[srcEid] == bytes32(0) || composeFrom != peers[srcEid]) {
-            emit OrderFailed(srcEid, order.requestId, uint8(SwapTypes.FailureReason.UNAUTHORIZED_SOURCE), amountIn);
-            _returnToMirror(
-                srcEid,
-                order.requestId,
-                tokenIn,
-                amountIn,
-                order.recipient,
-                _settlementFor(order.requestId, false, SwapTypes.FailureReason.UNAUTHORIZED_SOURCE, amountIn, 0)
-            );
+            _reject(srcEid, order, tokenIn, amountIn, SwapTypes.FailureReason.UNAUTHORIZED_SOURCE);
             return;
         }
 
@@ -182,19 +183,52 @@ contract SwapRelay is OApp, IOAppComposer {
         // caller is confused or hostile, so the funds go straight back rather than trading.
         bool declaredBuy = order.direction == uint8(SwapTypes.Direction.BUY);
         if (declaredBuy != isBuy) {
-            emit OrderFailed(srcEid, order.requestId, uint8(SwapTypes.FailureReason.POOL_ERROR), amountIn);
-            _returnToMirror(
-                srcEid,
-                order.requestId,
-                tokenIn,
-                amountIn,
-                order.recipient,
-                _settlementFor(order.requestId, false, SwapTypes.FailureReason.POOL_ERROR, amountIn, 0)
-            );
+            _reject(srcEid, order, tokenIn, amountIn, SwapTypes.FailureReason.POOL_ERROR);
             return;
         }
 
         _settle(srcEid, order, tokenIn, tokenOut, amountIn);
+    }
+
+    /// @dev Sends a fill's proceeds back. Its own frame to keep `_settle` under the stack limit.
+    function _deliverFill(
+        uint32 _srcEid,
+        SwapTypes.Order memory _order,
+        IERC20 _tokenIn,
+        uint256 _amountIn,
+        IERC20 _tokenOut,
+        uint256 _amountOut
+    ) internal {
+        emit OrderFilled(_srcEid, _order.requestId, _amountIn, _amountOut);
+        bytes memory settlement = _fillSettlement(
+            _order.requestId,
+            _order.recipient,
+            _tokenIn,
+            _amountIn,
+            _tokenOut,
+            _amountOut
+        );
+        _returnToMirror(_srcEid, _order.requestId, _tokenOut, _amountOut, _order.recipient, settlement);
+    }
+
+    /// @dev Returns an order's input untraded. Its own frame to keep `lzCompose` under the
+    ///      stack limit.
+    function _reject(
+        uint32 _srcEid,
+        SwapTypes.Order memory _order,
+        IERC20 _tokenIn,
+        uint256 _amountIn,
+        SwapTypes.FailureReason _reason
+    ) internal {
+        emit OrderFailed(_srcEid, _order.requestId, uint8(_reason), _amountIn);
+        _returnToMirror(
+            _srcEid,
+            _order.requestId,
+            _tokenIn,
+            _amountIn,
+            _order.recipient,
+            _refundSettlement(_order.requestId, _order.recipient, _reason, _tokenIn, _amountIn)
+        );
     }
 
     /// @dev Executes against the pool, then returns either the proceeds or the input.
@@ -212,8 +246,14 @@ contract SwapRelay is OApp, IOAppComposer {
         // the user's input for a result they can never receive. Raising the floor makes the
         // venue reject the trade instead, which routes into the refund path and returns the
         // user's money. Found by the invariant fuzzer; see NOTES.md.
-        uint256 minOut = _order.minAmountOut;
+        //
+        // The floor arrives in shared decimals. Saturate rather than overflow: a revert here
+        // would leave the compose permanently failing with the user's input stuck in this
+        // contract, whereas an unreachable floor simply fails the swap into the refund path.
         uint256 quantum = _bridgeQuantum(address(_tokenOut));
+        uint256 minOut = _order.minAmountOut > type(uint256).max / quantum
+            ? type(uint256).max
+            : _order.minAmountOut * quantum;
         if (minOut < quantum) minOut = quantum;
 
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
@@ -229,28 +269,12 @@ contract SwapRelay is OApp, IOAppComposer {
 
         try router.exactInputSingle(params) returns (uint256 amountOut) {
             _tokenIn.forceApprove(address(router), 0);
-            emit OrderFilled(_srcEid, _order.requestId, _amountIn, amountOut);
-            _returnToMirror(
-                _srcEid,
-                _order.requestId,
-                _tokenOut,
-                amountOut,
-                _order.recipient,
-                _settlementFor(_order.requestId, true, SwapTypes.FailureReason.NONE, _amountIn, amountOut)
-            );
+            _deliverFill(_srcEid, _order, _tokenIn, _amountIn, _tokenOut, amountOut);
         } catch {
             // Clear the approval before anything else: the router must not keep an allowance
             // over tokens that are about to be bridged away.
             _tokenIn.forceApprove(address(router), 0);
-            emit OrderFailed(_srcEid, _order.requestId, uint8(SwapTypes.FailureReason.SLIPPAGE), _amountIn);
-            _returnToMirror(
-                _srcEid,
-                _order.requestId,
-                _tokenIn,
-                _amountIn,
-                _order.recipient,
-                _settlementFor(_order.requestId, false, SwapTypes.FailureReason.SLIPPAGE, _amountIn, 0)
-            );
+            _reject(_srcEid, _order, _tokenIn, _amountIn, SwapTypes.FailureReason.SLIPPAGE);
         }
     }
 
@@ -282,10 +306,7 @@ contract SwapRelay is OApp, IOAppComposer {
             return;
         }
 
-        bytes memory options = OptionsBuilder
-            .newOptions()
-            .addExecutorLzReceiveOption(_returnGas(_dstEid), 0)
-            .addExecutorLzComposeOption(0, _returnComposeGas(_dstEid), 0);
+        bytes memory options = returnOptions(_dstEid);
 
         SendParam memory sendParam = SendParam({
             dstEid: _dstEid,
@@ -356,22 +377,32 @@ contract SwapRelay is OApp, IOAppComposer {
         // Tell the mirror chain, so the request reaches a terminal state instead of sitting
         // PENDING forever. Best-effort: the commonest reason to be here is having run out of
         // native gas, and failing to notify must not undo the strand record itself.
-        _notifyStranded(_dstEid, _requestId, _amount);
+        _notifyStranded(_dstEid, _requestId, _amount / _bridgeQuantum(_token), _beneficiary);
     }
 
-    /// @dev Sends a STRANDED settlement carrying no tokens. Never reverts.
-    function _notifyStranded(uint32 _dstEid, uint64 _requestId, uint256 _amount) internal {
+    /**
+     * @dev Sends a STRANDED settlement carrying no tokens. Never reverts.
+     * @param _amountSD Shared decimals, rounded down — so an amount stranded precisely because
+     *        it is below one quantum reports zero. The exact local figure is in `stranded` and
+     *        the `FundsStranded` event on this chain, which is where it is claimed.
+     */
+    function _notifyStranded(uint32 _dstEid, uint64 _requestId, uint256 _amountSD, bytes32 _beneficiary) internal {
         bytes memory payload = SwapTypes.encodeSettlement(
             SwapTypes.Settlement({
                 requestId: _requestId,
                 status: uint8(SwapTypes.Status.STRANDED),
                 reason: uint8(SwapTypes.FailureReason.POOL_ERROR),
-                amountIn: _amount,
+                amountIn: _amountSD,
                 amountOut: 0,
-                lzNonce: 0
+                lzNonce: 0,
+                recipient: _beneficiary,
+                cancelledPath: bytes32(0)
             })
         );
-        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(_returnGas(_dstEid), 0);
+        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(
+            _returnGas(_dstEid),
+            returnValue[_dstEid]
+        );
 
         try this.quoteStrandedNotice(_dstEid, payload, options) returns (uint256 fee) {
             if (address(this).balance >= fee) {
@@ -421,22 +452,51 @@ contract SwapRelay is OApp, IOAppComposer {
         emit StrandedClaimed(_srcEid, _requestId, token, to, amount);
     }
 
-    function _settlementFor(
+    /// @dev Settlements are the one place local figures become wire figures, so amounts are
+    ///      converted to shared decimals here — rounded down, which is exactly what the OFT
+    ///      delivers.
+    function _fillSettlement(
         uint64 _requestId,
-        bool _filled,
-        SwapTypes.FailureReason _reason,
+        bytes32 _recipient,
+        IERC20 _tokenIn,
         uint256 _amountIn,
+        IERC20 _tokenOut,
         uint256 _amountOut
-    ) internal pure returns (bytes memory) {
+    ) internal view returns (bytes memory) {
         return
             SwapTypes.encodeSettlement(
                 SwapTypes.Settlement({
                     requestId: _requestId,
-                    status: uint8(_filled ? SwapTypes.Status.FILLED : SwapTypes.Status.REFUNDED),
+                    status: uint8(SwapTypes.Status.FILLED),
+                    reason: uint8(SwapTypes.FailureReason.NONE),
+                    amountIn: _amountIn / _bridgeQuantum(address(_tokenIn)),
+                    amountOut: _amountOut / _bridgeQuantum(address(_tokenOut)),
+                    lzNonce: 0,
+                    recipient: _recipient,
+                    cancelledPath: bytes32(0)
+                })
+            );
+    }
+
+    /// @dev A refund returns the input asset, so `_amountIn` is also what is being sent back.
+    function _refundSettlement(
+        uint64 _requestId,
+        bytes32 _recipient,
+        SwapTypes.FailureReason _reason,
+        IERC20 _tokenIn,
+        uint256 _amountIn
+    ) internal view returns (bytes memory) {
+        return
+            SwapTypes.encodeSettlement(
+                SwapTypes.Settlement({
+                    requestId: _requestId,
+                    status: uint8(SwapTypes.Status.REFUNDED),
                     reason: uint8(_reason),
-                    amountIn: _amountIn,
-                    amountOut: _amountOut,
-                    lzNonce: 0
+                    amountIn: _amountIn / _bridgeQuantum(address(_tokenIn)),
+                    amountOut: 0,
+                    lzNonce: 0,
+                    recipient: _recipient,
+                    cancelledPath: bytes32(0)
                 })
             );
     }
@@ -458,7 +518,13 @@ contract SwapRelay is OApp, IOAppComposer {
             IERC20(token),
             amount,
             strandedBeneficiary[_dstEid][_requestId],
-            _settlementFor(_requestId, false, SwapTypes.FailureReason.POOL_ERROR, amount, 0)
+            _refundSettlement(
+                _requestId,
+                strandedBeneficiary[_dstEid][_requestId],
+                SwapTypes.FailureReason.POOL_ERROR,
+                IERC20(token),
+                amount
+            )
         );
     }
 
@@ -473,6 +539,20 @@ contract SwapRelay is OApp, IOAppComposer {
 
     function setReturnComposeGas(uint32 _eid, uint128 _gas) external onlyOwner {
         returnComposeGas[_eid] = _gas;
+    }
+
+    function setReturnValue(uint32 _eid, uint128 _value) external onlyOwner {
+        returnValue[_eid] = _value;
+    }
+
+    /// @notice Executor options for a return leg to `_eid`: what the destination is asked to
+    ///         run, in that destination's own terms.
+    function returnOptions(uint32 _eid) public view returns (bytes memory) {
+        return
+            OptionsBuilder
+                .newOptions()
+                .addExecutorLzReceiveOption(_returnGas(_eid), returnValue[_eid])
+                .addExecutorLzComposeOption(0, _returnComposeGas(_eid), 0);
     }
 
     function _returnGas(uint32 _eid) internal view returns (uint128) {
@@ -556,10 +636,15 @@ contract SwapRelay is OApp, IOAppComposer {
                 reason: uint8(SwapTypes.FailureReason.NONE),
                 amountIn: 0,
                 amountOut: 0,
-                lzNonce: _nonce
+                lzNonce: _nonce,
+                recipient: bytes32(0),
+                cancelledPath: _sender // nonces are per path; the mirror needs both to find the request
             })
         );
-        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(_returnGas(_srcEid), 0);
+        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(
+            _returnGas(_srcEid),
+            returnValue[_srcEid]
+        );
         MessagingFee memory fee = _quote(_srcEid, payload, options, false);
         _lzSend(_srcEid, payload, options, fee, address(this));
 
