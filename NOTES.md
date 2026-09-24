@@ -1701,3 +1701,33 @@ more than one, counting only the first would have been wrong the moment tokens r
 **Why it matters / what breaks if ignored:** the second local chain uses eid 40999, a local-only
 id; a live deployment uses the chains' real eids. Both multi-Solana topologies, the single-Solana
 ones (EVM home + Solana mirror; Solana home) and EVM-only were rerun after the change.
+
+---
+
+### [2026-09-24] Supply accounting across VMs, in-flight amounts included
+**Milestone:** M31
+
+**What happened / what to know:** The omnichain supply invariant was checkable from chain state
+on EVM only, where `OmniToken` counts `bridgedOut`/`bridgedIn`. The Solana OFT had no
+equivalent, so scenarios 7 and 8 could compare mint supplies only once everything had landed.
+The vendored OFT now carries the same two counters, appended to `OFTStore` (u128, local
+decimals): `send` counts what goes on the wire (dust and fee removed), `lz_receive` what comes
+off it, and `recovery_credit` counts as an arrival — exactly how `OmniToken.recoveryCredit`
+counts. That last one needs the OFT store writable in `recovery_credit`, so `swap_request`'s
+cancellation plan and CPI now pass it writable.
+
+`infra/lib/omnisupply.ts` measures every chain of every VM: each chain's share (for an adapter,
+its supply less what is locked), the home pool's holding, and in flight = Σ out − Σ in over
+every OFT, rescaled to the finest local decimals so the comparison is exact. `npm run supply`
+reports it for any topology and exits non-zero if supply + in flight differs from genesis (or,
+for an adapted asset, from the underlying token's supply). Scenario 9 checks it mid-flight — an
+SVM → SVM transfer, burned on the source and not yet minted, is exactly the counters' in-flight
+figure — and after delivery, measured against a baseline because scenario 4 may leave an EVM
+message stalled.
+
+**Why it matters / what breaks if ignored:** the counters are appended fields, so upstream tools
+still read every field they know, but an `OFTStore` created by an unmodified build is shorter and
+will not load under this one: deploy fresh. Validation, with the new programs: EVM home + two
+Solana mirrors 9/9 (15,000 USDC shown in flight mid-transfer; exact across five chains after);
+Solana home + Solana mirror 2/2 (the same, across six chains); Solana home with an adapted mint
+2/2, and `npm run supply` conserved for all three.
