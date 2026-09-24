@@ -92,7 +92,8 @@ export class Harness {
     const svm = allChains(config)
       .filter((c) => vmOf(c) === "svm")
       .map((c) => new SolanaChain(c));
-    this.solana = svm.map((c) => new SolanaSwapClient(config, c));
+    // A client per Solana MIRROR; a Solana home chain has no SwapRequest to drive.
+    this.solana = svm.filter((c) => c.config.key !== config.homeChain.key).map((c) => new SolanaSwapClient(config, c));
     this.relayer =
       manifest.environment === "local"
         ? new Relayer(manifest, this.chains, svm.map((c) => new SolanaRelayEndpoint(c)))

@@ -1,0 +1,370 @@
+{
+  "name": "crossstock-solana-home",
+  "version": "1",
+  "createdAt": "2026-09-24T00:44:29.126Z",
+  "updatedAt": "2026-09-24T00:44:53.994Z",
+  "environment": "local",
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "token": {
+    "name": "Tokenized Apple Inc.",
+    "symbol": "tAAPL",
+    "decimals": 18,
+    "initialSupply": "1000000"
+  },
+  "quoteAsset": {
+    "name": "USD Coin",
+    "symbol": "USDC",
+    "decimals": 6,
+    "initialSupply": "50000000"
+  },
+  "homeChainKey": "solana-devnet",
+  "chains": {
+    "base-sepolia": {
+      "key": "base-sepolia",
+      "name": "Base Sepolia",
+      "vm": "evm",
+      "chainId": 84532,
+      "eid": 40245,
+      "role": "mirror",
+      "lzEndpoint": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "localMessageLib": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+      "contracts": {
+        "TokenizedStock": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+        "QuoteAsset": "0x610178da211fef7d417bc0e6fed39f05609ad788",
+        "TokenizedStockOft": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+        "QuoteAssetOft": "0x610178da211fef7d417bc0e6fed39f05609ad788",
+        "SwapRequest": "0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae"
+      },
+      "deploymentGas": {
+        "gasUsed": "15783665",
+        "txCount": 22
+      }
+    },
+    "arbitrum-sepolia": {
+      "key": "arbitrum-sepolia",
+      "name": "Arbitrum Sepolia",
+      "vm": "evm",
+      "chainId": 421614,
+      "eid": 40231,
+      "role": "mirror",
+      "lzEndpoint": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "localMessageLib": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+      "contracts": {
+        "TokenizedStock": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+        "QuoteAsset": "0x610178da211fef7d417bc0e6fed39f05609ad788",
+        "TokenizedStockOft": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+        "QuoteAssetOft": "0x610178da211fef7d417bc0e6fed39f05609ad788",
+        "SwapRequest": "0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae"
+      },
+      "deploymentGas": {
+        "gasUsed": "15783665",
+        "txCount": 22
+      }
+    },
+    "optimism-sepolia": {
+      "key": "optimism-sepolia",
+      "name": "Optimism Sepolia",
+      "vm": "evm",
+      "chainId": 11155420,
+      "eid": 40232,
+      "role": "mirror",
+      "lzEndpoint": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "localMessageLib": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+      "contracts": {
+        "TokenizedStock": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+        "QuoteAsset": "0x610178da211fef7d417bc0e6fed39f05609ad788",
+        "TokenizedStockOft": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+        "QuoteAssetOft": "0x610178da211fef7d417bc0e6fed39f05609ad788",
+        "SwapRequest": "0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae"
+      },
+      "deploymentGas": {
+        "gasUsed": "15783665",
+        "txCount": 22
+      }
+    }
+  },
+  "peers": [
+    {
+      "kind": "oft",
+      "label": "TokenizedStockOft",
+      "fromChain": "base-sepolia",
+      "toChain": "arbitrum-sepolia",
+      "toEid": 40231,
+      "expected": "0x0000000000000000000000008A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "actual": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
+      "verified": true,
+      "txHash": "0xc316ac40b3f1f028d6abeb63543bd3af44794fb04a463ba79d85785ef2649b25"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStockOft",
+      "fromChain": "base-sepolia",
+      "toChain": "optimism-sepolia",
+      "toEid": 40232,
+      "expected": "0x0000000000000000000000008A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "actual": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
+      "verified": true,
+      "txHash": "0x1c69d37375345a08ad9a18f18f65a8ef51eae433266bbd44c9875590d7467144"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStockOft",
+      "fromChain": "base-sepolia",
+      "toChain": "solana-devnet",
+      "toEid": 40168,
+      "expected": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
+      "actual": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
+      "verified": true,
+      "txHash": "0x7a473049fb14cfa8d122889c34e0c8c0bf4f25e4ba06bd62a32d28404bf917da"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStockOft",
+      "fromChain": "arbitrum-sepolia",
+      "toChain": "base-sepolia",
+      "toEid": 40245,
+      "expected": "0x0000000000000000000000008A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "actual": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
+      "verified": true,
+      "txHash": "0x1c637d5034caa57fa1150a911edff86ba733c964cec6e829950213c3c33a28c9"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStockOft",
+      "fromChain": "arbitrum-sepolia",
+      "toChain": "optimism-sepolia",
+      "toEid": 40232,
+      "expected": "0x0000000000000000000000008A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "actual": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
+      "verified": true,
+      "txHash": "0xa95c6a607a00640da49e2f0fe5ae78614039b449aa1102c40b7c0f1ee1618ec5"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStockOft",
+      "fromChain": "arbitrum-sepolia",
+      "toChain": "solana-devnet",
+      "toEid": 40168,
+      "expected": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
+      "actual": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
+      "verified": true,
+      "txHash": "0x37bc47062e25fea3e344dc9876d6f52b7dff90575cb0a2f5962286af2cc1d190"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStockOft",
+      "fromChain": "optimism-sepolia",
+      "toChain": "base-sepolia",
+      "toEid": 40245,
+      "expected": "0x0000000000000000000000008A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "actual": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
+      "verified": true,
+      "txHash": "0x0a20ce497be63d54751e522bf91346efe8b586e60a597287f4730fac16f8390f"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStockOft",
+      "fromChain": "optimism-sepolia",
+      "toChain": "arbitrum-sepolia",
+      "toEid": 40231,
+      "expected": "0x0000000000000000000000008A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "actual": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
+      "verified": true,
+      "txHash": "0xe941674897dd96e1d7e4211b1ab5d2b5c467218e2f415fda572ffc96fb3b2d51"
+    },
+    {
+      "kind": "oft",
+      "label": "TokenizedStockOft",
+      "fromChain": "optimism-sepolia",
+      "toChain": "solana-devnet",
+      "toEid": 40168,
+      "expected": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
+      "actual": "0xb2263406422c71cc65b717346b56de137215f12a71c98919b253a93fcfa117a9",
+      "verified": true,
+      "txHash": "0x4ac9cdb5eae1a2c9a77e3811d1c47f4d13307b418c1f6947a71003a6d584d16a"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAssetOft",
+      "fromChain": "base-sepolia",
+      "toChain": "arbitrum-sepolia",
+      "toEid": 40231,
+      "expected": "0x000000000000000000000000610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "actual": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+      "verified": true,
+      "txHash": "0x8b5e1073d06d60b07b5306a760d729154c06fd25cac3a362e62add63f1c4eb6a"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAssetOft",
+      "fromChain": "base-sepolia",
+      "toChain": "optimism-sepolia",
+      "toEid": 40232,
+      "expected": "0x000000000000000000000000610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "actual": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+      "verified": true,
+      "txHash": "0xe70e3ad97d103b1fb6056045576dcb17ecae166e5e9984d748cb51fc385e49da"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAssetOft",
+      "fromChain": "base-sepolia",
+      "toChain": "solana-devnet",
+      "toEid": 40168,
+      "expected": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
+      "actual": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
+      "verified": true,
+      "txHash": "0x87213315be61564ce76073f5c161707cc7d25c5c9eed6c3ee157ccea9d1794f3"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAssetOft",
+      "fromChain": "arbitrum-sepolia",
+      "toChain": "base-sepolia",
+      "toEid": 40245,
+      "expected": "0x000000000000000000000000610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "actual": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+      "verified": true,
+      "txHash": "0xb8b894a753a5ee2e9ac9fe5089119b9e2394b727b19fdbd932f845c556b21a9d"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAssetOft",
+      "fromChain": "arbitrum-sepolia",
+      "toChain": "optimism-sepolia",
+      "toEid": 40232,
+      "expected": "0x000000000000000000000000610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "actual": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+      "verified": true,
+      "txHash": "0x85d44c729fca297b663005233313ab7dc37dd18833b581e7eda14958bac2a52a"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAssetOft",
+      "fromChain": "arbitrum-sepolia",
+      "toChain": "solana-devnet",
+      "toEid": 40168,
+      "expected": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
+      "actual": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
+      "verified": true,
+      "txHash": "0xf6e5dc79ed82bfa8946344e32b56c4e7e225f31d94d6e9f8a9b50268fe0c3aa4"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAssetOft",
+      "fromChain": "optimism-sepolia",
+      "toChain": "base-sepolia",
+      "toEid": 40245,
+      "expected": "0x000000000000000000000000610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "actual": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+      "verified": true,
+      "txHash": "0xb9c4681b993e54f6b2ea13dc03f7cd68c244a240bc476cd9e6bb4575c0102487"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAssetOft",
+      "fromChain": "optimism-sepolia",
+      "toChain": "arbitrum-sepolia",
+      "toEid": 40231,
+      "expected": "0x000000000000000000000000610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "actual": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+      "verified": true,
+      "txHash": "0xac79d0bfd5f4f0f5be3e5488cc5957581bc43ef8bf62c67ada5fdc8038caa6fc"
+    },
+    {
+      "kind": "oft",
+      "label": "QuoteAssetOft",
+      "fromChain": "optimism-sepolia",
+      "toChain": "solana-devnet",
+      "toEid": 40168,
+      "expected": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
+      "actual": "0x224c2877b2bdb8c19399da8b57b4d09bb16907bd6e117641d806417112f5a169",
+      "verified": true,
+      "txHash": "0xfed57554fb44ede89a89021b84f135179e7bca278ccd48ed05a6bed4308018bb"
+    },
+    {
+      "kind": "relay",
+      "label": "swap_relay↔SwapRequest",
+      "fromChain": "base-sepolia",
+      "toChain": "solana-devnet",
+      "toEid": 40168,
+      "expected": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
+      "actual": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
+      "verified": true,
+      "txHash": "0xca644008c910489fe44757c0aaaf6113f626d81b3d57c9ef758c4e3f8d39e0ba"
+    },
+    {
+      "kind": "relay",
+      "label": "swap_relay↔SwapRequest",
+      "fromChain": "arbitrum-sepolia",
+      "toChain": "solana-devnet",
+      "toEid": 40168,
+      "expected": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
+      "actual": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
+      "verified": true,
+      "txHash": "0x17cb4caef8cf0ba6c3df3e27645afeac39079e3aff90201dd9e4bfbb6dbe1089"
+    },
+    {
+      "kind": "relay",
+      "label": "swap_relay↔SwapRequest",
+      "fromChain": "optimism-sepolia",
+      "toChain": "solana-devnet",
+      "toEid": 40168,
+      "expected": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
+      "actual": "0xd8ea6894457a6a9ffea8f690fb606e1624ebd17307c51aee818b1e9b6d8ad27b",
+      "verified": true,
+      "txHash": "0xc0fbf6396120c8706d08706db55793b8e08395673e2fce2e1a50b2293656ecce"
+    }
+  ],
+  "steps": [
+    {
+      "module": "00-endpoints",
+      "status": "ok",
+      "at": "2026-09-24T00:44:29.454Z",
+      "detail": "4 chains"
+    },
+    {
+      "module": "02-mirrors",
+      "status": "ok",
+      "at": "2026-09-24T00:44:29.551Z",
+      "detail": "3 mirrors × 2 assets"
+    },
+    {
+      "module": "03-peers:TokenizedStockOft",
+      "status": "ok",
+      "at": "2026-09-24T00:44:45.588Z",
+      "detail": "9/9 verified"
+    },
+    {
+      "module": "03-peers:QuoteAssetOft",
+      "status": "ok",
+      "at": "2026-09-24T00:44:45.688Z",
+      "detail": "9/9 verified"
+    },
+    {
+      "module": "03-peers:swap_relay↔SwapRequest",
+      "status": "ok",
+      "at": "2026-09-24T00:44:53.993Z",
+      "detail": "3/3 verified"
+    },
+    {
+      "module": "06-manifest",
+      "status": "ok",
+      "at": "2026-09-24T00:44:53.994Z",
+      "detail": "0 problems"
+    }
+  ],
+  "pool": {
+    "address": "H7fr7aP9MUsBYvYjBTFiMrUSjs1Z95vCKFxjQNcRMYdb",
+    "token0": "4P8mHUDxm1er1cmmSLs1pXVyNr4QykbNzV6295vphMux",
+    "token1": "BjmNm2wfJiLMAwJDHaCHRPzcovqfvzQoEdg3Vet69aQ1",
+    "feeTier": 3000,
+    "initialPrice": "150",
+    "sqrtPriceX96": "n/a — Orca Whirlpool (Q64.64), see the Solana deployment file",
+    "liquidity": "see the Solana deployment file",
+    "reserves": {
+      "base": "100000",
+      "quote": "15000000"
+    }
+  }
+}

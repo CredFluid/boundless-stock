@@ -1497,3 +1497,59 @@ minter, to mint without limit. The OFT program is now pinned in the store at ini
 home stock OFT, so the return cannot even be quoted) and cancels an order the relayer never
 delivers; both reach the Solana request, the retry and the mint-back each pay exactly once, and
 supply stays exact across VMs. 7/7 on the mixed deployment; Foundry 64/64; Rust 34/34.
+
+---
+
+### [2026-09-24] Solana as the home chain: what was different, and what it took
+**Milestone:** M26
+
+**What happened / what to know:** With `homeChain` on Solana, `npm run deploy` mints the full
+supply on Solana, creates an Orca Whirlpool, deploys `swap_relay`, and points EVM mirrors'
+SwapRequests at it. Scenario 8: a user on Base spends 15,000 USDC and receives 99.32568 tAAPL
+priced by the Whirlpool; an unsatisfiable floor refunds without swapping; a sell pays out on
+Base; supply is exact across VMs.
+
+**Refund has to be decided before the swap.** On EVM, `SwapRelay` tries the swap and refunds in
+the `catch`. Solana cannot catch a failed CPI — a reverting swap takes the whole delivery with it,
+leaving the order queued and the user unrefunded. So `swap_relay` quotes first, with Orca's own
+`swap_manager::swap` over the same accounts, read only; the same code then executes the fill.
+Orca's crate exposes everything needed (`SparseSwapTickSequenceBuilder`, `OracleAccessor`,
+`swap_manager::swap`). If the price moves between quote and swap, the swap fails on the user's
+own floor and the delivery reverts — still retryable, never a loss.
+
+**The tick arrays are checked, not trusted.** The Executor chooses the accounts; a submitter who
+could pass the wrong tick arrays could make a fillable order quote as unfillable and force a
+refund. The handler derives the three Orca itself would use (a port of Orca's private
+`get_start_tick_indexes`) and requires exactly those.
+
+**The return leg's account list is recorded at setup.** A return is a full OFT `send` —
+the OFT's accounts, the endpoint's, the message library's, ~20 in all — and planning cannot
+derive them on chain without re-implementing each library's account logic. They are static per
+(asset, destination), so setup derives them once with LayerZero's OFT SDK and records a
+`ReturnRoute`; the handler requires the supplied accounts to match exactly, except the fee
+payer, which the Executor supplies (`AddressLocator::Payer`) and must sign. Planning cannot know
+whether the order will fill or refund — it cannot read the tick arrays to quote — so it names
+both routes; most accounts are shared.
+
+**Two Solana limits shaped the plan.** Return data is capped at 1 KB and a plan naming ~60
+accounts in full is 2,192 bytes; planning therefore reads the relay's address lookup table and
+names accounts by index (`AddressLocator::AltIndex`), ~4 bytes each. And a legacy transaction
+cannot list that many accounts at all; the local relayer now compiles V0 transactions with the
+plan's lookup tables, as LayerZero's Executor does.
+
+**Build notes.** Orca's program builds cleanly from source with platform-tools v1.51 and loads at
+its canonical id. As a library it needs its own workspace (Orca's lock, since the main lock
+walks into edition-2024 crates) and one vendored change: its heap/panic handlers are gated on its
+own entrypoint feature, or they clash with the depending program's. Creating a WhirlpoolsConfig
+requires one of Orca's admin keys; the localnet build accepts two published test keys, which the
+pool module uses. The Orca legacy SDK (0.22.0) works on the pinned `@solana/web3.js` 1.95.8.
+
+**Two bugs found by running it.** Planning omitted the two mint accounts the handler's struct
+ends with; and `initLocalEndpoint` was not idempotent — re-setting a default library to its
+current value fails with `SameValue` — which only shows on a validator reused across deployments.
+
+**Why it matters / what breaks if ignored:** the `swap_relay` binary includes Orca's
+liquidity-management instructions, which the SBF linker flags for stack size; they are never
+called by the relay — only the swap path is reachable — but a change that starts calling them
+must revisit that. Validation: scenario 8 on a Solana home; 8/8 (7 + skip) on EVM home with a
+Solana mirror; EVM-only unchanged; Foundry 64/64; Rust 34/34 + 9/9.

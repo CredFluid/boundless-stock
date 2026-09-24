@@ -109,15 +109,26 @@ export async function initLocalEndpoint(chain: SolanaChain, remoteEids: number[]
     log.ok("simple-messagelib registered with the endpoint");
   }
 
+  // Only remotes without defaults yet: the endpoint rejects re-setting a default to the value
+  // it already holds (`SameValue`), so a re-run against a live validator must skip them.
+  const added: number[] = [];
   for (const remote of remoteEids) {
+    const [sendCfg] = endpoint.pda.defaultSendLibraryConfig(remote);
+    const [recvCfg] = endpoint.pda.defaultReceiveLibraryConfig(remote);
+    if ((await exists(chain, sendCfg)) && (await exists(chain, recvCfg))) continue;
     const params = { messageLibProgram: publicKey(SIMPLE_MESSAGELIB_PROGRAM_ID), remote };
     await send(
       chain,
       await endpoint.setDefaultSendLibrary(rpc, payer, params),
       await endpoint.setDefaultReceiveLibrary(rpc, payer, params)
     );
+    added.push(remote);
   }
-  log.ok(`default send/receive library set for ${remoteEids.length} remote eid(s): ${remoteEids.join(", ")}`);
+  log.ok(
+    added.length > 0
+      ? `default send/receive library set for remote eid(s) ${added.join(", ")}`
+      : `defaults already set for all ${remoteEids.length} remote eid(s)`
+  );
 }
 
 /**

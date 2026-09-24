@@ -75,12 +75,12 @@ const u32be = (n: number): Buffer => {
   return b;
 };
 
-function programIdFrom(keypairPath: string): PublicKey {
+export function programIdFrom(keypairPath: string): PublicKey {
   return new PublicKey(execFileSync("solana-keygen", ["pubkey", keypairPath], { encoding: "utf8" }).trim());
 }
 
 /** An EVM address as LayerZero addresses it: left-padded into 32 bytes. */
-function evmAddressToBytes32(address: string): Buffer {
+export function evmAddressToBytes32(address: string): Buffer {
   return Buffer.from(address.replace(/^0x/, "").padStart(64, "0"), "hex");
 }
 
@@ -122,17 +122,27 @@ interface PeerLink {
   verified: boolean;
 }
 
-async function initOft(
+export async function initOft(
   chain: SolanaChain,
   chainConfig: ChainConfig,
   oftProgram: PublicKey,
-  asset: { symbol: string; decimals: number },
+  asset: { symbol: string; decimals: number; genesisSupply?: string },
   remotes: { eid: number; oft: string }[]
 ): Promise<OftDeployment> {
   log.step(`${asset.symbol} — OFT`);
 
   const keypairPath = chainConfig.svm!.keypairPath!;
   const mint = createMint(chainConfig.rpcUrl, keypairPath, asset.decimals);
+
+  // On the HOME chain the whole supply exists at genesis, in the deployer's wallet — minted
+  // now, while the deployer still holds mint authority. After the handover below only the OFT
+  // can mint, and only for arrivals from other chains, exactly as `OmniToken` on EVM.
+  if (asset.genesisSupply) {
+    const url = ["--url", chainConfig.rpcUrl, "--fee-payer", keypairPath, "--owner", keypairPath];
+    execFileSync("spl-token", ["create-account", mint.toBase58(), ...url], { stdio: "pipe" });
+    execFileSync("spl-token", ["mint", mint.toBase58(), asset.genesisSupply, ...url], { stdio: "pipe" });
+    log.ok(`genesis supply minted: ${asset.genesisSupply} ${asset.symbol}`);
+  }
 
   // Declared `init` with no seeds, so it is a fresh keypair rather than a PDA — and Anchor
   // allocates it, so it only has to sign, not already exist.
@@ -215,7 +225,7 @@ async function initOft(
 }
 
 /** On Solana a peer is a PDA per remote eid, not a mapping slot. Written, then read back. */
-async function wireOftPeer(
+export async function wireOftPeer(
   chain: SolanaChain,
   oftProgram: PublicKey,
   oftStore: PublicKey,
@@ -385,6 +395,8 @@ async function setHomeRelay(
 }
 
 // ---------------------------------------------------------------------------- deployment
+
+export type { OftDeployment };
 
 export interface SolanaDeployment {
   name: string;

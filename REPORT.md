@@ -445,10 +445,22 @@ transfer from the home chain; and a PDA cannot pay fees in the SDK's simulation.
 - Live-cluster concerns the local run cannot show: LayerZero's messaging fee on the OFT `send`
   inside `open_request`, and executor options for a Solana destination expressed in compute
   units and lamports rather than EVM gas.
-- **Solana as the base chain**, which needs a `swap_relay` CPI-ing into Orca Whirlpools or
-  Raydium CLMM. Uniswap V3 has no Solana deployment, so this is a new venue integration rather
-  than a port — and account pre-declaration makes a concentrated-liquidity swap materially
-  harder to express, since the tick arrays a swap touches depend on the price at execution time.
+- On a Solana home: strand/cancel paths on `swap_relay`, and quoted messaging fees on its return
+  leg for live clusters (see `agents.md` §12).
+
+### Solana as the home chain (M26)
+
+**Works end to end locally.** The supply is minted on Solana, the market is an Orca Whirlpool,
+and EVM mirrors trade against it through `swap_relay`: 15,000 USDC on Base → 99.32568 tAAPL on
+Base; an unsatisfiable floor refunds without swapping; a sell pays out on Base; supply is exact
+across VMs (scenario 8). The mirrors' contracts are unchanged — a SwapRequest addresses its home
+by eid, whatever VM it runs.
+
+Two things had to be designed rather than ported. Solana cannot catch a failed CPI, so the relay
+quotes with Orca's own swap maths before swapping instead of refunding in a `catch`. And every
+account must be named in advance, so the return leg's ~20 OFT `send` accounts are recorded per
+(asset, mirror) at setup and checked on every delivery, with a lookup table so the plan fits
+Solana's 1 KB return-data limit and the transaction fits at all.
 
 Four build traps, each of which cost real time, are recorded in `NOTES.md` and
 `solana/README.md`: Rust edition 2024 versus the SBF toolchain's cargo; LayerZero shipping two
@@ -467,8 +479,8 @@ environment variable at build time; and the endpoint CPI account ordering.
 | Deployment infra | 6 modules, fully config-driven, one command, no manual follow-up |
 | Peer wiring | Automated, bidirectional, **read back and verified** on every link |
 | Add-a-chain flow | **Confirmed** to reuse the same modules; verified by doing it on a live deployment |
-| Validation | 7/7 scenarios (incl. a Solana mirror with strand and cancel), 64/64 Foundry tests, 34/34 Rust tests |
-| Solana | **Works as a mirror**: buy, refund, sell, strand-and-retry, cancel, and cross-VM supply conservation verified on a local validator. Not yet a home chain |
+| Validation | 8 scenarios: 1–7 on an EVM home (incl. a Solana mirror), 8 on a Solana home; 64/64 Foundry, 43/43 Rust |
+| Solana | **Works as a mirror and as the home chain**, verified on a local validator: buy, refund, sell and cross-VM supply both ways, plus strand and cancel as a mirror |
 | Biggest gap | No timeout/refund for a stalled message — funds recoverable but never automatically |
 
 The repo carries its own findings: `agents.md` for current state and architecture, `NOTES.md`

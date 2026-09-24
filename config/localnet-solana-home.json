@@ -1,0 +1,71 @@
+{
+  "name": "crossstock-solana-home",
+  "_comment": "Solana as the HOME chain: the full supply, the Orca Whirlpool pool and swap_relay live on Solana; three EVM chains are mirrors with empty OFTs and a SwapRequest each. Same token, pool and relay parameters as the EVM-home configs, so results compare directly. See agents.md section 12.",
+  "token": {
+    "name": "Tokenized Apple Inc.",
+    "symbol": "tAAPL",
+    "decimals": 18,
+    "initialSupply": "1000000"
+  },
+  "quoteAsset": {
+    "name": "USD Coin",
+    "symbol": "USDC",
+    "decimals": 6,
+    "initialSupply": "50000000"
+  },
+  "homeChain": {
+    "key": "solana-devnet",
+    "name": "Solana Devnet (local)",
+    "vm": "svm",
+    "eid": 40168,
+    "rpcUrl": "http://127.0.0.1:8899",
+    "nativeSymbol": "SOL",
+    "svm": {
+      "endpointProgramId": "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6",
+      "keypairPath": ".localnet-solana/payer.json",
+      "commitment": "confirmed"
+    }
+  },
+  "mirrorChains": [
+    {
+      "key": "base-sepolia",
+      "name": "Base Sepolia",
+      "chainId": 84532,
+      "eid": 40245,
+      "rpcUrl": "http://127.0.0.1:8545",
+      "nativeSymbol": "ETH"
+    },
+    {
+      "key": "arbitrum-sepolia",
+      "name": "Arbitrum Sepolia",
+      "chainId": 421614,
+      "eid": 40231,
+      "rpcUrl": "http://127.0.0.1:8546",
+      "nativeSymbol": "ETH"
+    },
+    {
+      "key": "optimism-sepolia",
+      "name": "Optimism Sepolia",
+      "chainId": 11155420,
+      "eid": 40232,
+      "rpcUrl": "http://127.0.0.1:8547",
+      "nativeSymbol": "ETH"
+    }
+  ],
+  "pool": {
+    "feeTier": 3000,
+    "initialPrice": "150",
+    "baseLiquidity": "100000",
+    "quoteLiquidity": "15000000",
+    "tickHalfWidth": 60000
+  },
+  "relay": {
+    "homeLzReceiveGas": 300000,
+    "homeComposeGas": 1200000,
+    "homeComposeValue": "0.01",
+    "returnGas": 300000,
+    "relayNativeBuffer": "1",
+    "returnComposeGas": 400000
+  },
+  "localMessageLibFee": "0.0001"
+}

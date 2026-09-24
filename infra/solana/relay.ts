@@ -18,6 +18,7 @@
  * Only for a local validator. On devnet and mainnet LayerZero's own infrastructure delivers.
  */
 import {
+  AddressLookupTableAccount,
   ComputeBudgetProgram,
   PublicKey,
   TransactionMessage,
@@ -154,24 +155,34 @@ export class SolanaRelayEndpoint {
       | { instructions: UmiInstruction[]; signers: { secretKey: Uint8Array; publicKey: string }[]; addressLookupTables: unknown[] }
   ): Promise<string> {
     if ("instruction" in plan) return this.send([toWeb3JsInstruction(plan.instruction)]);
-    if (plan.addressLookupTables.length > 0) {
-      throw new Error("delivery plan uses address lookup tables, which the local relayer does not load yet");
-    }
     const extra = plan.signers.map((s) => toWeb3JsKeypair(s as never));
+    // A plan that names more accounts than a transaction can list carries lookup tables; the
+    // relay's return leg is the case in point. Resolved from the chain, as an Executor would.
+    const tables: AddressLookupTableAccount[] = [];
+    for (const t of plan.addressLookupTables as { publicKey: string }[]) {
+      const table = (await this.chain.connection.getAddressLookupTable(new PublicKey(t.publicKey))).value;
+      if (!table) throw new Error(`lookup table ${t.publicKey} named by the plan does not exist`);
+      tables.push(table);
+    }
     return this.send(
       plan.instructions.map((i) => toWeb3JsInstruction(i)),
-      extra
+      extra,
+      tables
     );
   }
 
-  private async send(ixs: TransactionInstruction[], extraSigners: ReturnType<typeof toWeb3JsKeypair>[] = []): Promise<string> {
+  private async send(
+    ixs: TransactionInstruction[],
+    extraSigners: ReturnType<typeof toWeb3JsKeypair>[] = [],
+    tables: AddressLookupTableAccount[] = []
+  ): Promise<string> {
     const conn = this.chain.connection;
     const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
     const message = new TransactionMessage({
       payerKey: this.chain.payer.publicKey,
       recentBlockhash: blockhash,
       instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }), ...ixs],
-    }).compileToV0Message();
+    }).compileToV0Message(tables);
     const tx = new VersionedTransaction(message);
     tx.sign([this.chain.payer, ...extraSigners]);
     const sig = await conn.sendTransaction(tx, { skipPreflight: false });

@@ -27,7 +27,6 @@ export async function deployRelays(
 
   const home = chains.get(cfg.homeChain.key)!;
   const relayArtifact = forgeArtifact("SwapRelay");
-  const requestArtifact = forgeArtifact("SwapRequest");
 
   // ---------------------------------------------------------------- home: SwapRelay
 
@@ -58,55 +57,9 @@ export async function deployRelays(
   }
   log.groupEnd();
 
-  // ---------------------------------------------------------------- mirrors: SwapRequest
+  const requests = await deployMirrorRequests(cfg, chains, manifest);
 
-  const requests: Record<string, Address> = {};
-
-  for (const mc of cfg.mirrorChains) {
-    const chain = chains.get(mc.key)!;
-    log.group(`${mc.name} (mirror)`);
-
-    const request =
-      (await reuse(manifest, chain, mc.key, "SwapRequest")) ??
-      (await chain.deploy(requestArtifact, [
-        endpointOf(manifest, mc.key),
-        chain.deployer,
-        getContract(manifest, mc.key, "TokenizedStock"),
-        getContract(manifest, mc.key, "TokenizedStockOft"),
-        getContract(manifest, mc.key, "QuoteAsset"),
-        getContract(manifest, mc.key, "QuoteAssetOft"),
-        cfg.homeChain.eid,
-      ]));
-    log.kv("SwapRequest", request);
-
-    await chain.write(request, requestArtifact.abi, "setGasParams", [
-      BigInt(cfg.relay.homeLzReceiveGas),
-      BigInt(cfg.relay.homeComposeGas),
-      parseEther(cfg.relay.homeComposeValue),
-    ]);
-    log.kv("compose gas / value", `${cfg.relay.homeComposeGas} / ${cfg.relay.homeComposeValue} ETH`);
-
-    setContract(manifest, mc.key, "SwapRequest", request);
-    requests[mc.key] = request;
-    log.groupEnd();
-  }
-
-  // ---------------------------------------------------------------- recovery roles
-
-  // The relay must be each mirror OFT's recoveryMinter so it can restore an input whose
-  // outbound message was killed, and the home OFTs' LayerZero delegate so it is authorised to
-  // do the killing. Both are trusted roles; see agents.md §9.
   const tokenArtifact = forgeArtifact("TokenizedStock");
-  for (const mc of cfg.mirrorChains) {
-    const chain = chains.get(mc.key)!;
-    for (const asset of ["TokenizedStock", "QuoteAsset"] as const) {
-      await chain.write(getContract(manifest, mc.key, asset) as Address, tokenArtifact.abi, "setRecoveryMinter", [
-        requests[mc.key],
-      ]);
-    }
-  }
-  log.ok("mirror OFTs will accept recovery credits from their SwapRequest");
-
   for (const asset of ["TokenizedStockOft", "QuoteAssetOft"] as const) {
     await home.write(getContract(manifest, home.key, asset) as Address, tokenArtifact.abi, "setDelegate", [relay]);
   }
@@ -154,4 +107,67 @@ export async function deployRelays(
 
   recordStep(manifest, "05-relays", "ok", `relay + ${cfg.mirrorChains.length} requests, ${result.verified} links`);
   return { relay, requests };
+}
+
+/**
+ * The mirror half of module 5: a SwapRequest on every mirror chain, pointed at the home chain's
+ * relay by eid, with the gas it forwards and the role that lets it restore a cancelled input.
+ *
+ * Separate from the home half because it does not care what the home chain is: an EVM
+ * SwapRelay and a Solana `swap_relay` are both just a peer at `cfg.homeChain.eid`.
+ */
+export async function deployMirrorRequests(
+  cfg: DeploymentConfig,
+  chains: Map<string, Chain>,
+  manifest: Manifest
+): Promise<Record<string, Address>> {
+  const requestArtifact = forgeArtifact("SwapRequest");
+
+  const requests: Record<string, Address> = {};
+
+  for (const mc of cfg.mirrorChains) {
+    const chain = chains.get(mc.key)!;
+    log.group(`${mc.name} (mirror)`);
+
+    const request =
+      (await reuse(manifest, chain, mc.key, "SwapRequest")) ??
+      (await chain.deploy(requestArtifact, [
+        endpointOf(manifest, mc.key),
+        chain.deployer,
+        getContract(manifest, mc.key, "TokenizedStock"),
+        getContract(manifest, mc.key, "TokenizedStockOft"),
+        getContract(manifest, mc.key, "QuoteAsset"),
+        getContract(manifest, mc.key, "QuoteAssetOft"),
+        cfg.homeChain.eid,
+      ]));
+    log.kv("SwapRequest", request);
+
+    await chain.write(request, requestArtifact.abi, "setGasParams", [
+      BigInt(cfg.relay.homeLzReceiveGas),
+      BigInt(cfg.relay.homeComposeGas),
+      parseEther(cfg.relay.homeComposeValue),
+    ]);
+    log.kv("compose gas / value", `${cfg.relay.homeComposeGas} / ${cfg.relay.homeComposeValue} ETH`);
+
+    setContract(manifest, mc.key, "SwapRequest", request);
+    requests[mc.key] = request;
+    log.groupEnd();
+  }
+
+  // ---------------------------------------------------------------- recovery roles
+
+  // The relay must be each mirror OFT's recoveryMinter so it can restore an input whose
+  // outbound message was killed, and the home OFTs' LayerZero delegate so it is authorised to
+  // do the killing. Both are trusted roles; see agents.md §9.
+  const tokenArtifact = forgeArtifact("TokenizedStock");
+  for (const mc of cfg.mirrorChains) {
+    const chain = chains.get(mc.key)!;
+    for (const asset of ["TokenizedStock", "QuoteAsset"] as const) {
+      await chain.write(getContract(manifest, mc.key, asset) as Address, tokenArtifact.abi, "setRecoveryMinter", [
+        requests[mc.key],
+      ]);
+    }
+  }
+  log.ok("mirror OFTs will accept recovery credits from their SwapRequest");
+  return requests;
 }

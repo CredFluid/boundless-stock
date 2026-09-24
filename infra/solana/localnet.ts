@@ -19,9 +19,11 @@ import { execFileSync } from "node:child_process";
 import { log } from "../lib/logger.js";
 import { LZ_PROGRAMS_DIR } from "./lz-build.js";
 import { SIMPLE_MESSAGELIB_PROGRAM_ID } from "./lz-local.js";
+import { WHIRLPOOL_PROGRAM_ID } from "./ids.js";
 
 /** LayerZero EndpointV2 on Solana. Same program id on mainnet and devnet. */
 export const LZ_ENDPOINT_PROGRAM_ID = "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6";
+const WHIRLPOOL_SO = resolve(process.cwd(), "solana/vendor/whirlpool/target/deploy/whirlpool.so");
 
 /** Where the validator state and payer keypair live. Gitignored. */
 const STATE_DIR = resolve(process.cwd(), ".localnet-solana");
@@ -104,6 +106,11 @@ async function up(): Promise<void> {
       }
       programArgs.push("--upgradeable-program", id, path, payer);
     }
+    // Orca Whirlpools, the home-chain venue when Solana is the home chain. Optional: a
+    // Solana MIRROR needs no pool at all. Built by `npm run solana:build:orca`.
+    if (existsSync(WHIRLPOOL_SO)) {
+      programArgs.push("--upgradeable-program", WHIRLPOOL_PROGRAM_ID, WHIRLPOOL_SO, payer);
+    }
   }
 
   const child = spawn(
@@ -144,6 +151,7 @@ async function up(): Promise<void> {
     `${LZ_ENDPOINT_PROGRAM_ID} (${cloneDevnet ? "cloned from devnet" : "built from source"}, executable)`
   );
   if (!cloneDevnet) log.kv("simple-messagelib", `${SIMPLE_MESSAGELIB_PROGRAM_ID} (built from source)`);
+  if (!cloneDevnet && existsSync(WHIRLPOOL_SO)) log.kv("Orca Whirlpools", `${WHIRLPOOL_PROGRAM_ID} (built from source)`);
   log.info(`\nState: ${STATE_FILE}`);
 }
 

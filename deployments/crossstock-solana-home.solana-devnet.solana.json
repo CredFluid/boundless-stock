@@ -1,0 +1,121 @@
+{
+  "name": "crossstock-solana-home",
+  "vm": "svm",
+  "role": "home",
+  "createdAt": "2026-09-24T00:44:40.936Z",
+  "chain": {
+    "key": "solana-devnet",
+    "name": "Solana Devnet (local)",
+    "eid": 40168,
+    "rpcUrl": "http://127.0.0.1:8899"
+  },
+  "payer": "4WPDQSysV72d8xUjEGjKVDzpTN8T7d2dRtkfsMYV6ohB",
+  "programs": {
+    "endpoint": "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6",
+    "oft": "9xcb9TquFyK9wELi4TpghRVfMxu12NzcgQYMPqG4cFLA",
+    "swapRelay": "ADjsJxDJ4zCr54P2ioDin4uWRi8AQaofvSzh9ZyMWC5b",
+    "whirlpool": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+  },
+  "assets": {
+    "base": {
+      "symbol": "tAAPL",
+      "decimals": 9,
+      "mint": "4P8mHUDxm1er1cmmSLs1pXVyNr4QykbNzV6295vphMux",
+      "oftStore": "CzRMj35ZSRgwzRKuMmKGhYv5zaEw7D3ixnR66C97JKg4",
+      "escrow": "4fTA53QoVLHw4S5977DSsHvHn2Knh8D6zmmioco7v6GX",
+      "peers": [
+        {
+          "remoteEid": 40245,
+          "address": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
+          "verified": true
+        },
+        {
+          "remoteEid": 40231,
+          "address": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
+          "verified": true
+        },
+        {
+          "remoteEid": 40232,
+          "address": "0x0000000000000000000000008a791620dd6260079bf849dc5567adc3f2fdc318",
+          "verified": true
+        }
+      ]
+    },
+    "quote": {
+      "symbol": "USDC",
+      "decimals": 6,
+      "mint": "BjmNm2wfJiLMAwJDHaCHRPzcovqfvzQoEdg3Vet69aQ1",
+      "oftStore": "3JtDYgDanmZtJ2iqiA1MCmDtKMYejz3ypXzF9i8wtHKW",
+      "escrow": "5gzRxcjdGhxnTe17FxMtzuLNE19Gs9Riavme7SikmtU3",
+      "peers": [
+        {
+          "remoteEid": 40245,
+          "address": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+          "verified": true
+        },
+        {
+          "remoteEid": 40231,
+          "address": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+          "verified": true
+        },
+        {
+          "remoteEid": 40232,
+          "address": "0x000000000000000000000000610178da211fef7d417bc0e6fed39f05609ad788",
+          "verified": true
+        }
+      ]
+    }
+  },
+  "pool": {
+    "whirlpool": "H7fr7aP9MUsBYvYjBTFiMrUSjs1Z95vCKFxjQNcRMYdb",
+    "config": "EXBKpSMcxdCkNwdqCab7H9ghHhDMcTPnPPHjx7uvWsww",
+    "tickSpacing": 64,
+    "mintA": "4P8mHUDxm1er1cmmSLs1pXVyNr4QykbNzV6295vphMux",
+    "mintB": "BjmNm2wfJiLMAwJDHaCHRPzcovqfvzQoEdg3Vet69aQ1",
+    "tickArrays": [
+      "GSwWbitBK3DS714BkLREt9UMCf1npaVbAZViSH11gi91",
+      "GsvPaCU4RskEWvbW9KMoMFewE2UkapfC9uRsqQrYX1a",
+      "G49EYjjjVQk7yE31cFUJfwrsJUoGHcfoMLAEqLAwUF65",
+      "CNSVssTyTuLuWsqFBxwXeoSuEmudnv1v78wSK7jqbWPf",
+      "8Hx3gmHxRAUr1LnYdD89yapWCirzw9NHvgSAL7pU5rxn",
+      "F3fwVLHLiMqBZMnAgSzGqzHaNsTp8EnQ2onmfW8SeH3B",
+      "sqHZkB2ZMEjrjZHaWdwPAogUbqKVpZTY6M9DpYQAVQ7",
+      "BrBxQyqLbHCwQZWgebyr8CrWxXGvdZdduR4VgdYfzoi2",
+      "Dv3JQfDD5ogZcLUTkHjAnFqZgpdkouZKs5pHw5HrTZEh",
+      "57xfcqc1YRzhh2uCDX2u2FvHp1MjSjRALyQwxtQHbVve",
+      "Axf33uPohGVVU1qBo6Dj2XQEArhm3UUg76RtqrPar8RM",
+      "GctgFfkv5tbjiPvVqL5TUdNVxQbmqcGYcY4CZ3hnpjyi",
+      "ENjtWHVztt2pZDK9DJrLJJiNTdhUFuztXsU4ydNK19gk",
+      "2Wny8kmnVdJsAQ3ovQ5jxoooZ1Pn3NysgdGxgz3pdajH",
+      "5yh492BBK38Jn9xh9TjUhwYst1jDw8wQLGGHZhGkNyEU",
+      "7pFkXR3eiLK1qca588dwsahH56XSZkCDWCJAao9DFCBw",
+      "BzfxWh4NRuet6RGoz51Fej3vcUsCv6t99c1KoCvDKAgu",
+      "AbityhSBrivepbdU1vQvKAjoi1qoQ3ba8bV2KDhqciCj",
+      "DjGQf9SvcHnJwFUxCqyTBr9ktWgifj1vyRi1CY5biV7Q",
+      "7nCtV8f3npkgwJ5152q6jp9nKJCL7w8aGLsL3rsc3GBU",
+      "5h8p895UzWEhZ7CSppFGaKzFyhFYHLgwHKrL94wJ7Ych",
+      "7ngh67MedR6Dt6qCxV5m4np9EEDmNyAGNoasbn9SiF23",
+      "Nedox9TmCf6ZVRCxNQtEQ98EAFvpT53wHSSrHTVwJjj"
+    ],
+    "position": "DdqxugXvgECBMBur6b1wyevtCNYkrajPfnrWjGz5vVXU"
+  },
+  "relay": {
+    "store": "FbkNjoe4TriNAbZ14XurB8gGviR4FVN8yCzBWeTCRxBC",
+    "alt": "FysAfvh5VKTwNJ5U7cgwgFDLqn2feMuuyVJRWSsT1AHv",
+    "peers": [
+      {
+        "eid": 40245,
+        "request": "0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae"
+      },
+      {
+        "eid": 40231,
+        "request": "0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae"
+      },
+      {
+        "eid": 40232,
+        "request": "0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae"
+      }
+    ],
+    "routes": 6
+  }
+}
