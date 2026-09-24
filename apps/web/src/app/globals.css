@@ -50,6 +50,32 @@
   }
 }
 
+/* A subtree that is always dark — the landing page — whatever the system setting. */
+[data-theme="dark"] {
+  --bg: #07090c;
+  --surface: #0e1217;
+  --surface-2: #151a21;
+  --border: #212833;
+  --text: #edf0f4;
+  --muted: #8d97a5;
+  --accent: #34c7a4;
+  --accent-soft: #0f2c26;
+  --accent-contrast: #04120d;
+  --evm: #8b85ff;
+  --evm-soft: #1d1b3a;
+  --svm: #c084fc;
+  --svm-soft: #2a1a3a;
+  --ok: #4ade80;
+  --ok-soft: #10281a;
+  --warn: #fbbf24;
+  --warn-soft: #2d230d;
+  --bad: #f87171;
+  --bad-soft: #2d1414;
+  background: var(--bg);
+  color: var(--text);
+  color-scheme: dark;
+}
+
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -83,4 +109,23 @@ body {
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Landing-page textures: a faint engineering grid, and a glow behind the hero. */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--border) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--border) 70%, transparent) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+.mask-fade {
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, #000 40%, transparent 100%);
+}
+.glow {
+  background: radial-gradient(ellipse 60% 50% at 50% 0%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .packet { display: none; }
+  .pulse { animation: none !important; }
 }
