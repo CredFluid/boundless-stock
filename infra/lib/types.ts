@@ -122,6 +122,22 @@ export interface TokenConfig {
    * Only meaningful for the home chain. Mirror chains always receive fresh OmniTokens.
    */
   existingToken?: string;
+  /**
+   * What backs the token off chain, for proof of reserves: the shares held for it, and who
+   * reports them. Compared with the supply measured across every chain.
+   */
+  reserves?: ReservesConfig;
+}
+
+export interface ReservesConfig {
+  /** Shares held for the token, in whole shares. */
+  shares: string;
+  /** Tokens issued per share. Defaults to 1. */
+  tokensPerShare?: number;
+  /** Who reports the figure: a custodian, the issuer, an oracle. */
+  source: string;
+  /** When the figure was reported (ISO date). */
+  asOf?: string;
 }
 
 export interface PoolConfig {

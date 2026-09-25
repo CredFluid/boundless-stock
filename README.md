@@ -139,16 +139,17 @@ SDK (`@crossstock/sdk`) and API (`/api/v1`) offer:
 
 ```bash
 npm install && forge build
-npm run solana:build && npm run solana:build:relay        # swap_request, swap_relay (see solana/README.md for the rest)
+npm run solana:build && npm run solana:build:relay        # the Solana programs (see solana/README.md for the rest)
 
-C=config/localnet-solana-home-svm-mirror.json              # Solana home; three EVM chains + a second Solana chain as spokes
-npm run solana:up -- --config $C && npm run chains:up      # local Solana validators + EVM chains
-npm run solana:deploy -- --config $C                       # programs onto the validators
-npm run deploy   -- --config $C                            # full pipeline -> manifest
-npm run validate -- --config $C                            # scenarios 8, 9, 10, 11
-npm run supply   -- --config $C                            # where every token lives, across chains
+npx crossstock deploy                                      # issue on Solana, mirror to every chain, open the home market
+npx crossstock market                                      # price, supply on every chain, proof of reserves
+npx crossstock buy --on base-sepolia --spend 15000         # buy on another chain, filled on Solana
 npm run web:dev                                            # issuer dashboard: http://localhost:3000/app
 ```
+
+Every command takes `--config <file>`; the default is a Solana home with three EVM chains and a
+second Solana chain as spokes. The step-by-step scripts behind it (`solana:up`, `chains:up`,
+`solana:deploy`, `deploy`, `validate`, `supply`) are still there to run one at a time.
 
 Other setups are a different config, with no code changes:
 

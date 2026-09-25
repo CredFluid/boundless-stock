@@ -1,0 +1,8 @@
+{
+  "name": "@crossstock/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The crossstock command: deploy, market data (price, supply by chain, proof of reserves) and trading from any chain.",
+  "type": "module",
+  "bin": { "crossstock": "bin/crossstock.mjs" }
+}

@@ -5,7 +5,12 @@
     "name": "Tokenized Apple Inc.",
     "symbol": "tAAPL",
     "decimals": 18,
-    "initialSupply": "1000000"
+    "initialSupply": "1000000",
+    "reserves": {
+      "shares": "1000000",
+      "source": "custodian attestation",
+      "asOf": "2026-09-25"
+    }
   },
   "quoteAsset": {
     "name": "USD Coin",
