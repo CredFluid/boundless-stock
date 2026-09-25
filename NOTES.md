@@ -1932,6 +1932,12 @@ reimplementing it, which surfaced four things.
   accounts, the second token program and SPL Memo, which `swap_v2` requires. Both are in the
   relay's lookup table, so the transaction size barely changes. Orca's SDK already picks
   `initialize_pool_v2` and the v2 liquidity instructions for Token-2022 mints.
+- **Gotcha: `swap_v2` takes the pool's oracle PDA as writable; v1 `swap` took it read-only.**
+  The oracle usually doesn't exist (it is only created for adaptive-fee pools), but the runtime
+  still refuses a CPI that escalates an account to writable. The first end-to-end run failed
+  its compose with "Cross-program invocation with unauthorized signer or writable account" on
+  the (nonexistent) oracle address. The relay now plans and declares the oracle as `mut`.
+  `CROSSSTOCK_DEBUG=1` makes the local relayer print a failed compose's program logs.
 - **Refused extensions, checked both at `init_store`/`init_relay` and in the infra before
   anything is sent:**
 

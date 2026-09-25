@@ -255,7 +255,7 @@ pub mod swap_relay {
             meta(ticks[0], true),
             meta(ticks[1], true),
             meta(ticks[2], true),
-            meta(pool::oracle_address(&store.whirlpool_program, &store.whirlpool), false),
+            meta(pool::oracle_address(&store.whirlpool_program, &store.whirlpool), true), // swap_v2 takes it writable
             meta(spl::associated_token_address(&store.key(), &pool.token_mint_a, &store.token_program_for(&pool.token_mint_a)), true),
             meta(spl::associated_token_address(&store.key(), &pool.token_mint_b, &store.token_program_for(&pool.token_mint_b)), true),
             meta(route_base_info.key(), false),
@@ -1041,7 +1041,8 @@ pub struct LzCompose<'info> {
     /// CHECK: as above.
     #[account(mut)]
     pub tick_array_2: UncheckedAccount<'info>,
-    /// CHECK: the pool's oracle PDA; checked in the handler.
+    /// CHECK: the pool's oracle PDA; checked in the handler. Writable because swap_v2 takes it so.
+    #[account(mut)]
     pub oracle: UncheckedAccount<'info>,
     /// CHECK: the relay's token account for the pool's mint A; checked in the handler.
     #[account(mut)]
