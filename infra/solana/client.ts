@@ -59,6 +59,25 @@ export interface SolanaRequest {
   settledAt: bigint;
 }
 
+/** Mirrors `swap_request::state::FeeState`, which mirrors `SwapRequest.FeeState` on EVM. */
+export enum SolanaFeeState {
+  None = 0,
+  Escrowed = 1,
+  Paid = 2,
+  Returned = 3,
+}
+
+export interface SolanaFeeEscrow {
+  partnerId: number;
+  user: PublicKey;
+  mint: PublicKey;
+  partnerRecipient: PublicKey;
+  platformRecipient: PublicKey;
+  partnerFee: bigint;
+  platformFee: bigint;
+  state: SolanaFeeState;
+}
+
 export const ataOf = (owner: PublicKey, mint: PublicKey): PublicKey =>
   PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN_PROGRAM.toBuffer(), mint.toBuffer()], ATA_PROGRAM)[0];
 
@@ -200,6 +219,79 @@ export class SolanaSwapClient {
     minAmountOut: bigint,
     options: Hex
   ): Promise<{ requestId: bigint; signature: string; nativeFee: bigint }> {
+    const o = await this.buildOpen(user, direction, amountIn, minAmountOut, options);
+    const ix = new TransactionInstruction({
+      programId: this.program,
+      keys: [...o.baseKeys, ...o.remaining],
+      data: Buffer.concat([discriminator("open_request"), o.params]),
+    });
+    const tx = new Transaction().add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+      createAtaIdempotent(user.publicKey, this.store, o.tokenIn),
+      ix
+    );
+    const signature = await this.chain.connection.sendTransaction(tx, [user]);
+    await this.chain.connection.confirmTransaction(signature, "confirmed");
+    return { requestId: o.requestId, signature, nativeFee: o.nativeFee };
+  }
+
+  /**
+   * Opens a trade through a partner, carrying the partner's fee.
+   *
+   * `partnerSigner` co-signs: in production that signature comes from the partner's backend,
+   * which checks the transaction is the order it approved before adding it. `amountIn` is what
+   * the user pays; the fees come off it and the rest is traded.
+   */
+  async openRequestViaPartner(
+    user: Keypair,
+    partnerSigner: Keypair,
+    partnerId: number,
+    feeBps: number,
+    direction: SolanaDirection,
+    amountIn: bigint,
+    minAmountOut: bigint,
+    options: Hex
+  ): Promise<{ requestId: bigint; signature: string; nativeFee: bigint }> {
+    const o = await this.buildOpen(user, direction, amountIn, minAmountOut, options);
+    const fee = Buffer.alloc(2);
+    fee.writeUInt16LE(feeBps);
+    const vaultAta = ataOf(this.feeVault(), o.tokenIn);
+    const ix = new TransactionInstruction({
+      programId: this.program,
+      keys: [
+        ...o.baseKeys,
+        { pubkey: partnerSigner.publicKey, isSigner: true, isWritable: false },
+        { pubkey: this.partnerAddress(partnerId), isSigner: false, isWritable: false },
+        { pubkey: this.feeEscrowAddress(o.requestId), isSigner: false, isWritable: true },
+        { pubkey: vaultAta, isSigner: false, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ...o.remaining,
+      ],
+      data: Buffer.concat([discriminator("open_request_via_partner"), o.params, fee]),
+    });
+    const tx = new Transaction().add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+      createAtaIdempotent(user.publicKey, this.store, o.tokenIn),
+      createAtaIdempotent(user.publicKey, this.feeVault(), o.tokenIn),
+      ix
+    );
+    tx.feePayer = user.publicKey;
+    const signature = await this.chain.connection.sendTransaction(tx, [user, partnerSigner]);
+    await this.chain.connection.confirmTransaction(signature, "confirmed");
+    return { requestId: o.requestId, signature, nativeFee: o.nativeFee };
+  }
+
+  /**
+   * Everything `open_request` and `open_request_via_partner` share: the request and nonce
+   * accounts, the OFT send's accounts, and the encoded `OpenRequestParams`.
+   */
+  private async buildOpen(
+    user: Keypair,
+    direction: SolanaDirection,
+    amountIn: bigint,
+    minAmountOut: bigint,
+    options: Hex
+  ) {
     const [tokenIn, tokenOut, inAsset] =
       direction === SolanaDirection.Buy
         ? [this.quoteMint, this.baseMint, this.deployment.assets.quote]
@@ -264,8 +356,7 @@ export class SolanaSwapClient {
 
     const len = Buffer.alloc(4);
     len.writeUInt32LE(optionBytes.length);
-    const data = Buffer.concat([
-      discriminator("open_request"),
+    const params = Buffer.concat([
       Buffer.from([direction]),
       u64le(amountIn),
       u64le(minAmountOut),
@@ -275,33 +366,159 @@ export class SolanaSwapClient {
       u64le(0n), // lz_token_fee
     ]);
 
-    const ix = new TransactionInstruction({
+    const baseKeys = [
+      { pubkey: user.publicKey, isSigner: true, isWritable: true },
+      { pubkey: this.store, isSigner: false, isWritable: true },
+      { pubkey: this.requestAddress(requestId), isSigner: false, isWritable: true },
+      { pubkey: nonceIndex, isSigner: false, isWritable: true },
+      { pubkey: tokenIn, isSigner: false, isWritable: false },
+      { pubkey: tokenOut, isSigner: false, isWritable: false },
+      { pubkey: ataOf(user.publicKey, tokenIn), isSigner: false, isWritable: true },
+      { pubkey: storeEscrow, isSigner: false, isWritable: true },
+      { pubkey: new PublicKey(this.deployment.programs.oft), isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ];
+    return { requestId, nativeFee, tokenIn, params, baseKeys, remaining };
+  }
+
+  // ------------------------------------------------------------------ partners and fees
+
+  partnerAddress(partnerId: number): PublicKey {
+    const id = Buffer.alloc(4);
+    id.writeUInt32BE(partnerId);
+    return PublicKey.findProgramAddressSync([Buffer.from("Partner"), id], this.program)[0];
+  }
+
+  feeEscrowAddress(requestId: bigint): PublicKey {
+    return PublicKey.findProgramAddressSync([Buffer.from("Fee"), u64be(requestId)], this.program)[0];
+  }
+
+  /** The PDA that owns the fee vault's token accounts. */
+  feeVault(): PublicKey {
+    return PublicKey.findProgramAddressSync([Buffer.from("FeeVault")], this.program)[0];
+  }
+
+  /** A request's fee escrow, or null if it carried none (an order not placed through a partner). */
+  async getFeeEscrow(requestId: bigint): Promise<SolanaFeeEscrow | null> {
+    const info = await this.chain.connection.getAccountInfo(this.feeEscrowAddress(requestId));
+    if (!info) return null;
+    const d = info.data;
+    const key = (o: number) => new PublicKey(d.subarray(o, o + 32));
+    // discriminator | request_id u64 | partner_id u32 | user | mint | partner_recipient |
+    // platform_recipient | partner_fee u64 | platform_fee u64 | state u8
+    return {
+      partnerId: d.readUInt32LE(16),
+      user: key(20),
+      mint: key(52),
+      partnerRecipient: key(84),
+      platformRecipient: key(116),
+      partnerFee: d.readBigUInt64LE(148),
+      platformFee: d.readBigUInt64LE(156),
+      state: d[164] as SolanaFeeState,
+    };
+  }
+
+  /**
+   * Releases a finished request's fees — to the partner and platform if it filled, back to the
+   * user otherwise. Permissionless; `payer` only pays for the transaction and any token
+   * accounts it creates.
+   */
+  async settleFees(payer: Keypair, requestId: bigint): Promise<string> {
+    const e = await this.getFeeEscrow(requestId);
+    if (!e) throw new Error(`request ${requestId} has no fee escrow`);
+    const vault = this.feeVault();
+    const recipients = [e.partnerRecipient, e.platformRecipient, e.user];
+    const keys = [
+      { pubkey: this.requestAddress(requestId), isSigner: false, isWritable: false },
+      { pubkey: this.feeEscrowAddress(requestId), isSigner: false, isWritable: true },
+      { pubkey: vault, isSigner: false, isWritable: false },
+      { pubkey: e.mint, isSigner: false, isWritable: false },
+      { pubkey: ataOf(vault, e.mint), isSigner: false, isWritable: true },
+      ...recipients.map((r) => ({ pubkey: ataOf(r, e.mint), isSigner: false, isWritable: true })),
+      { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+    ];
+    const tx = new Transaction();
+    // A recipient that has never held this mint needs its account first. A zero platform
+    // recipient is only named when its fee is zero, and then nothing is paid to it.
+    for (const r of recipients) {
+      if (!r.equals(PublicKey.default)) tx.add(createAtaIdempotent(payer.publicKey, r, e.mint));
+    }
+    tx.add(new TransactionInstruction({ programId: this.program, keys, data: discriminator("settle_fees") }));
+    const sig = await this.chain.connection.sendTransaction(tx, [payer]);
+    await this.chain.connection.confirmTransaction(sig, "confirmed");
+    return sig;
+  }
+
+  /** Registers a partner, or updates it if already registered. Signed by the store admin. */
+  async setPartner(
+    admin: Keypair,
+    partnerId: number,
+    terms: { signer: PublicKey; feeRecipient: PublicKey; maxFeeBps: number; active: boolean }
+  ): Promise<string> {
+    const partner = this.partnerAddress(partnerId);
+    const exists = (await this.chain.connection.getAccountInfo(partner)) !== null;
+    const maxFee = Buffer.alloc(2);
+    maxFee.writeUInt16LE(terms.maxFeeBps);
+    const encoded = Buffer.concat([terms.signer.toBuffer(), terms.feeRecipient.toBuffer(), maxFee, Buffer.from([terms.active ? 1 : 0])]);
+    const id = Buffer.alloc(4);
+    id.writeUInt32LE(partnerId);
+    const ix = exists
+      ? new TransactionInstruction({
+          programId: this.program,
+          keys: [
+            { pubkey: admin.publicKey, isSigner: true, isWritable: false },
+            { pubkey: this.store, isSigner: false, isWritable: false },
+            { pubkey: partner, isSigner: false, isWritable: true },
+          ],
+          data: Buffer.concat([discriminator("update_partner"), encoded]),
+        })
+      : new TransactionInstruction({
+          programId: this.program,
+          keys: [
+            { pubkey: admin.publicKey, isSigner: true, isWritable: true },
+            { pubkey: this.store, isSigner: false, isWritable: false },
+            { pubkey: partner, isSigner: false, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          data: Buffer.concat([discriminator("register_partner"), id, encoded]),
+        });
+    return this.adminSend(admin, ix);
+  }
+
+  async setPartnerRequired(admin: Keypair, required: boolean): Promise<string> {
+    return this.adminSend(admin, this.adminIx(admin, "set_partner_required", Buffer.from([required ? 1 : 0])));
+  }
+
+  async setPlatformFee(admin: Keypair, bps: number, recipient: PublicKey): Promise<string> {
+    const b = Buffer.alloc(2);
+    b.writeUInt16LE(bps);
+    return this.adminSend(admin, this.adminIx(admin, "set_platform_fee", Buffer.concat([b, recipient.toBuffer()])));
+  }
+
+  /** The store's partner settings, read from the fields appended after `oft_program`. */
+  async partnerSettings(): Promise<{ partnerRequired: boolean; platformFeeBps: number; platformFeeRecipient: PublicKey }> {
+    const d = (await this.chain.connection.getAccountInfo(this.store))!.data;
+    // … next_request_id u64 | bump u8 | shared_decimals u8 | oft_program | partner_required u8 | bps u16 | recipient
+    const o = 8 + 32 + 4 + 32 * 6 + 8 + 1 + 1 + 32;
+    return { partnerRequired: d[o] === 1, platformFeeBps: d.readUInt16LE(o + 1), platformFeeRecipient: new PublicKey(d.subarray(o + 3, o + 35)) };
+  }
+
+  private adminIx(admin: Keypair, name: string, args: Buffer): TransactionInstruction {
+    return new TransactionInstruction({
       programId: this.program,
       keys: [
-        { pubkey: user.publicKey, isSigner: true, isWritable: true },
+        { pubkey: admin.publicKey, isSigner: true, isWritable: false },
         { pubkey: this.store, isSigner: false, isWritable: true },
-        { pubkey: this.requestAddress(requestId), isSigner: false, isWritable: true },
-        { pubkey: nonceIndex, isSigner: false, isWritable: true },
-        { pubkey: tokenIn, isSigner: false, isWritable: false },
-        { pubkey: tokenOut, isSigner: false, isWritable: false },
-        { pubkey: ataOf(user.publicKey, tokenIn), isSigner: false, isWritable: true },
-        { pubkey: storeEscrow, isSigner: false, isWritable: true },
-        { pubkey: new PublicKey(this.deployment.programs.oft), isSigner: false, isWritable: false },
-        { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ...remaining,
       ],
-      data,
+      data: Buffer.concat([discriminator(name), args]),
     });
+  }
 
-    const tx = new Transaction().add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-      createAtaIdempotent(user.publicKey, this.store, tokenIn),
-      ix
-    );
-    const signature = await this.chain.connection.sendTransaction(tx, [user]);
-    await this.chain.connection.confirmTransaction(signature, "confirmed");
-    return { requestId, signature, nativeFee };
+  private async adminSend(admin: Keypair, ix: TransactionInstruction): Promise<string> {
+    const sig = await this.chain.connection.sendTransaction(new Transaction().add(ix), [admin]);
+    await this.chain.connection.confirmTransaction(sig, "confirmed");
+    return sig;
   }
 }
 

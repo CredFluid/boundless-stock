@@ -19,6 +19,7 @@ import { wirePeers, type PeerNode } from "./modules/03-peers.js";
 import { deployPool } from "./modules/04-pool.js";
 import { deployRelays, deployMirrorRequests } from "./modules/05-relays.js";
 import { finalizeManifest, printManifest } from "./modules/06-manifest.js";
+import { applyPartnersForDeployment } from "./lib/partners.js";
 import { log } from "./lib/logger.js";
 import {
   setupSolanaMirror,
@@ -226,6 +227,7 @@ async function main(): Promise<void> {
     }
   }
 
+  await applyPartnersForDeployment(cfg, manifest, chains);
   const result = finalizeManifest(manifest, chains);
   printManifest(manifest);
 
@@ -390,6 +392,7 @@ async function deployWithSolanaHome(
   };
   saveManifest(manifest);
 
+  await applyPartnersForDeployment(cfg, manifest, chains);
   const result = finalizeManifest(manifest, chains);
   printManifest(manifest);
   if (!result.complete) {

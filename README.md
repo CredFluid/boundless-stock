@@ -83,6 +83,7 @@ See [`FRONTEND.md`](FRONTEND.md) for the plan and phases.
 |---|---|
 | **[`agents.md`](agents.md)** | **Start here.** Full context for anyone picking this up cold: goal, architecture, current state, open questions. |
 | [`NOTES.md`](NOTES.md) | Running log of gotchas, failures and findings — including several that cost real debugging time. |
+| [`PARTNERS.md`](PARTNERS.md) | Partner orders: how wallets and apps route users' trades (EIP-712 on EVM, co-signing on Solana), fees, and configuring them. |
 | [`REPORT.md`](REPORT.md) | Final report: config-driven vs hardcoded, gas and latency, what still needs manual intervention. |
 
 Testing is two non-overlapping layers: Foundry (`test/`) proves the **contracts** are correct

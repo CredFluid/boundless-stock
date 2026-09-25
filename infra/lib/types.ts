@@ -158,6 +158,37 @@ export interface DeploymentConfig {
   relay: RelayConfig;
   /** Base native fee charged by the local message library, in ether units. Local mode only. */
   localMessageLibFee?: string;
+  /** Partners allowed to route orders, their fees, and whether orders must come through one. */
+  partners?: PartnersConfig;
+}
+
+/**
+ * Partner access and fees, applied to every mirror chain's request contract.
+ *
+ * A partner — a wallet, exchange or app — owns its users and their KYC. It authorises each
+ * order it approves: an EIP-712 signature on EVM, a co-signature on Solana. Addresses are per
+ * VM because a partner's keys differ between them.
+ */
+export interface PartnersConfig {
+  /** Close the plain buy/sell entrypoints, so every order needs a partner. Default false. */
+  required?: boolean;
+  /** Platform fee on every fee-bearing order, in basis points (at most 100), and its recipient. */
+  platformFee?: { bps: number; recipient: { evm?: string; svm?: string } };
+  partners?: PartnerConfig[];
+}
+
+export interface PartnerConfig {
+  /** Non-zero, unique within the deployment; it names the partner on chain. */
+  id: number;
+  name: string;
+  /** The most the partner may charge on one order, in basis points (at most 300). */
+  maxFeeBps: number;
+  /** Default true. False stops new orders at once; fees already escrowed are unaffected. */
+  active?: boolean;
+  /** EVM: the key that signs order authorisations, and where fees accrue. */
+  evm?: { signer: string; feeRecipient: string };
+  /** Solana: the key that co-signs orders, and the wallet whose token accounts receive fees. */
+  svm?: { signer: string; feeRecipient: string };
 }
 
 // --------------------------------------------------------------------------- manifest

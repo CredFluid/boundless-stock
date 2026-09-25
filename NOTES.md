@@ -1799,3 +1799,54 @@ reimplementing it, which surfaced four things.
 - The trade history in `.crossstock/history/` is a derived cache, safe to delete. After
   `chains:up` it describes chains that no longer exist; the API stops reading it live, but the
   file stays until deleted.
+
+---
+
+### [2026-09-25] Partner access and fees: design constraints worth knowing
+**Milestone:** phase 2c, partner distribution (contracts)
+
+**What happened / what to know:**
+
+- **Everything is mirror-local, on purpose.**
+  - Gating and fees live in `SwapRequest` (EVM) and `swap_request` (Solana) only.
+  - The order that crosses the wire is unchanged, and so are `SwapRelay`, `swap_relay` and the
+    relayer. That is why no home chain, relayer or planning code changed.
+- **EIP-712 is written out, not inherited.**
+  - OpenZeppelin 5.6's `EIP712`, `SignatureChecker` and `MessageHashUtils` declare
+    `pragma ^0.8.24`, and this repo pins solc 0.8.22 (also downloaded manually for offline
+    builds).
+  - Importing them fails the whole build before compiling anything.
+  - `SwapRequest` builds the domain separator itself, uses `ECDSA.tryRecover` (still `^0.8.20`)
+    and makes a raw ERC-1271 `staticcall`.
+  - Scenario 10 checks the off-chain viem digest equals `hashPartnerOrder`, which is what would
+    catch a drift.
+- **Solana approves by co-signing, not by message signature.**
+  - A transaction can carry several signers, so the partner's authoriser simply signs the
+    user's transaction.
+  - That makes nonces and deadlines unnecessary: a transaction executes once and its blockhash
+    expires.
+  - Verifying an ed25519 message signature on chain would need the instructions sysvar and an
+    ed25519-program instruction, which is more moving parts for the same guarantee.
+- **On Solana, fees are released by `settle_fees`, not inside `lz_compose` / `lz_receive`.**
+  Paying partners there would add accounts to delivery planning (`lz_compose_types_v2`) and
+  change what the executor passes. A separate permissionless instruction keeps delivery
+  byte-for-byte as it was.
+- **New `Store` fields fit the old account.**
+  - The three partner fields (35 bytes) fit in `Store`'s 64-byte headroom, so `SIZE` is
+    unchanged.
+  - A store created before them deserialises with zeros: partners not required, no fee.
+  - `FeeEscrow` is a separate account so `Request`'s layout, which clients read at fixed
+    offsets, didn't move.
+- **A strand returns the fee.** The mirror can't tell whether a strand followed a fill (the
+  output is held at home) or a failed swap. Charging the user for an order they didn't receive
+  here is the worse error.
+
+**Why it matters / what breaks if ignored:**
+
+- Moving the compiler to 0.8.24 to use OpenZeppelin's EIP712 would change every contract's
+  bytecode.
+- Changing `SwapTypes.Order` to carry partner data would change the wire format that both home
+  relays decode.
+- Adding fee accounts to `lz_compose` would need matching changes in `lz_compose_types_v2` and
+  the relayer's Solana delivery.
+- None of these three is needed; each is a larger blast radius than the feature.
