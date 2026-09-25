@@ -126,7 +126,7 @@ export default function Docs() {
             <div className="text-xs font-semibold uppercase tracking-wide text-accent">Developer docs</div>
             <h1 id="introduction" className="mt-2 scroll-mt-24 text-4xl font-semibold tracking-tight">Boundless Stock</h1>
             <p className="mt-4 max-w-2xl text-lg leading-8 text-muted">
-              Issue a tokenized stock or RWA once, on Solana, distribute it to any EVM or SVM chain, and keep one reconciled
+              Issue a tokenized stock once, on Solana, distribute it to any EVM or SVM chain, and keep one reconciled
               ledger of where every unit sits. These docs cover the CLI an issuer deploys with, the config it reads, and the SDK
               and REST API a distribution partner integrates.
             </p>

@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: { default: "Boundless Stock", template: "%s · Boundless Stock" },
-  description: "Manage the admin, operations and liquidity of tokenized stocks and RWAs from one chain, and power use cases across every other.",
+  description: "Issuance, distribution and the data layer for tokenized stocks: issue once on Solana, distribute to every chain, and keep one verified record of backing, supply and price.",
 };
 
 /**
