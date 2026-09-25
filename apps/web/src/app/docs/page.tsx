@@ -24,9 +24,9 @@ const NAV: { group: string; items: [id: string, label: string][] }[] = [
   { group: "Configuration", items: [["config", "Deployment config"], ["config-token", "token and reserves"], ["config-chains", "Chains"], ["config-pool", "pool"], ["config-partners", "partners"]] },
   {
     group: "Partner SDK",
-    items: [["sdk", "Install"], ["sdk-client", "Client"], ["sdk-evm", "Orders on EVM chains"], ["sdk-solana", "Orders on SVM chains"], ["sdk-track", "Tracking orders"]],
+    items: [["sdk", "Install"], ["sdk-client", "Client"], ["sdk-evm", "Orders on EVM chains"], ["sdk-solana", "Orders on SVM chains"], ["sdk-track", "Tracking orders"], ["sdk-reserves", "Checking reserves"]],
   },
-  { group: "REST API", items: [["api", "Authentication"], ["api-endpoints", "Endpoints"], ["api-quote", "Quotes"], ["api-errors", "Errors"]] },
+  { group: "REST API", items: [["api", "Authentication"], ["api-endpoints", "Endpoints"], ["api-quote", "Quotes"], ["reserves-api", "Proof of reserves"], ["api-errors", "Errors"]] },
   { group: "Webhooks", items: [["webhooks", "Events"], ["webhooks-verify", "Verifying signatures"]] },
   { group: "Reference", items: [["tokens", "Supported tokens"], ["limits", "Limits"]] },
 ];
@@ -136,7 +136,7 @@ export default function Docs() {
             {[
               ["#quickstart", "Quickstart", "Deploy an asset and trade it across chains locally."],
               ["#sdk", "Partner SDK", "Quote, approve and track orders from any chain."],
-              ["#api-endpoints", "REST API", "Every endpoint, parameter and error."],
+              ["#reserves-api", "Proof of reserves", "Check any asset's backing from your own product."],
             ].map(([href, t, d]) => (
               <a key={href} href={href} className="rounded-lg border border-line bg-surface p-4 hover:border-accent/60">
                 <div className="font-medium">{t}</div>
@@ -210,8 +210,16 @@ npx boundless-stock market                                   # supply moved; tot
           <P>Amounts are compared in the finest precision of any chain, so a 9-decimal SPL mint and an 18-decimal ERC-20 reconcile exactly.</P>
 
           <H2 id="reserves">Proof of reserves</H2>
-          <P>A tokenized stock&apos;s supply is fixed by the shares that back it. Set the shares held and who reports them in the config&apos;s <C>token.reserves</C>, and the CLI and console check the supply measured on every chain against them:</P>
+          <P>A tokenized stock&apos;s supply is fixed by the shares that back it. Proof of reserves checks the supply measured on every chain, transfers in transit included, against the shares held for the asset:</P>
           <Code>{`backed = shares held × tokens per share      fully backed when backed ≥ issued on every chain`}</Code>
+          <Table
+            head={["Who", "How"]}
+            rows={[
+              ["Issuers", <>Set the shares held and who reports them in the config&apos;s <C>token.reserves</C>. The CLI&apos;s <C>market</C> command and the issuer console show the result.</>],
+              ["Anyone integrating the asset", <>Lending protocols, wallets, exchanges, custodians and auditors call <C>GET /api/v1/reserves/:deployment</C>, or <C>api.reserves()</C> in the SDK, to check the backing before accepting or showing the asset. See <a href="#reserves-api" className="text-accent hover:underline">the reserves API</a>.</>],
+            ]}
+          />
+          <Note>The issued figure is measured from chain state, not reported by the issuer, so an integrator only has to trust the reserve source for the shares side of the check.</Note>
 
           <H2 id="partners">Partners and fees</H2>
           <P>Distribution partners (brokers, wallets, exchanges) route orders for their own verified users. Each is registered on every distribution chain with a signer and a fee ceiling.</P>
@@ -433,6 +441,17 @@ order.next;       // what happens next, in words you can show the user
 const { orders } = await api.orders("boundless-taapl", { user });   // across every chain
 `}</Code>
 
+          <H3 id="sdk-reserves">Checking reserves</H3>
+          <P>Any integrator can check the backing of an asset before accepting it, for example as collateral:</P>
+          <Code title="ts">{`
+const r = await api.reserves("boundless-taapl");
+
+if (!r.reconciled || !r.reserves?.fullyBacked) {
+  throw new Error(\`tAAPL is not fully backed: \${(r.reserves?.coverageBps ?? 0) / 100}% coverage\`);
+}
+// r.issued, r.chains, r.reserves.source, r.reserves.asOf
+`}</Code>
+
           {/* ------------------------------------------------------------ API */}
           <H2 id="api">REST API</H2>
           <P>The API quotes and builds transactions; it holds no keys. Send your key in the <C>x-api-key</C> header. Keys are rate-limited to 60 requests a minute by default.</P>
@@ -449,6 +468,7 @@ const { orders } = await api.orders("boundless-taapl", { user });   // across ev
               [<span key="4"><Method m="POST" /><C>/api/v1/orders</C></span>, <>Builds an order. EVM: <C>{"{ transactions }"}</C> with the messaging fee as <C>value</C>. SVM: <C>{"{ transaction, requestId }"}</C>, an unsigned v0 transaction in base64.</>],
               [<span key="5"><Method m="GET" /><C>/api/v1/orders/:deployment/:chain/:id</C></span>, "One order: status, amounts, fees, what Solana holds if stranded, and next."],
               [<span key="6"><Method m="GET" /><C>/api/v1/orders?deployment=&amp;user=</C></span>, "A user's orders across every distribution chain."],
+              [<span key="7"><Method m="GET" /><C>/api/v1/reserves/:deployment</C></span>, "Proof of reserves: supply on every chain, in transit, and coverage against the shares held."],
             ]}
           />
 
@@ -467,6 +487,49 @@ const { orders } = await api.orders("boundless-taapl", { user });   // across ev
               [<C key="8">messagingFee</C>, "The native fee for the cross-chain round trip."],
             ]}
           />
+
+          <H3 id="reserves-api">Proof of reserves</H3>
+          <P>For any product integrating the asset. Returns the supply measured on every chain now, whether it reconciles with what was issued, and how much of it the shares held back. Amounts here are whole units, as decimal strings.</P>
+          <Code title="terminal">{`curl -H "x-api-key: $KEY" https://api.example.com/api/v1/reserves/boundless-taapl`}</Code>
+          <Code title="200 OK">{`
+{
+  "deployment": "boundless-taapl",
+  "asset": { "symbol": "tAAPL", "name": "Tokenized Apple Inc." },
+  "issued": "1000000",
+  "inTransit": "0",
+  "chains": [
+    { "key": "solana-devnet", "name": "Solana",   "vm": "svm", "role": "home",   "supply": "999814.744" },
+    { "key": "base-sepolia",  "name": "Base",     "vm": "evm", "role": "mirror", "supply": "99.3257" },
+    { "key": "arbitrum-sepolia", "name": "Arbitrum", "vm": "evm", "role": "mirror", "supply": "52.8969" }
+  ],
+  "reconciled": true,
+  "reserves": {
+    "shares": "1000000",
+    "tokensPerShare": 1,
+    "source": "custodian attestation",
+    "asOf": "2026-09-25",
+    "backed": "1000000",
+    "coverageBps": 10000,
+    "fullyBacked": true
+  },
+  "at": "2026-09-25T17:40:00.000Z"
+}
+`}</Code>
+          <Table
+            head={["Field", "Description"]}
+            rows={[
+              [<C key="1">issued</C>, "Supply on every chain plus in transit, measured from chain state."],
+              [<C key="2">inTransit</C>, "Tokens that have left one chain and not yet arrived on another."],
+              [<C key="3">chains[]</C>, "Supply per chain, with its role: home or mirror."],
+              [<C key="4">reconciled</C>, "Every chain plus in transit equals what was issued at launch."],
+              [<C key="5">reserves.backed</C>, "Tokens the shares held back: shares × tokens per share."],
+              [<C key="6">reserves.coverageBps</C>, "Backed against issued, in basis points: 10000 is 100%."],
+              [<C key="7">reserves.fullyBacked</C>, "True when backed ≥ issued. The field to gate on."],
+              [<C key="8">reserves.source</C>, "Who reports the shares held, and asOf when."],
+              [<C key="9">reserves</C>, "Absent when the issuer has not configured a reserve source. Treat that as not verified."],
+            ]}
+          />
+          <Note tone="warn">Gate on <C>fullyBacked</C> and <C>reconciled</C> together, and treat a stale <C>asOf</C> as unknown rather than as fine.</Note>
 
           <H3 id="api-errors">Errors</H3>
           <P>Every error has the shape <C>{'{ "error": { "code", "message" } }'}</C>.</P>

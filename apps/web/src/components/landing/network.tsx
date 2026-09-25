@@ -6,11 +6,11 @@
 const HUB = { x: 300, y: 250 };
 
 const NODES = [
-  { x: 92, y: 96, label: "Base", vm: "EVM", use: "DISTRIBUTE" },
-  { x: 508, y: 96, label: "Arbitrum", vm: "EVM", use: "TRANSFER" },
-  { x: 536, y: 318, label: "Optimism", vm: "EVM", use: "INTEGRATE" },
-  { x: 52, y: 330, label: "SVM chain", vm: "SVM", use: "TRADE" },
-  { x: 300, y: 462, label: "Any chain", vm: "EVM · SVM", use: "", ghost: true },
+  { x: 92, y: 96, label: "Base" },
+  { x: 508, y: 96, label: "Arbitrum" },
+  { x: 536, y: 318, label: "Optimism" },
+  { x: 52, y: 330, label: "Ethereum" },
+  { x: 300, y: 462, label: "More chains", ghost: true },
 ];
 
 export function NetworkVisual() {
@@ -81,12 +81,9 @@ export function NetworkVisual() {
 
       {NODES.map((n) => (
         <g key={`${n.label}-node`}>
-          <rect x={n.x - 56} y={n.y - 26} width="112" height="52" rx="12"
-            fill="var(--surface)" stroke={n.ghost ? "var(--border)" : "var(--border)"} strokeDasharray={n.ghost ? "4 4" : undefined} />
-          <text x={n.x} y={n.y - 2} textAnchor="middle" fontSize="13" fontWeight="600" fill={n.ghost ? "var(--muted)" : "var(--text)"}>{n.label}</text>
-          <text x={n.x} y={n.y + 14} textAnchor="middle" fontSize="10" fill={n.vm === "SVM" ? "var(--svm)" : "var(--muted)"} letterSpacing="1">
-            {n.ghost ? n.vm : `${n.use} · ${n.vm}`}
-          </text>
+          <rect x={n.x - 56} y={n.y - 20} width="112" height="40" rx="12"
+            fill="var(--surface)" stroke="var(--border)" strokeDasharray={n.ghost ? "4 4" : undefined} />
+          <text x={n.x} y={n.y + 5} textAnchor="middle" fontSize="14" fontWeight="600" fill={n.ghost ? "var(--muted)" : "var(--text)"}>{n.label}</text>
         </g>
       ))}
     </svg>

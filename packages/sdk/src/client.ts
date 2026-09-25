@@ -7,6 +7,7 @@ import type {
   OrderStatus,
   Quote,
   QuoteRequest,
+  Reserves,
 } from "./types.js";
 
 /** An error the API returned, with its machine-readable code (e.g. `partner_required`). */
@@ -50,6 +51,11 @@ export class BoundlessStockApi {
 
   deployment(name: string): Promise<DeploymentDescriptor> {
     return this.call("GET", `/deployments/${encodeURIComponent(name)}`);
+  }
+
+  /** Proof of reserves: supply measured on every chain, in transit included, against the shares held. */
+  reserves(deployment: string): Promise<Reserves> {
+    return this.call("GET", `/reserves/${encodeURIComponent(deployment)}`);
   }
 
   quote(req: QuoteRequest): Promise<Quote> {

@@ -79,7 +79,7 @@ const COMPLIANCE = [
 ];
 
 const GUARANTEES = [
-  { icon: BadgeCheck, title: "Proof of reserves", body: "Supply across every chain, in transit included, is checked against the shares held for the asset, with the source and date of the attestation." },
+  { icon: BadgeCheck, title: "Proof of reserves", body: "Supply across every chain, in transit included, is checked against the shares held for the asset, and open to every integrator through the API." },
   { icon: Scale, title: "Continuous reconciliation", body: "Supply on every chain plus what is in transit always equals what was issued, measured from chain state, mid-transfer included." },
   { icon: Undo2, title: "Filled or refunded", body: "An order fills at or above the user's floor, or its funds come back in full. There is no partial or bad fill." },
   { icon: RotateCcw, title: "Nothing stranded", body: "If a return can't be delivered, the funds are held on Solana and the origin chain is told. The return can be retried later, and never redirected." },
@@ -90,7 +90,7 @@ const GUARANTEES = [
 const AUDIENCES = [
   { icon: Building2, title: "Issuers and asset managers", body: "Issue a tokenized stock or RWA once, on Solana, or bring the token you already have. Choose the chains to distribute to, and run supply, backing and controls from one console.", cta: { href: "/app/launch", label: "Launch an asset" } },
   { icon: Handshake, title: "Distribution partners", body: "Brokers, wallets and exchanges offer the asset to their verified users on the chains they use, earn a fee on every fill, and never source liquidity.", cta: { href: "#compliance", label: "See the partner model" } },
-  { icon: FileCheck2, title: "Custodians and auditors", body: "See where every unit of the asset sits, on every chain and in transit, and check it against the shares held. Live, from chain state.", cta: { href: "/app", label: "Open the issuer console" } },
+  { icon: FileCheck2, title: "Custodians and auditors", body: "See where every unit of the asset sits, on every chain and in transit, and check it against the shares held. Live, from chain state.", cta: { href: "/docs#reserves-api", label: "Check reserves through the API" } },
 ];
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
@@ -108,6 +108,7 @@ function LandingHeader() {
         <nav className="hidden items-center gap-7 text-sm text-muted md:flex">
           <a href="#platform" className="hover:text-fg">Platform</a>
           <a href="#compliance" className="hover:text-fg">Distribution</a>
+          <a href="#reserves" className="hover:text-fg">Reserves</a>
           <a href="#security" className="hover:text-fg">Controls</a>
           <Link href="/docs" className="hover:text-fg">Docs</Link>
           <a href={REPO} className="hover:text-fg">GitHub</a>
@@ -331,6 +332,61 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ================================================================ proof of reserves */}
+      <section id="reserves" className="scroll-mt-20 border-y border-line bg-surface/40">
+        <div className="mx-auto grid max-w-7xl gap-12 px-5 py-24 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+          <Reveal className="min-w-0">
+            <Eyebrow>Proof of reserves, for every integrator</Eyebrow>
+            <h2 className="mt-4 text-4xl font-semibold tracking-tight text-balance md:text-5xl">Check the backing before you accept the asset.</h2>
+            <p className="mt-5 text-lg text-muted">
+              Any product integrating a tokenized stock issued on Boundless Stock can ask, at any time, whether it is fully
+              backed. One call returns the supply measured on every chain, transfers in transit included, against the shares
+              held for it and who reports them.
+            </p>
+            <ul className="mt-8 space-y-4 text-sm">
+              {[
+                ["Lending protocols", "Check coverage before accepting the asset as collateral, and stop accepting it the moment it drops."],
+                ["Wallets and exchanges", "Show users that what they hold is fully backed, with the source and date of the attestation."],
+                ["Custodians and auditors", "Reconcile the shares they hold with the supply on every chain, read from chain state rather than reported."],
+              ].map(([t, b]) => (
+                <li key={t} className="flex gap-3">
+                  <BadgeCheck size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+                  <span><span className="font-medium">{t}.</span> <span className="text-muted">{b}</span></span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-8 flex flex-wrap gap-3 text-sm">
+              <a href="/docs#reserves-api" className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 font-semibold text-accent-contrast hover:opacity-90">
+                Read the reserves API <ArrowRight size={14} aria-hidden />
+              </a>
+            </div>
+          </Reveal>
+          <Reveal delay={150} className="min-w-0">
+            <CodeWindow title="GET /api/v1/reserves/boundless-taapl">
+{`{
+  `}<K>&quot;asset&quot;</K>{`: { `}<K>&quot;symbol&quot;</K>{`: `}<S>&quot;tAAPL&quot;</S>{` },
+  `}<K>&quot;issued&quot;</K>{`: `}<S>&quot;1000000&quot;</S>{`,`}<C>{`          // every chain + in transit`}</C>{`
+  `}<K>&quot;chains&quot;</K>{`: [
+    { `}<K>&quot;name&quot;</K>{`: `}<S>&quot;Solana&quot;</S>{`,   `}<K>&quot;supply&quot;</K>{`: `}<S>&quot;999814.74&quot;</S>{` },
+    { `}<K>&quot;name&quot;</K>{`: `}<S>&quot;Base&quot;</S>{`,     `}<K>&quot;supply&quot;</K>{`: `}<S>&quot;99.33&quot;</S>{` },
+    { `}<K>&quot;name&quot;</K>{`: `}<S>&quot;Arbitrum&quot;</S>{`, `}<K>&quot;supply&quot;</K>{`: `}<S>&quot;52.90&quot;</S>{` }
+  ],
+  `}<K>&quot;reconciled&quot;</K>{`: `}<N>true</N>{`,
+  `}<K>&quot;reserves&quot;</K>{`: {
+    `}<K>&quot;shares&quot;</K>{`: `}<S>&quot;1000000&quot;</S>{`,
+    `}<K>&quot;source&quot;</K>{`: `}<S>&quot;custodian attestation&quot;</S>{`,
+    `}<K>&quot;coverageBps&quot;</K>{`: `}<N>10000</N>{`,
+    `}<K>&quot;fullyBacked&quot;</K>{`: `}<N>true</N>{`
+  }
+}`}
+            </CodeWindow>
+            <div className="mt-3 rounded-lg border border-line bg-surface px-4 py-3 font-mono text-xs text-muted">
+              const r = await api.reserves(&quot;boundless-taapl&quot;); <span className="text-accent">// r.reserves.fullyBacked</span>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
       {/* ================================================================ architecture */}
       <section id="architecture" className="scroll-mt-20 border-y border-line bg-surface/40">
         <div className="mx-auto max-w-7xl px-5 py-24">
@@ -465,7 +521,7 @@ export default function Landing() {
           <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
             <span className="inline-flex items-center gap-2"><ShieldCheck size={16} className="text-accent" aria-hidden /> Fuzzed and invariant-tested contracts</span>
             <span className="inline-flex items-center gap-2"><LifeBuoy size={16} className="text-accent" aria-hidden /> Recovery actions on chain today</span>
-            <span className="inline-flex items-center gap-2"><BadgeCheck size={16} className="text-accent" aria-hidden /> Proof of reserves in the issuer console</span>
+            <span className="inline-flex items-center gap-2"><BadgeCheck size={16} className="text-accent" aria-hidden /> Proof of reserves in the console and the API</span>
           </div>
         </div>
       </section>

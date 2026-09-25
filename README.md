@@ -138,7 +138,7 @@ SDK (`@boundless-stock/sdk`) and API (`/api/v1`) offer:
 | **Market data on every chain** | The stock's price in the home market, and its premium or discount to the real share, for portfolio apps, dashboards and trading tools on any chain. |
 | **A price feed on every chain** | An on-chain price, checked against a reference price of the underlying share, that lending and perpetuals protocols on other chains can read. This turns a mirror token into collateral, not just something to hold. |
 | **Supply and holders** | Supply per chain, stock in flight between chains, and holder counts, for explorers, analytics platforms and investor relations. |
-| **Proof of reserves** | "Is this token fully backed right now?", as an API and an on-chain check, for lending protocols and custodians before they accept it as collateral. |
+| **Proof of reserves** | "Is this token fully backed right now?" `GET /api/v1/reserves/:deployment` (or `api.reserves()` in the SDK) returns supply on every chain, in transit, and coverage against the shares held, for lending protocols, wallets and custodians before they accept the asset. |
 
 **A sandbox:** test keys against a test deployment, to try everything before integrating.
 
