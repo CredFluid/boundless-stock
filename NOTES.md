@@ -1850,3 +1850,54 @@ reimplementing it, which surfaced four things.
 - Adding fee accounts to `lz_compose` would need matching changes in `lz_compose_types_v2` and
   the relayer's Solana delivery.
 - None of these three is needed; each is a larger blast radius than the feature.
+
+---
+
+### [2026-09-25] Partner SDK and API: exact quotes, lookup tables, and a stale-cache bug
+**Milestone:** phase 2c, partner SDK and API
+
+**What happened / what to know:**
+
+- **Quotes are exact because the pool computes them.**
+  - Single-range concentrated-liquidity maths would be wrong here: the local pools hold one
+    bounded position, and real pools hold many.
+  - `PoolQuoter.sol` is never deployed. The API places its runtime code at an unused address
+    with an `eth_call` state override. The quoter calls `pool.swap`, and its callback reverts
+    with the output. This is Uniswap's own Quoter technique, minus the immutables that would
+    make its runtime code address-dependent.
+  - On a Solana home, Orca's `swapQuoteByInputToken` quotes the live Whirlpool.
+  - The quote then follows the order's real path: fees, rounding down to shared decimals on the
+    way out (the dust goes back to the user), and the same on the way back.
+  - Scenario 11 checks fills equal their quote to the base unit, and they do, on EVM and Solana,
+    at three different pool states.
+- **The EVM messaging fee must be exact.** LayerZero's `OAppSender._payNative` reverts unless
+  `msg.value == nativeFee`, and `SwapRequest` forwards its `msg.value` as-is. So `buildOrder`
+  quotes the fee afresh and never adds a safety margin; a margin would make every order revert.
+- **A Solana partner order needs a lookup table.** About 1,370 bytes as a legacy transaction,
+  over the 1,232-byte limit.
+  - The table holds the static accounts for both directions.
+  - The operator's key creates it once per deployment and chain, and it is recorded in
+    `.crossstock/lut/`.
+  - The sample orders that fill it use the operator as the user, because the OFT fee quote
+    simulates with the user as fee payer, and a throwaway key doesn't exist on chain.
+- **The history cache outlived its deployment.**
+  - It was keyed `chain:id`, and request ids restart at 1 after a fresh redeploy under the same
+    name.
+  - The poller skips ids it already holds as settled, so a new instance's orders were never
+    read. The dashboard showed the old instance's orders under the new one, and webhooks never
+    fired.
+  - The history store and the webhook state now record the instance (the manifest's
+    `createdAt`) and reset when it changes.
+  - Webhook event ids carry the instance too, so a partner's deduplication never drops a real
+    event.
+- **Partners never co-sign blindly.** `authorizeSolanaOrder` decodes the transaction and signs
+  only a single `open_request_via_partner` call that matches the approved user, side, amount,
+  fee and floor. A partner that co-signed whatever it was handed would be letting in any
+  transaction a user constructed.
+
+**Why it matters / what breaks if ignored:**
+
+- A cache keyed only by ids that restart has to know which instance it describes. The same
+  applies to anything else that caches per deployment name.
+- If `PoolQuoter` ever needs constructor arguments, the state-override technique breaks: the
+  runtime code would then depend on immutables set at deploy time.

@@ -121,6 +121,8 @@ A quote returns, for the order as it will actually execute:
 - the messaging fee.
 
 Every amount is a string of integer base units, in the token's decimals **on the chain named**.
+`priceImpactBps` compares the execution price with spot, so it includes the pool's own fee (30
+bps on a 0.3% pool) as well as price movement.
 
 **Quotes are exact.** The market prices the order itself. On an EVM home, the Uniswap pool runs
 the real swap in an `eth_call`: `PoolQuoter.sol`, placed there by a state override and never

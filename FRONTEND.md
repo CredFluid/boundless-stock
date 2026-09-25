@@ -9,7 +9,7 @@ Status:
   - the live issuer dashboard;
   - trade history;
   - CI.
-- **Phase 2c, partner distribution, is in progress.** The contracts are on `feature/partner-access-and-fees`; the SDK, API and reference trading page come next.
+- **Phase 2c, partner distribution, is in progress.** The contracts, SDK and partner API are on `feature/partner-access-and-fees`. The reference trading page and the sandbox come next.
 
 This document is the plan for the rest.
 
@@ -146,16 +146,16 @@ The product decision: **partners distribute and we provide the endpoints.** Wall
 and apps own their users, and those users' KYC. CrossStock provides the buy and sell endpoints,
 and the contracts enforce that orders come through a registered partner. See `PARTNERS.md`.
 
-1. **Contracts: partner access and fees.** Built on `feature/partner-access-and-fees`:
+1. **Contracts: partner access and fees.** Done, on `feature/partner-access-and-fees`:
    - EIP-712 authorisation on EVM, co-signing on Solana;
    - `partnerRequired`;
    - escrowed partner and platform fees, kept only on a fill.
-2. **Partner SDK and API.**
-   - `quote` (expected output, price impact, messaging fee, fees);
-   - `buildBuy` / `buildSell` for the partner's user or wallet to sign;
-   - `track(orderId)` and a user's `orders` / `positions`;
-   - API keys and webhooks ("filled", "refunded", "stranded").
-   - It builds on `signPartnerOrder`, `openRequestViaPartner` and the read API.
+2. **Partner SDK and API.** Done, on the same branch:
+   - `@crossstock/sdk`;
+   - `/api/v1`: descriptor, exact quotes, order building, tracking and order lists;
+   - API keys and rate limits;
+   - signed webhooks (`npm run webhooks`).
+   See `PARTNERS.md`. Positions (balances across chains) are still to do.
 3. **Reference trading page.** `/trade` rebuilt on the SDK, with wallet connection:
    - wagmi + viem, and the Solana wallet adapter;
    - live quotes and the request tracker.
