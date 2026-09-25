@@ -84,6 +84,11 @@ function currentOnLocalChains(manifest: Manifest, hasSolana: boolean): Availabil
   return { state: "live" };
 }
 
+/** Whether a deployment can be read live right now, and if not, why. */
+export function availabilityOf(name: string): Availability {
+  return context(name).availability;
+}
+
 interface Context {
   cfg: NonNullable<ReturnType<typeof configForDeployment>>["config"];
   manifest: Manifest;

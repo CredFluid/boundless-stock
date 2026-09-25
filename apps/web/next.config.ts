@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 const config: NextConfig = {
   // The shared package is TypeScript source, compiled by Next rather than prebuilt.
-  transpilePackages: ["@crossstock/shared"],
+  transpilePackages: ["@crossstock/shared", "@crossstock/sdk"],
   // The monorepo root, so file tracing includes the deployment records the dashboard reads.
   outputFileTracingRoot: resolve(__dirname, "../.."),
   // The read API reuses the infra's own chain code. Its Solana and LayerZero SDKs are Node
@@ -19,6 +19,7 @@ const config: NextConfig = {
     "@metaplex-foundation/umi-rpc-web3js",
     "@metaplex-foundation/umi-web3js-adapters",
     "@orca-so/whirlpools-sdk",
+    "@orca-so/common-sdk",
   ],
   // The infra is NodeNext-style TypeScript: it imports `./x.js` meaning `./x.ts`. Turbopack has no
   // equivalent of this mapping yet, so the app builds with webpack (see package.json scripts).

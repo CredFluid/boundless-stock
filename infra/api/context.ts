@@ -31,6 +31,26 @@ export interface ApiContext {
 
 const contexts = new Map<string, ApiContext>();
 
+/** A context for a config already in hand — e.g. one passed on the command line. */
+export function contextFromConfig(cfg: DeploymentConfig): ApiContext {
+  const hit = contexts.get(cfg.name);
+  if (hit) return hit;
+  const manifest = loadManifest(cfg.name);
+  if (!manifest) throw new ApiError(404, "unknown_deployment", `No deployment "${cfg.name}".`);
+  return remember(cfg, manifest);
+}
+
+function remember(cfg: DeploymentConfig, manifest: Manifest): ApiContext {
+  const solana = new Map(
+    allChains(cfg)
+      .filter((c) => vmOf(c) === "svm" && c.key !== cfg.homeChain.key)
+      .map((c) => [c.key, new SolanaSwapClient(cfg, new SolanaChain(c))] as const)
+  );
+  const ctx: ApiContext = { cfg, manifest, evm: buildChains(allChains(cfg).filter((c) => vmOf(c) === "evm")), solana };
+  contexts.set(cfg.name, ctx);
+  return ctx;
+}
+
 export function apiContext(name: string): ApiContext {
   if (!/^[a-z0-9-]+$/i.test(name)) throw new ApiError(400, "invalid_deployment", `"${name}" is not a deployment name.`);
   const hit = contexts.get(name);
@@ -39,15 +59,7 @@ export function apiContext(name: string): ApiContext {
   if (!manifest) throw new ApiError(404, "unknown_deployment", `No deployment "${name}".`);
   const found = configForDeployment(name);
   if (!found) throw new ApiError(404, "unknown_deployment", `No config for "${name}", so its chains cannot be reached.`);
-  const cfg = found.config;
-  const solana = new Map(
-    allChains(cfg)
-      .filter((c) => vmOf(c) === "svm" && c.key !== cfg.homeChain.key)
-      .map((c) => [c.key, new SolanaSwapClient(cfg, new SolanaChain(c))] as const)
-  );
-  const ctx: ApiContext = { cfg, manifest, evm: buildChains(allChains(cfg).filter((c) => vmOf(c) === "evm")), solana };
-  contexts.set(name, ctx);
-  return ctx;
+  return remember(found.config, manifest);
 }
 
 /** Forget cached contexts, e.g. after a redeploy. */

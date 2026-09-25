@@ -189,6 +189,11 @@ export interface PartnerConfig {
   evm?: { signer: string; feeRecipient: string };
   /** Solana: the key that co-signs orders, and the wallet whose token accounts receive fees. */
   svm?: { signer: string; feeRecipient: string };
+  /**
+   * Where order events for this partner's orders are delivered (`npm run webhooks`). The signing
+   * secret is read from the environment variable named here, never stored in the config.
+   */
+  webhook?: { url: string; secretEnv: string };
 }
 
 // --------------------------------------------------------------------------- manifest
