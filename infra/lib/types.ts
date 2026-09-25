@@ -48,6 +48,13 @@ export interface SvmConfig {
    */
   decimals?: { base?: number; quote?: number };
   /**
+   * The token program for mints created on this chain (launch mode): "spl-token" (default) or
+   * "token-2022". An existing mint (adapt mode) keeps whichever program it already lives under.
+   * Token-2022 mints with a transfer fee, permanent delegate, transfer hook, default-frozen
+   * accounts or non-transferability are refused.
+   */
+  tokenProgram?: "spl-token" | "token-2022";
+  /**
    * LOCAL validators only: the native fee, in lamports, the test message library charges per
    * send. Default 50,000. Nonzero on purpose — a real network always charges, and a client or
    * program that forgets to quote and pay should fail here, not on devnet.

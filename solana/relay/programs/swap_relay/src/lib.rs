@@ -45,6 +45,9 @@ use state::{Peer, RelayStore, ReturnRoute, RouteAccount, Stranded, NOTICE_MINT};
 declare_id!("ADjsJxDJ4zCr54P2ioDin4uWRi8AQaofvSzh9ZyMWC5b");
 
 /// Mirrors `SwapTypes.Status`.
+/// SPL Memo, which Orca's `swap_v2` takes (it writes a memo on Token-2022 transfers that need one).
+pub const MEMO_PROGRAM_ID: Pubkey = pubkey!("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+
 pub const STATUS_FILLED: u8 = 2;
 pub const STATUS_REFUNDED: u8 = 3;
 pub const STATUS_STRANDED: u8 = 4;
@@ -86,7 +89,11 @@ pub mod swap_relay {
         );
         for mint in [&ctx.accounts.base_mint, &ctx.accounts.quote_mint] {
             require!(spl::mint_decimals(mint)? >= params.shared_decimals, SwapRelayError::UnsupportedDecimals);
+            // Classic SPL Token or Token-2022, without an extension that breaks a guarantee.
+            spl::check_mint(mint)?;
         }
+        let base_token_2022 = spl::token_program_of(&ctx.accounts.base_mint)? == spl::TOKEN_2022_PROGRAM_ID;
+        let quote_token_2022 = spl::token_program_of(&ctx.accounts.quote_mint)? == spl::TOKEN_2022_PROGRAM_ID;
 
         let store = &mut ctx.accounts.store;
         store.admin = ctx.accounts.admin.key();
@@ -102,6 +109,8 @@ pub mod swap_relay {
         store.shared_decimals = params.shared_decimals;
         store.alt = Pubkey::default();
         store.bump = ctx.bumps.store;
+        store.base_token_2022 = base_token_2022;
+        store.quote_token_2022 = quote_token_2022;
 
         endpoint_cpi::register_oapp(
             params.endpoint_program,
@@ -247,13 +256,15 @@ pub mod swap_relay {
             meta(ticks[1], true),
             meta(ticks[2], true),
             meta(pool::oracle_address(&store.whirlpool_program, &store.whirlpool), false),
-            meta(spl::associated_token_address(&store.key(), &pool.token_mint_a), true),
-            meta(spl::associated_token_address(&store.key(), &pool.token_mint_b), true),
+            meta(spl::associated_token_address(&store.key(), &pool.token_mint_a, &store.token_program_for(&pool.token_mint_a)), true),
+            meta(spl::associated_token_address(&store.key(), &pool.token_mint_b, &store.token_program_for(&pool.token_mint_b)), true),
             meta(route_base_info.key(), false),
             meta(route_quote_info.key(), false),
             meta(store.whirlpool_program, false),
             meta(store.oft_program, false),
-            meta(spl::TOKEN_PROGRAM_ID, false),
+            meta(store.token_program_for(&pool.token_mint_a), false),
+            meta(store.token_program_for(&pool.token_mint_b), false),
+            meta(MEMO_PROGRAM_ID, false),
             meta(store.base_mint, false),
             meta(store.quote_mint, false),
         ];
@@ -369,13 +380,20 @@ pub mod swap_relay {
             Decision::Fill(min_out) => {
                 let out_account = if a_to_b { &ctx.accounts.relay_token_b } else { &ctx.accounts.relay_token_a };
                 let before = token_amount(out_account)?;
-                whirlpool::cpi::swap(
+                // swap_v2 serves classic SPL and Token-2022 mints alike; Orca itself checks each
+                // side's token program against its mint's owner.
+                let (mint_a, mint_b) = (mint_account(&ctx, &pool.token_mint_a), mint_account(&ctx, &pool.token_mint_b));
+                whirlpool::cpi::swap_v2(
                     CpiContext::new_with_signer(
                         ctx.accounts.whirlpool_program.to_account_info(),
-                        whirlpool::cpi::accounts::Swap {
-                            token_program: ctx.accounts.token_program.to_account_info(),
+                        whirlpool::cpi::accounts::SwapV2 {
+                            token_program_a: ctx.accounts.token_program_a.to_account_info(),
+                            token_program_b: ctx.accounts.token_program_b.to_account_info(),
+                            memo_program: ctx.accounts.memo_program.to_account_info(),
                             token_authority: ctx.accounts.store.to_account_info(),
                             whirlpool: ctx.accounts.whirlpool.to_account_info(),
+                            token_mint_a: mint_a.clone(),
+                            token_mint_b: mint_b.clone(),
                             token_owner_account_a: ctx.accounts.relay_token_a.to_account_info(),
                             token_vault_a: ctx.accounts.token_vault_a.to_account_info(),
                             token_owner_account_b: ctx.accounts.relay_token_b.to_account_info(),
@@ -392,6 +410,7 @@ pub mod swap_relay {
                     0,       // no explicit price limit
                     true,
                     a_to_b,
+                    None, // no transfer hooks: mints carrying one are refused at init
                 )?;
                 let out = token_amount(out_account)?.checked_sub(before).ok_or(SwapRelayError::PoolMismatch)?;
                 let delivered = out - out % q_out; // what the OFT will actually move
@@ -724,12 +743,12 @@ fn verify_accounts(ctx: &Context<'_, '_, '_, '_, LzCompose>, frame: &ComposeFram
     require_keys_eq!(a.token_vault_b.key(), a.whirlpool.token_vault_b, SwapRelayError::PoolMismatch);
     require_keys_eq!(
         a.relay_token_a.key(),
-        spl::associated_token_address(&store.key(), &a.whirlpool.token_mint_a),
+        spl::associated_token_address(&store.key(), &a.whirlpool.token_mint_a, &store.token_program_for(&a.whirlpool.token_mint_a)),
         SwapRelayError::PoolMismatch
     );
     require_keys_eq!(
         a.relay_token_b.key(),
-        spl::associated_token_address(&store.key(), &a.whirlpool.token_mint_b),
+        spl::associated_token_address(&store.key(), &a.whirlpool.token_mint_b, &store.token_program_for(&a.whirlpool.token_mint_b)),
         SwapRelayError::PoolMismatch
     );
     // The tick arrays decide both the quote and the swap. A submitter who could pass others
@@ -1038,9 +1057,14 @@ pub struct LzCompose<'info> {
     /// CHECK: pinned to the OFT program recorded at init.
     #[account(address = store.oft_program)]
     pub oft_program: UncheckedAccount<'info>,
-    /// CHECK: pinned to the SPL Token program.
-    #[account(address = spl::TOKEN_PROGRAM_ID)]
-    pub token_program: UncheckedAccount<'info>,
+    /// CHECK: the token program of the pool's mint A (SPL Token or Token-2022); Orca checks it
+    /// against the mint's owner.
+    pub token_program_a: UncheckedAccount<'info>,
+    /// CHECK: as above, for mint B.
+    pub token_program_b: UncheckedAccount<'info>,
+    /// CHECK: pinned to SPL Memo, which Orca's `swap_v2` requires.
+    #[account(address = MEMO_PROGRAM_ID)]
+    pub memo_program: UncheckedAccount<'info>,
     /// CHECK: the base mint, read for decimals.
     #[account(address = store.base_mint)]
     pub base_mint: UncheckedAccount<'info>,

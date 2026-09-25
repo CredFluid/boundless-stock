@@ -18,6 +18,7 @@ import { toWeb3JsInstruction } from "@metaplex-foundation/umi-web3js-adapters";
 import { oft } from "@layerzerolabs/oft-v2-solana-sdk";
 import { lzLocal } from "../solana/lz-local.js";
 import { solanaHome } from "../lib/market.js";
+import { programOf } from "../solana/token.js";
 
 /** Anvil account #1 — the end user, deliberately not the deployer. */
 const ANVIL_KEY_1: Hex = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
@@ -235,10 +236,10 @@ export class Harness {
         payer: createNoopSigner(publicKey(payer)),
         tokenMint: publicKey(a.mint),
         tokenEscrow: publicKey(a.escrow),
-        tokenSource: publicKey(ataOf(sol.payer.publicKey, new PublicKey(a.mint)).toBase58()),
+        tokenSource: publicKey(ataOf(sol.payer.publicKey, new PublicKey(a.mint), programOf(a)).toBase58()),
       },
       { ...params, nativeFee },
-      { oft: publicKey(home.programs.oft) }
+      { oft: publicKey(home.programs.oft), token: publicKey(programOf(a).toBase58()) }
     );
     const tx = new Transaction().add(
       ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),

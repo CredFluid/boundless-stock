@@ -67,13 +67,26 @@ pub struct Store {
     pub platform_fee_bps: u16,
     /// Wallet whose token account receives the platform fee.
     pub platform_fee_recipient: Pubkey,
+    /// Whether each mint is a Token-2022 mint. Recorded at initialisation because delivery
+    /// planning must name token accounts before it can read the mints; a store created before
+    /// these fields reads them as false — classic SPL Token, which is what it used.
+    pub base_token_2022: bool,
+    pub quote_token_2022: bool,
+}
+
+impl Store {
+    /// The token program of one of this store's mints.
+    pub fn token_program_for(&self, mint: &Pubkey) -> Pubkey {
+        let t22 = if *mint == self.base_mint { self.base_token_2022 } else { self.quote_token_2022 };
+        if t22 { crate::spl::TOKEN_2022_PROGRAM_ID } else { crate::spl::TOKEN_PROGRAM_ID }
+    }
 }
 
 impl Store {
     pub const SEED: &'static [u8] = b"Store";
     /// discriminator + 4 pubkeys + 3 × [u8;32]/pubkey + eid + id + bump + shared decimals,
-    /// plus headroom. The partner fields (35 bytes) came out of that headroom, so the size — and
-    /// every store already created at it — is unchanged.
+    /// plus headroom. The partner fields (35 bytes) and the Token-2022 flags (2) came out of that
+    /// headroom, so the size — and every store already created at it — is unchanged.
     pub const SIZE: usize = 8 + 32 + 4 + 32 + 32 + 32 + 32 + 32 + 32 + 8 + 1 + 1 + 32 + 64;
 }
 

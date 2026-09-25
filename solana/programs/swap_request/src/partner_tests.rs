@@ -110,6 +110,8 @@ fn accounts_fit_their_declared_sizes() {
         partner_required: false,
         platform_fee_bps: 0,
         platform_fee_recipient: Pubkey::default(),
+        base_token_2022: false,
+        quote_token_2022: false,
     };
     let len = |v: &dyn Fn(&mut Vec<u8>)| {
         let mut b = Vec::new();
@@ -123,9 +125,79 @@ fn accounts_fit_their_declared_sizes() {
     // A store written before the partner fields: the same bytes, the tail left zero.
     let mut old = Vec::new();
     store.serialize(&mut old).unwrap();
-    old.truncate(old.len() - 35);
+    old.truncate(old.len() - 37); // before the partner fields (35) and Token-2022 flags (2)
     old.resize(Store::SIZE - 8, 0);
     let read = Store::deserialize(&mut &old[..]).unwrap();
     assert!(!read.partner_required);
     assert_eq!(read.platform_fee_bps, 0);
+}
+
+// ---------------------------------------------------------------------------- Token-2022
+
+fn t22_mint(extensions: &[(u16, usize)]) -> Vec<u8> {
+    // base mint (82) padded to an account's length (165), the account-type byte, then TLV
+    let mut d = vec![0u8; 165];
+    d[44] = 9; // decimals
+    d[45] = 1; // is_initialized
+    d.push(1); // AccountType::Mint
+    for (kind, len) in extensions {
+        d.extend_from_slice(&kind.to_le_bytes());
+        d.extend_from_slice(&(*len as u16).to_le_bytes());
+        d.extend(std::iter::repeat(0u8).take(*len));
+    }
+    d
+}
+
+#[test]
+fn token_2022_extensions_are_read_from_the_tlv_list() {
+    assert!(crate::spl::mint_extensions(&[0u8; 82]).is_empty(), "a classic mint has none");
+    assert_eq!(crate::spl::mint_extensions(&t22_mint(&[(18, 64), (19, 90)])), vec![18, 19]);
+}
+
+#[test]
+fn only_the_refused_extensions_are_refused() {
+    let refused: Vec<u16> = crate::spl::REFUSED_EXTENSIONS.iter().map(|(k, _)| *k).collect();
+    // Metadata pointer and token metadata (what most stock tokens carry) are fine.
+    for k in [3u16, 4, 18, 19, 25] {
+        assert!(!refused.contains(&k), "extension {k} should be allowed");
+    }
+    for k in [1u16, 6, 9, 12, 14, 16] {
+        assert!(refused.contains(&k), "extension {k} should be refused");
+    }
+}
+
+#[test]
+fn a_token_2022_store_derives_token_2022_accounts() {
+    let mut store = store_fixture();
+    store.base_token_2022 = true;
+    assert_eq!(store.token_program_for(&store.base_mint), crate::spl::TOKEN_2022_PROGRAM_ID);
+    assert_eq!(store.token_program_for(&store.quote_mint), crate::spl::TOKEN_PROGRAM_ID);
+    let wallet = Pubkey::new_unique();
+    assert_ne!(
+        crate::spl::associated_token_address(&wallet, &store.base_mint, &crate::spl::TOKEN_2022_PROGRAM_ID),
+        crate::spl::associated_token_address(&wallet, &store.base_mint, &crate::spl::TOKEN_PROGRAM_ID),
+        "the same wallet and mint have a different account under each program"
+    );
+}
+
+fn store_fixture() -> Store {
+    Store {
+        admin: Pubkey::default(),
+        home_eid: 0,
+        home_relay: [0; 32],
+        base_mint: Pubkey::new_unique(),
+        quote_mint: Pubkey::new_unique(),
+        base_oft: Pubkey::default(),
+        quote_oft: Pubkey::default(),
+        endpoint_program: Pubkey::default(),
+        next_request_id: 0,
+        bump: 0,
+        shared_decimals: 6,
+        oft_program: Pubkey::default(),
+        partner_required: false,
+        platform_fee_bps: 0,
+        platform_fee_recipient: Pubkey::default(),
+        base_token_2022: false,
+        quote_token_2022: false,
+    }
 }

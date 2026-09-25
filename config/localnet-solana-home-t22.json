@@ -1,0 +1,86 @@
+{
+  "name": "crossstock-solana-home-t22",
+  "_comment": "TOKEN-2022. The Solana-home topology of localnet-solana-home-svm-mirror.json - Solana home (Orca), three EVM mirrors, a second Solana chain as mirror - with every Solana mint created under Token-2022 (svm.tokenProgram). Exercises the Token-2022 paths end to end: the OFT, the Orca pool (initialize_pool_v2), swap_relay (swap_v2), and swap_request on the Solana mirror.",
+  "token": {
+    "name": "Tokenized Apple Inc.",
+    "symbol": "tAAPL",
+    "decimals": 18,
+    "initialSupply": "1000000"
+  },
+  "quoteAsset": {
+    "name": "USD Coin",
+    "symbol": "USDC",
+    "decimals": 6,
+    "initialSupply": "50000000"
+  },
+  "homeChain": {
+    "key": "solana-devnet",
+    "name": "Solana Devnet (local)",
+    "vm": "svm",
+    "eid": 40168,
+    "rpcUrl": "http://127.0.0.1:8899",
+    "nativeSymbol": "SOL",
+    "svm": {
+      "endpointProgramId": "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6",
+      "keypairPath": ".localnet-solana/payer.json",
+      "commitment": "confirmed",
+      "tokenProgram": "token-2022"
+    }
+  },
+  "mirrorChains": [
+    {
+      "key": "base-sepolia",
+      "name": "Base Sepolia",
+      "chainId": 84532,
+      "eid": 40245,
+      "rpcUrl": "http://127.0.0.1:8545",
+      "nativeSymbol": "ETH"
+    },
+    {
+      "key": "arbitrum-sepolia",
+      "name": "Arbitrum Sepolia",
+      "chainId": 421614,
+      "eid": 40231,
+      "rpcUrl": "http://127.0.0.1:8546",
+      "nativeSymbol": "ETH"
+    },
+    {
+      "key": "optimism-sepolia",
+      "name": "Optimism Sepolia",
+      "chainId": 11155420,
+      "eid": 40232,
+      "rpcUrl": "http://127.0.0.1:8547",
+      "nativeSymbol": "ETH"
+    },
+    {
+      "key": "svm-b",
+      "name": "SVM chain B (local)",
+      "vm": "svm",
+      "eid": 40999,
+      "rpcUrl": "http://127.0.0.1:8999",
+      "nativeSymbol": "SOL",
+      "svm": {
+        "endpointProgramId": "76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6",
+        "keypairPath": ".localnet-solana/payer.json",
+        "commitment": "confirmed",
+        "tokenProgram": "token-2022"
+      }
+    }
+  ],
+  "pool": {
+    "feeTier": 3000,
+    "initialPrice": "150",
+    "baseLiquidity": "100000",
+    "quoteLiquidity": "15000000",
+    "tickHalfWidth": 60000
+  },
+  "relay": {
+    "homeLzReceiveGas": 300000,
+    "homeComposeGas": 1200000,
+    "homeComposeValue": "0.01",
+    "returnGas": 300000,
+    "relayNativeBuffer": "1",
+    "returnComposeGas": 400000
+  },
+  "localMessageLibFee": "0.0001"
+}
