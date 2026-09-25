@@ -5,11 +5,16 @@ operations are managed from one chain and one place.**
 
 ## The problem: tokenized stocks are breaking into pieces
 
-Tokenized stocks are arriving on many chains at once. Each new chain gets its own copy of the
-stock, and with it:
+A tokenized stock is not like other tokens: its supply is fixed by what backs it. An issuer
+holding 100,000 real shares can issue 100,000 tokens, and not one more. That limited supply is
+the whole point, and it is also the problem.
 
-- **its own thin pool,** so the same share trades at different prices on different chains, and
-  a large order moves the price far more than it should;
+Tokenized stocks are arriving on many chains at once. Every chain the stock goes to takes a
+slice of that same fixed supply, and with it gets:
+
+- **its own thin pool,** carved out of a supply that cannot grow to fill it, so the same share
+  trades at different prices on different chains, and a large order moves the price far more
+  than it should;
 - **its own liquidity to fund,** so an issuer seeds many small markets instead of one deep one;
 - **its own operations,** so contracts, fees, stuck transfers and refunds are handled chain by
   chain, by hand;
@@ -29,9 +34,16 @@ The books can be unified. **The market has not been.**
 
 ## Our answer: Solana is the home market, every other chain a doorway
 
-CrossStock makes Solana the **hub**: the chain where the stock's market lives, with one pool of
-liquidity and one price. Every other chain is a **spoke**, a doorway into that market with no
-pool of its own.
+CrossStock makes Solana the **hub**. The stock is issued on Solana and lives there, and its
+market lives there too: one pool of liquidity and one price, holding the backed supply in one
+place instead of splitting it.
+
+Every other chain is a **spoke**. Each spoke gets a **mirror** of the stock: a real, valid token
+native to that chain, which can be held, transferred and used like any other token there.
+A mirror is never a separate issue. It is minted on a spoke only when stock arrives from
+Solana, and burned when it leaves, so every mirror token is one of the original backed tokens,
+just located on another chain. The spoke needs no pool of its own: its orders are sent to the
+market on Solana.
 
 ```
  Other chains (spokes)                                            Solana (hub)
@@ -65,8 +77,9 @@ OFT):
 - it is minted on the chain it arrives at;
 - a real trade in the home market happens in between.
 
-**Supply is conserved.** Supply on every chain plus what is in flight always equals what was
-issued. A spoke can never create supply. The validation suite checks this after every scenario,
+**Supply is conserved, so the backing holds.** Supply on every chain plus what is in flight
+always equals what was issued, and so always matches the shares behind it. A spoke can never
+create supply; moving the stock between chains only changes where it sits. The validation suite checks this after every scenario,
 and the dashboard shows it live.
 
 **Nothing is ever lost:**
