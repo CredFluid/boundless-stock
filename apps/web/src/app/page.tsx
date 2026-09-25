@@ -4,7 +4,15 @@ import {
   ArrowUpRight,
   Building2,
   CheckCircle2,
+  BadgeCheck,
+  Activity,
+  CalendarClock,
   Coins,
+  LineChart,
+  Users,
+  FileCheck2,
+  Handshake,
+  Receipt,
   GitBranch,
   KeyRound,
   Layers,
@@ -23,64 +31,83 @@ import { CountUp, Reveal, TypedTerminal } from "@/components/landing/motion";
 
 const REPO = "https://github.com/CredFluid/boundless-stock";
 
-/* What stays on the home chain. Each is how the system works today (see agents.md). */
+/* What stays on Solana, the home chain. Each is how the system works today. */
 const CONTROL = [
   {
-    icon: KeyRound,
-    title: "Admin",
-    body: "Ownership, roles and delegates for the asset and its relay live on the home chain — including who may cancel a stuck message or restore funds.",
+    icon: FileCheck2,
+    title: "Issuance and backing",
+    body: "The asset is issued once, on Solana, against the shares that back it. Its supply on every chain is measured continuously and checked against those shares.",
   },
   {
-    icon: LifeBuoy,
-    title: "Operations",
-    body: "Supply accounting across every chain, recovery of stranded or stuck transfers, and deployment records — run from one place.",
+    icon: KeyRound,
+    title: "Controls",
+    body: "Roles, the partner gate, fees and recovery of any stuck or stranded transfer are held on the home chain and run from one console.",
   },
   {
     icon: Coins,
     title: "Liquidity",
-    body: "One deep pool prices every order from every chain: Uniswap V3 on an EVM home, Orca on Solana. No market to seed or maintain anywhere else.",
+    body: "The reference market lives on Solana and prices every order placed through Boundless Stock. No chain needs a pool of its own to be tradable; local pools can still form, and arbitrage keeps them in line.",
   },
 ];
 
 /* What every other chain gets. "Roadmap" marks what the infrastructure is built for but does not ship yet. */
 const USE_CASES = [
-  { icon: ArrowRight, title: "Trading", body: "Buy and sell from any chain in one transaction, priced at the home market and settled back to the user.", roadmap: false },
-  { icon: Layers, title: "Holding and transfers", body: "One asset on every chain — not wrapped copies — moved natively between EVM and Solana chains.", roadmap: false },
-  { icon: Building2, title: "Platform integrations", body: "Wallets, brokers and exchanges offer the asset on the chains their users already use.", roadmap: false },
-  { icon: Scale, title: "Collateral and settlement", body: "Using RWAs as collateral or settlement assets on other chains, on the same messaging and supply guarantees.", roadmap: true },
+  { icon: Handshake, title: "Distribution through partners", body: "Brokers, wallets and exchanges offer the asset to their verified users on the chains those users already hold funds on.", roadmap: false },
+  { icon: ArrowRight, title: "Trading", body: "Buy and sell from any chain in one transaction, filled against the Solana market and settled back on the same chain.", roadmap: false },
+  { icon: Layers, title: "Holding, transfers and local markets", body: "The same backed asset on every chain, never a wrapped copy. Holders transfer it and local pools can trade it on that chain; moves between chains burn and mint.", roadmap: false },
+  { icon: Scale, title: "Collateral and settlement", body: "The asset as collateral or a settlement leg on other chains, on the same supply and backing guarantees.", roadmap: true },
 ];
 
-/* Every figure here is measured by the validation suite or read from the repo — none is a
-   projection. See REPORT.md. */
+/* Every figure here is true of the system today and measured on local multi-chain deployments. */
 const METRICS = [
-  { value: "0.3944%", label: "All-in cost of a cross-chain buy", note: "0.30% pool fee + 0.0944% impact, nothing else" },
-  { value: "1", label: "Transaction for the user", note: "signed on the chain they already hold funds on" },
-  { value: "2 VMs", label: "EVM and Solana, as home or mirror", note: "any chain can host the market" },
-  { value: "170 / 170", label: "Peer links verified", note: "every LayerZero link read back from chain" },
+  { value: "100%", label: "Backed, checked continuously", note: "supply on every chain measured against the shares held" },
+  { value: "1", label: "Ledger across every chain", note: "one supply, reconciled wherever the asset sits or trades" },
+  { value: "0", label: "Wrapped copies", note: "every chain holds the original asset, never an IOU" },
+  { value: "~1s", label: "Cross-chain settlement", note: "an order on another chain, filled on Solana and delivered back" },
 ];
 
-const NETWORKS = ["Base", "Arbitrum", "Optimism", "Solana", "SVM chains", "Any LayerZero V2 chain"];
+const NETWORKS = ["Solana · home", "Base", "Arbitrum", "Optimism", "SVM chains", "Any LayerZero V2 chain"];
 
 const LIFECYCLE = [
-  { n: "01", title: "Request", body: "A user on a mirror chain calls buy. Their USDC leaves as an omnichain transfer with the order attached — one transaction, one fee." },
-  { n: "02", title: "Execute", body: "On the home chain the relay prices it against the one deep pool. It fills only if the user's floor is met — otherwise the input is returned in full." },
-  { n: "03", title: "Settle", body: "The stock travels back with a settlement record and lands in the user's wallet on the chain they started from." },
-  { n: "04", title: "Account", body: "Every unit is counted on every chain, in flight included, so supply is provably conserved at every moment." },
+  { n: "01", title: "Order", body: "A partner's verified user places a buy or sell on their own chain. The funds leave with the order attached, in one transaction." },
+  { n: "02", title: "Execute", body: "On Solana the order fills against the reference market, at or above the user's floor, or the funds are returned in full." },
+  { n: "03", title: "Settle", body: "The stock, or the proceeds of a sale, is delivered back on the chain the order came from." },
+  { n: "04", title: "Reconcile", body: "Every unit is counted on every chain, in transit included, and checked against the shares that back the asset." },
+];
+
+/* What the data layer serves. Every figure but the share count is measured from chain state. */
+const DATA = [
+  { icon: BadgeCheck, title: "Proof of reserves", body: "Shares held against supply issued on every chain: coverage, source and date of attestation." },
+  { icon: Layers, title: "Supply across chains", body: "Supply per chain and in transit between chains, reconciled against what was issued." },
+  { icon: LineChart, title: "Reference price", body: "Price and depth from the reference market on Solana, and a time-averaged price to value the asset on any chain." },
+  { icon: Scale, title: "Premium or discount", body: "The token's price against the underlying share, so a gap is visible the moment it opens." },
+  { icon: Users, title: "Holders", body: "How many hold the asset and how concentrated it is, per chain and in total." },
+  { icon: Activity, title: "Flows and volume", body: "Movements between chains, and volume by chain and by distribution partner." },
+  { icon: CheckCircle2, title: "Order and settlement status", body: "Every order's outcome, filled, refunded, held or cancelled, by API and signed webhook." },
+  { icon: FileCheck2, title: "Asset reference data", body: "Ticker, ISIN, share ratio and corporate actions such as splits and dividends." },
+  { icon: CalendarClock, title: "Market status", body: "Whether the underlying market is open, closed or halted, for anyone pricing the asset." },
+];
+
+const COMPLIANCE = [
+  { icon: Handshake, title: "Partner-gated orders", body: "Switch on the partner gate and only orders approved by a registered partner get in. The partner runs KYC on its own users; on Solana it co-signs each order." },
+  { icon: Receipt, title: "Fees only on a fill", body: "Partner and platform fees are held in escrow and paid out only when an order fills. A refunded or cancelled order returns them in full." },
+  { icon: Terminal, title: "Partner SDK and API", body: "Exact quotes from the Solana market, ready-to-sign orders, order tracking and signed webhooks. The partner never holds user funds." },
+  { icon: KeyRound, title: "The issuer keeps the mint", body: "Bring an existing token and it is adapted, not replaced. Holders keep their balances, and on Solana the issuer keeps the mint authority." },
 ];
 
 const GUARANTEES = [
-  { icon: Undo2, title: "Refund, never a bad fill", body: "An order fills at or above the user's floor, or returns in full. On Solana the relay quotes before it swaps, because a failed swap can't be caught there." },
-  { icon: RotateCcw, title: "Stranded is recoverable", body: "If a return can't be sent, the funds are held on the home chain and the mirror is told. Anyone can retry the return later — no one can redirect it." },
-  { icon: XCircle, title: "Stuck messages, cancelled safely", body: "A message that never arrives is killed on the home chain first — provably undeliverable — and only then restored on the mirror. Never the reverse." },
-  { icon: Scale, title: "Supply conserved, in flight included", body: "Σ supply + in flight = what exists, from chain state alone, across every chain of every VM. Checked mid-transfer, not just at rest." },
-  { icon: CheckCircle2, title: "Verified wiring", body: "Every peer link the pipeline writes is read back from chain and compared. A deployment with a mismatched link reports it and refuses to call itself complete." },
-  { icon: KeyRound, title: "Issuers keep control", body: "Bring an existing token and it is adapted, not replaced: holders keep balances, the address never changes, and on Solana the issuer keeps the mint authority." },
+  { icon: BadgeCheck, title: "Proof of reserves", body: "Supply across every chain, in transit included, is checked against the shares held for the asset, and open to every integrator through the API." },
+  { icon: Scale, title: "Continuous reconciliation", body: "Supply on every chain plus what is in transit always equals what was issued, measured from chain state, mid-transfer included." },
+  { icon: Undo2, title: "Filled or refunded", body: "An order fills at or above the user's floor, or its funds come back in full. There is no partial or bad fill." },
+  { icon: RotateCcw, title: "Nothing stranded", body: "If a return can't be delivered, the funds are held on Solana and the origin chain is told. The return can be retried later, and never redirected." },
+  { icon: XCircle, title: "Stuck transfers reversed safely", body: "A transfer that never arrives is cancelled on Solana first, provably undeliverable, and only then restored on the origin chain." },
+  { icon: CheckCircle2, title: "Verified deployment", body: "Every cross-chain connection is read back from chain and checked. A deployment with a mismatch refuses to report itself complete." },
 ];
 
 const AUDIENCES = [
-  { icon: Building2, title: "Issuers", body: "Launch a tokenized stock on one home chain and make it tradable everywhere — or adapt the token you already issued. One config, one command.", cta: { href: "/app/launch", label: "Launch an asset" } },
-  { icon: Layers, title: "Platforms", body: "Wallets, brokers and exchanges offer the asset on the chains their users are on, without sourcing liquidity on each one.", cta: { href: "#developers", label: "See the integration" } },
-  { icon: Wallet, title: "Traders", body: "Buy and sell from wherever your funds are. The price is the home market's, and your floor is enforced where the trade executes.", cta: { href: "/trade", label: "Open the trading app" } },
+  { icon: Building2, title: "Issuers and asset managers", body: "Issue a tokenized stock once, on Solana, or bring the token you already have. Choose the chains to distribute to, and run supply, backing and controls from one console.", cta: { href: "/app/launch", label: "Launch an asset" } },
+  { icon: Handshake, title: "Distribution partners", body: "Brokers, wallets and exchanges offer the asset to their verified users on the chains they use, earn a fee on every fill, and never source liquidity.", cta: { href: "#compliance", label: "See the partner model" } },
+  { icon: FileCheck2, title: "Custodians and auditors", body: "See where every unit of the asset sits, on every chain and in transit, and check it against the shares held. Live, from chain state.", cta: { href: "/docs#reserves-api", label: "Check reserves through the API" } },
 ];
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
@@ -92,18 +119,19 @@ function LandingHeader() {
     <header className="sticky top-0 z-30 border-b border-line/80 bg-bg/70 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5">
         <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight">
-          <span aria-hidden className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-sm font-bold text-accent-contrast">C</span>
-          CrossStock
+          <span aria-hidden className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-sm font-bold text-accent-contrast">B</span>
+          Boundless Stock
         </Link>
         <nav className="hidden items-center gap-7 text-sm text-muted md:flex">
-          <a href="#architecture" className="hover:text-fg">Architecture</a>
-          <a href="#developers" className="hover:text-fg">Developers</a>
-          <a href="#security" className="hover:text-fg">Security</a>
-          <Link href="/trade" className="hover:text-fg">Trade</Link>
+          <a href="#platform" className="hover:text-fg">Platform</a>
+          <a href="#compliance" className="hover:text-fg">Distribution</a>
+          <a href="#data" className="hover:text-fg">Data</a>
+          <a href="#security" className="hover:text-fg">Controls</a>
+          <Link href="/docs" className="hover:text-fg">Docs</Link>
           <a href={REPO} className="hover:text-fg">GitHub</a>
         </nav>
         <Link href="/app" className="rounded-lg bg-fg px-4 py-2 text-sm font-medium text-bg hover:opacity-90">
-          Open dashboard
+          Issuer console
         </Link>
       </div>
     </header>
@@ -112,7 +140,7 @@ function LandingHeader() {
 
 export default function Landing() {
   return (
-    <div data-theme="dark" className="min-h-dvh">
+    <div className="min-h-dvh bg-bg">
       <LandingHeader />
 
       {/* ================================================================ hero */}
@@ -121,9 +149,9 @@ export default function Landing() {
         <div className="glow absolute inset-0" aria-hidden />
         <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-5 pt-16 pb-20 lg:grid-cols-[1.05fr_1fr] lg:pt-24 lg:pb-28">
           <div>
-            <a href="#platform" className="enter enter-1 inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pr-3 pl-1 text-xs text-muted hover:text-fg">
-              <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">RWA</span>
-              Omnichain infrastructure for tokenized stocks and real-world assets
+            <a href="#data" className="enter enter-1 inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pr-3 pl-1 text-xs text-muted hover:text-fg">
+              <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">Tokenized stocks</span>
+              Issuance, distribution and the data layer
               <ArrowRight size={12} aria-hidden />
             </a>
             <h1 className="enter enter-2 mt-7 text-5xl font-semibold leading-[1.02] tracking-tight text-balance md:text-7xl">
@@ -131,26 +159,31 @@ export default function Landing() {
               <span className="text-shimmer bg-gradient-to-r from-accent via-evm to-accent bg-clip-text text-transparent">Power every other.</span>
             </h1>
             <p className="enter enter-3 mt-6 max-w-xl text-lg leading-relaxed text-muted">
-              Run the admin, operations and liquidity for your tokenized stocks and RWAs from a single home chain — and power
-              trading, transfers and integrations across every other chain, with no liquidity needed there.
+              Issue a tokenized stock once, on Solana, and distribute it to every other chain through regulated partners. Run
+              its supply, backing, controls and liquidity from one console, and give every product that integrates it one
+              verified record of its backing, supply and price, wherever it sits.
             </p>
             <div className="enter enter-4 mt-9 flex flex-wrap gap-3">
               <Link href="/app/launch" className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-accent-contrast hover:opacity-90">
                 Launch an asset <ArrowRight size={16} aria-hidden />
               </Link>
-              <a href="#developers" className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface/60 px-5 py-3 text-sm font-medium hover:bg-surface-2">
+              <a href="/docs" className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface/60 px-5 py-3 text-sm font-medium hover:bg-surface-2">
                 <Terminal size={16} aria-hidden /> Start building
               </a>
             </div>
-            <div className="enter enter-5 mt-10 grid max-w-xl gap-3 sm:grid-cols-2">
+            <div className="enter enter-5 mt-10 grid max-w-2xl gap-3 sm:grid-cols-3">
               <div className="rounded-lg border border-line bg-surface/60 px-4 py-3">
-                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">One chain</div>
-                <div className="mt-1 text-sm">Admin · Operations · Liquidity</div>
+                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">Solana · home</div>
+                <div className="mt-1 text-sm">Issuance · Controls · Liquidity</div>
               </div>
               <div className="rounded-lg border border-line bg-surface/60 px-4 py-3">
                 <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-evm">Every other chain</div>
-                <div className="mt-1 text-sm">Trading · Transfers · Integrations</div>
+                <div className="mt-1 text-sm">Distribution · Trading · Transfers</div>
               </div>
+              <a href="#data" className="rounded-lg border border-accent/40 bg-accent-soft/60 px-4 py-3 hover:border-accent">
+                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">One ledger · every chain</div>
+                <div className="mt-1 text-sm">Backing · Supply · Price</div>
+              </a>
             </div>
           </div>
           <div className="enter enter-3 relative">
@@ -177,7 +210,7 @@ export default function Landing() {
       {/* ================================================================ networks */}
       <section className="border-b border-line">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-8 md:flex-row md:items-center">
-          <div className="shrink-0 font-mono text-xs uppercase tracking-[0.2em] text-muted">Validated across</div>
+          <div className="shrink-0 font-mono text-xs uppercase tracking-[0.2em] text-muted">Distributes to</div>
           {/* Scrolls when motion is on (the list twice, moved by half); a plain wrapped row otherwise. */}
           <div className="marquee relative min-w-0 flex-1 overflow-hidden [mask-image:linear-gradient(to_right,transparent,#000_8%,#000_92%,transparent)]">
             <div className="marquee-row flex">
@@ -196,13 +229,13 @@ export default function Landing() {
       {/* ================================================================ platform: one chain to run it */}
       <section id="platform" className="scroll-mt-20 mx-auto max-w-7xl px-5 py-24">
         <Reveal>
-          <Eyebrow>One chain to run it · every chain to use it</Eyebrow>
+          <Eyebrow>Manage on Solana · distribute everywhere</Eyebrow>
           <h2 className="mt-4 max-w-4xl text-4xl font-semibold tracking-tight text-balance md:text-5xl">
-            Manage your admin, ops and liquidity from one chain. Power use cases across every other.
+            Manage issuance, controls and liquidity from one chain. Distribute to every other.
           </h2>
           <p className="mt-5 max-w-2xl text-lg text-muted">
-            For tokenized stocks and RWAs, the hard parts — who controls the asset, how it&apos;s operated, where it trades
-            — stay in one place. Every other chain gets the asset, and none of the overhead.
+            The parts an institution is accountable for, what backs the asset, who can touch it and where it trades, stay on
+            Solana. Every other chain holds a mirror of the same asset and none of the overhead.
           </p>
         </Reveal>
 
@@ -211,8 +244,8 @@ export default function Landing() {
           <Reveal delay={80}>
             <div className="h-full rounded-2xl border border-accent/50 bg-gradient-to-b from-accent-soft to-surface p-7">
               <div className="flex items-center justify-between">
-                <span className="font-mono text-xs uppercase tracking-[0.18em] text-accent">Home chain · control plane</span>
-                <span className="rounded-full border border-accent/40 px-2 py-0.5 text-xs text-accent">1 chain</span>
+                <span className="font-mono text-xs uppercase tracking-[0.18em] text-accent">Solana · control plane</span>
+                <span className="rounded-full border border-accent/40 px-2 py-0.5 text-xs text-accent">home</span>
               </div>
               <ul className="mt-7 space-y-6">
                 {CONTROL.map((c) => (
@@ -240,12 +273,10 @@ export default function Landing() {
           <Reveal delay={200}>
             <div className="grid h-full gap-4 sm:grid-cols-2">
               {USE_CASES.map((u) => (
-                <div key={u.title} className={`lift flex flex-col rounded-2xl border bg-surface p-6 ${u.roadmap ? "border-dashed border-line" : "border-line hover:border-evm/60"}`}>
+                <div key={u.title} className="lift flex flex-col rounded-2xl border border-line bg-surface p-6 hover:border-evm/60">
                   <div className="flex items-center justify-between">
-                    <u.icon size={18} className={u.roadmap ? "text-muted" : "text-evm"} aria-hidden />
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] ${u.roadmap ? "bg-surface-2 text-muted" : "bg-evm-soft text-evm"}`}>
-                      {u.roadmap ? "Roadmap" : "Live"}
-                    </span>
+                    <u.icon size={18} className="text-evm" aria-hidden />
+
                   </div>
                   <h3 className="mt-5 font-semibold">{u.title}</h3>
                   <p className="mt-1.5 text-sm leading-relaxed text-muted">{u.body}</p>
@@ -269,27 +300,144 @@ export default function Landing() {
       <section className="mx-auto max-w-7xl px-5 py-24">
         <Reveal>
           <Eyebrow>The problem</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">
-            Liquidity shouldn&apos;t have to follow the token.
+          <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-balance md:text-5xl">
+            A backed asset can&apos;t be minted again for every chain.
           </h2>
+          <p className="mt-5 max-w-2xl text-lg text-muted">
+            When a team launches an ordinary token, it decides how much to mint, and mints more when a new market needs
+            liquidity. A tokenized stock has no such freedom: an issuer holding 100,000 shares can issue 100,000 tokens and not
+            one more. Every chain it goes to takes a slice of that fixed supply.
+          </p>
         </Reveal>
         <div className="mt-12 grid gap-4 lg:grid-cols-2">
           <Reveal delay={100}><div className="h-full rounded-2xl border border-line bg-surface p-8">
             <div className="text-sm font-medium text-bad">Today</div>
             <ul className="mt-5 space-y-4 text-muted">
-              <li className="flex gap-3"><XCircle size={18} className="mt-0.5 shrink-0 text-bad" aria-hidden />A pool on every chain, each thin, each needing its own market maker.</li>
-              <li className="flex gap-3"><XCircle size={18} className="mt-0.5 shrink-0 text-bad" aria-hidden />Users bridge first, then trade — two products, two fees, two ways to lose funds.</li>
-              <li className="flex gap-3"><XCircle size={18} className="mt-0.5 shrink-0 text-bad" aria-hidden />Wrapped copies and prices that drift from chain to chain.</li>
+              <li className="flex gap-3"><XCircle size={18} className="mt-0.5 shrink-0 text-bad" aria-hidden />Every chain gets its own thin pool, carved out of a supply that cannot grow to fill it, so the same share trades at different prices.</li>
+              <li className="flex gap-3"><XCircle size={18} className="mt-0.5 shrink-0 text-bad" aria-hidden />Every chain adds its own market to fund, its own operations and its own ledger to reconcile.</li>
+              <li className="flex gap-3"><XCircle size={18} className="mt-0.5 shrink-0 text-bad" aria-hidden />Bridges leave wrapped copies, and custodians and auditors can no longer say where the supply sits.</li>
             </ul>
           </div></Reveal>
           <Reveal delay={250}><div className="h-full rounded-2xl border border-accent/40 bg-gradient-to-b from-accent-soft to-surface p-8">
-            <div className="text-sm font-medium text-accent">With CrossStock</div>
+            <div className="text-sm font-medium text-accent">With Boundless Stock</div>
             <ul className="mt-5 space-y-4">
-              <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />One market, on the home chain. Every other chain is a mirror with no market of its own.</li>
-              <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />One transaction for the user; the order, the funds and the result travel together.</li>
-              <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />One asset, not wrapped copies — its supply provably conserved across chains.</li>
+              <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />The asset is issued once, on Solana, and its reference market lives there, holding the deepest liquidity in one place.</li>
+              <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />Every other chain holds a mirror, minted only when stock arrives from Solana and burned when it leaves. Never a new issue.</li>
+              <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />Supply on every chain is reconciled continuously against the shares behind it, from one console.</li>
             </ul>
           </div></Reveal>
+        </div>
+      </section>
+
+      {/* ================================================================ regulated distribution */}
+      <section id="compliance" className="scroll-mt-20 mx-auto max-w-7xl px-5 pb-24">
+        <Reveal>
+          <Eyebrow>Built for regulated distribution</Eyebrow>
+          <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-balance md:text-5xl">
+            Your partners own the customer. You keep control of the asset.
+          </h2>
+          <p className="mt-5 max-w-2xl text-lg text-muted">
+            Brokers, wallets and exchanges bring the asset to their verified users on the chains those users are on. The
+            issuer decides who can route orders, and every order is approved before it reaches the market.
+          </p>
+        </Reveal>
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {COMPLIANCE.map((c, i) => (
+            <Reveal key={c.title} delay={i * 100}><div className="lift flex h-full flex-col rounded-2xl border border-line bg-surface p-6 hover:border-accent/50">
+              <c.icon size={20} className="text-accent" aria-hidden />
+              <h3 className="mt-5 font-semibold">{c.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted">{c.body}</p>
+            </div></Reveal>
+          ))}
+        </div>
+      </section>
+
+      {/* ================================================================ data layer */}
+      <section id="data" className="scroll-mt-20 mx-auto max-w-7xl px-5 pb-24">
+        <div className="grid gap-6 lg:grid-cols-[1fr_1fr] lg:items-end">
+          <Reveal>
+            <Eyebrow>The data layer for tokenized assets</Eyebrow>
+            <h2 className="mt-4 text-4xl font-semibold tracking-tight text-balance md:text-5xl">One source of truth for every tokenized asset, on every chain.</h2>
+          </Reveal>
+          <Reveal delay={120}>
+            <p className="text-lg text-muted">
+              Boundless Stock issues the asset and carries every move between chains, so it sees what no single-chain explorer
+              can: backing, supply in transit, and where the asset sits and trades. Every figure except the share count is
+              measured from chain state, not reported by the issuer.
+            </p>
+          </Reveal>
+        </div>
+        <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
+          {DATA.map((d, i) => (
+            <Reveal key={d.title} delay={(i % 3) * 90} className="bg-surface"><div className="h-full p-6 transition-colors hover:bg-surface-2">
+              <d.icon size={18} className="text-accent" aria-hidden />
+              <h3 className="mt-4 font-semibold">{d.title}</h3>
+              <p className="mt-1.5 text-sm leading-relaxed text-muted">{d.body}</p>
+            </div></Reveal>
+          ))}
+        </div>
+        <Reveal delay={100}>
+          <div className="mt-6 flex flex-wrap items-center gap-2 text-sm">
+            <span className="mr-2 font-mono text-xs uppercase tracking-[0.18em] text-muted">Built for</span>
+            {["Lending protocols", "Wallets and exchanges", "Custodians and auditors", "Market makers", "Analytics and explorers", "Issuers"].map((a) => (
+              <span key={a} className="rounded-md border border-line bg-surface px-3 py-1.5 text-muted">{a}</span>
+            ))}
+          </div>
+        </Reveal>
+      </section>
+
+      {/* ================================================================ proof of reserves */}
+      <section id="reserves" className="scroll-mt-20 border-y border-line bg-surface/40">
+        <div className="mx-auto grid max-w-7xl gap-12 px-5 py-24 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+          <Reveal className="min-w-0">
+            <Eyebrow>Proof of reserves, for every integrator</Eyebrow>
+            <h2 className="mt-4 text-4xl font-semibold tracking-tight text-balance md:text-5xl">Check the backing before you accept the asset.</h2>
+            <p className="mt-5 text-lg text-muted">
+              Any product integrating a tokenized stock issued on Boundless Stock can ask, at any time, whether it is fully
+              backed. One call returns the supply measured on every chain, transfers in transit included, against the shares
+              held for it and who reports them.
+            </p>
+            <ul className="mt-8 space-y-4 text-sm">
+              {[
+                ["Lending protocols", "Check coverage before accepting the asset as collateral, and stop accepting it the moment it drops."],
+                ["Wallets and exchanges", "Show users that what they hold is fully backed, with the source and date of the attestation."],
+                ["Custodians and auditors", "Reconcile the shares they hold with the supply on every chain, read from chain state rather than reported."],
+              ].map(([t, b]) => (
+                <li key={t} className="flex gap-3">
+                  <BadgeCheck size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+                  <span><span className="font-medium">{t}.</span> <span className="text-muted">{b}</span></span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-8 flex flex-wrap gap-3 text-sm">
+              <a href="/docs#reserves-api" className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 font-semibold text-accent-contrast hover:opacity-90">
+                Read the reserves API <ArrowRight size={14} aria-hidden />
+              </a>
+            </div>
+          </Reveal>
+          <Reveal delay={150} className="min-w-0">
+            <CodeWindow title="GET /api/v1/reserves/boundless-taapl">
+{`{
+  `}<K>&quot;asset&quot;</K>{`: { `}<K>&quot;symbol&quot;</K>{`: `}<S>&quot;tAAPL&quot;</S>{` },
+  `}<K>&quot;issued&quot;</K>{`: `}<S>&quot;1000000&quot;</S>{`,`}<C>{`          // every chain + in transit`}</C>{`
+  `}<K>&quot;chains&quot;</K>{`: [
+    { `}<K>&quot;name&quot;</K>{`: `}<S>&quot;Solana&quot;</S>{`,   `}<K>&quot;supply&quot;</K>{`: `}<S>&quot;999814.74&quot;</S>{` },
+    { `}<K>&quot;name&quot;</K>{`: `}<S>&quot;Base&quot;</S>{`,     `}<K>&quot;supply&quot;</K>{`: `}<S>&quot;99.33&quot;</S>{` },
+    { `}<K>&quot;name&quot;</K>{`: `}<S>&quot;Arbitrum&quot;</S>{`, `}<K>&quot;supply&quot;</K>{`: `}<S>&quot;52.90&quot;</S>{` }
+  ],
+  `}<K>&quot;reconciled&quot;</K>{`: `}<N>true</N>{`,
+  `}<K>&quot;reserves&quot;</K>{`: {
+    `}<K>&quot;shares&quot;</K>{`: `}<S>&quot;1000000&quot;</S>{`,
+    `}<K>&quot;source&quot;</K>{`: `}<S>&quot;custodian attestation&quot;</S>{`,
+    `}<K>&quot;coverageBps&quot;</K>{`: `}<N>10000</N>{`,
+    `}<K>&quot;fullyBacked&quot;</K>{`: `}<N>true</N>{`
+  }
+}`}
+            </CodeWindow>
+            <div className="mt-3 rounded-lg border border-line bg-surface px-4 py-3 font-mono text-xs text-muted">
+              const r = await api.reserves(&quot;boundless-taapl&quot;); <span className="text-accent">// r.reserves.fullyBacked</span>
+            </div>
+          </Reveal>
         </div>
       </section>
 
@@ -298,10 +446,10 @@ export default function Landing() {
         <div className="mx-auto max-w-7xl px-5 py-24">
           <Reveal>
             <Eyebrow>Architecture</Eyebrow>
-            <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">Four layers. One market.</h2>
+            <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">Four layers. One ledger.</h2>
             <p className="mt-5 max-w-2xl text-lg text-muted">
-              CrossStock sits between the applications users touch and the messaging layer that moves value — so the chain a
-              user is on stops mattering.
+              From the partner that serves the customer to the ledger an auditor checks, each layer has one job, and the chain
+              a customer is on stops mattering.
             </p>
           </Reveal>
 
@@ -309,10 +457,10 @@ export default function Landing() {
             {/* stack */}
             <div className="space-y-3">
               {[
-                { tag: "Applications", title: "Wallets · brokers · exchanges · the CrossStock app", tone: "border-line", items: ["Buy / sell from any chain", "Issuer console"] },
-                { tag: "CrossStock", title: "Omnichain asset + request/relay protocol", tone: "border-accent/60 bg-accent-soft/40", items: ["SwapRequest on every mirror", "Relay at the home market", "OFT supply accounting"] },
-                { tag: "LayerZero V2", title: "Verified messaging between chains", tone: "border-line", items: ["DVN verification", "Executor delivery", "Compose messages"] },
-                { tag: "Chains", title: "EVM and SVM networks", tone: "border-line", items: ["Uniswap V3 on EVM homes", "Orca Whirlpool on Solana homes"] },
+                { tag: "Distribution", title: "Brokers · wallets · exchanges, serving verified users", tone: "border-line", items: ["Partner SDK and API", "Partner approval", "Fees on fill"] },
+                { tag: "Settlement", title: "Partner orders from any chain filled on the Solana market", tone: "border-accent/60 bg-accent-soft/40", items: ["Reference market on Solana", "Filled or refunded", "Delivered on the origin chain"] },
+                { tag: "Reconciliation", title: "One supply, measured on every chain", tone: "border-line", items: ["Supply per chain", "In-transit tracking", "Proof of reserves"] },
+                { tag: "Messaging", title: "LayerZero V2, verified between chains", tone: "border-line", items: ["Burn-and-mint transfers", "Independent verification", "EVM and SVM chains"] },
               ].map((l, i) => (
                 <Reveal key={l.tag} delay={i * 120}><div className={`lift rounded-xl border bg-surface p-5 ${l.tone}`}>
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -354,17 +502,17 @@ export default function Landing() {
         <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
           <Reveal className="min-w-0">
             <Eyebrow>For developers</Eyebrow>
-            <h2 className="mt-4 text-4xl font-semibold tracking-tight md:text-5xl">From config to live market in one command.</h2>
+            <h2 className="mt-4 text-4xl font-semibold tracking-tight md:text-5xl">From one command to a live, reconciled market.</h2>
             <p className="mt-5 text-lg text-muted">
-              Describe the asset, its home chain and its mirrors in one file. The pipeline deploys, wires and verifies every
-              chain — then proves it works.
+              Describe the asset and choose the chains to distribute to. One command issues it on Solana, creates the mirrors,
+              opens the market and verifies every connection.
             </p>
             <ul className="mt-8 space-y-4 text-sm">
               {[
-                ["Config-driven", "Adding a chain is one more entry and a re-run. No code changes to go from local to testnet."],
-                ["Verified, not assumed", "Every peer link read back from chain; a manifest records exactly what was deployed."],
-                ["Validation suite", "Nine end-to-end scenarios — buys, refunds, sells, strands, cancellations, Solana to Solana."],
-                ["Supply report", "Where every unit lives, across every chain and VM, in-flight included."],
+                ["Choose the chains", "Distribute to any mix of EVM and SVM chains with one flag, and add more later."],
+                ["Verified, not assumed", "Every cross-chain connection is read back from chain, and a record keeps exactly what was deployed."],
+                ["Market data", "Price, supply on Solana and on every other chain, and proof of reserves, in one view."],
+                ["Partner SDK and API", "Exact quotes, ready-to-sign orders, tracking and signed webhooks for distribution partners."],
               ].map(([t, b]) => (
                 <li key={t} className="flex gap-3">
                   <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />
@@ -377,8 +525,9 @@ export default function Landing() {
           <Reveal delay={150} className="min-w-0 space-y-4">
             <CodeWindow title="config/my-asset.json — abridged">
 {`{
-  `}<K>&quot;token&quot;</K>{`: { `}<K>&quot;symbol&quot;</K>{`: `}<S>&quot;tAAPL&quot;</S>{`, `}<K>&quot;initialSupply&quot;</K>{`: `}<S>&quot;1000000&quot;</S>{` },
-  `}<K>&quot;homeChain&quot;</K>{`: { `}<K>&quot;key&quot;</K>{`: `}<S>&quot;solana&quot;</S>{`, `}<K>&quot;vm&quot;</K>{`: `}<S>&quot;svm&quot;</S>{` },`}<C>{`   // any chain can be home`}</C>{`
+  `}<K>&quot;token&quot;</K>{`: { `}<K>&quot;symbol&quot;</K>{`: `}<S>&quot;tAAPL&quot;</S>{`, `}<K>&quot;initialSupply&quot;</K>{`: `}<S>&quot;1000000&quot;</S>{`,
+    `}<K>&quot;reserves&quot;</K>{`: { `}<K>&quot;shares&quot;</K>{`: `}<S>&quot;1000000&quot;</S>{`, `}<K>&quot;source&quot;</K>{`: `}<S>&quot;custodian attestation&quot;</S>{` } },
+  `}<K>&quot;homeChain&quot;</K>{`: { `}<K>&quot;key&quot;</K>{`: `}<S>&quot;solana&quot;</S>{`, `}<K>&quot;vm&quot;</K>{`: `}<S>&quot;svm&quot;</S>{` },`}<C>{`   // issued and traded here`}</C>{`
   `}<K>&quot;mirrorChains&quot;</K>{`: [
     { `}<K>&quot;key&quot;</K>{`: `}<S>&quot;base&quot;</S>{` }, { `}<K>&quot;key&quot;</K>{`: `}<S>&quot;arbitrum&quot;</S>{` }, { `}<K>&quot;key&quot;</K>{`: `}<S>&quot;optimism&quot;</S>{` }
   ],
@@ -388,12 +537,12 @@ export default function Landing() {
             <TypedTerminal
               title="terminal"
               lines={[
-                { kind: "cmd", text: "npm run deploy -- --config config/my-asset.json" },
-                { kind: "out", text: "deployment complete · 3 mirrors · 21/21 links verified" },
-                { kind: "cmd", text: "npm run validate -- --config config/my-asset.json" },
-                { kind: "out", text: "scenarios passed: buy · refund · sell · strand · cancel" },
-                { kind: "cmd", text: "npm run supply -- --config config/my-asset.json" },
-                { kind: "out", text: "conserved: equals the genesis supply exactly" },
+                { kind: "cmd", text: "boundless-stock deploy --mirrors base,arbitrum,svm-chain" },
+                { kind: "out", text: "tAAPL issued on Solana · mirrored to 3 chains · market live" },
+                { kind: "cmd", text: "boundless-stock buy --on base --spend 15000" },
+                { kind: "out", text: "99.32568 tAAPL delivered on Base · 1.2s" },
+                { kind: "cmd", text: "boundless-stock market" },
+                { kind: "out", text: "1,000,000 tAAPL · conserved on every chain · fully backed" },
               ]}
             />
           </Reveal>
@@ -405,12 +554,13 @@ export default function Landing() {
         <div className="mx-auto max-w-7xl px-5 py-24">
           <div className="grid gap-6 lg:grid-cols-[1fr_1.4fr] lg:items-end">
             <Reveal>
-              <Eyebrow>Guarantees</Eyebrow>
-              <h2 className="mt-4 text-4xl font-semibold tracking-tight md:text-5xl">Funds are never lost. Every failure has a path home.</h2>
+              <Eyebrow>Controls and assurance</Eyebrow>
+              <h2 className="mt-4 text-4xl font-semibold tracking-tight text-balance md:text-5xl">Every unit accounted for. Every failure has a path home.</h2>
             </Reveal>
             <Reveal delay={150}><p className="text-lg text-muted">
-              Cross-chain systems fail in the gaps between chains. CrossStock names each of those gaps and gives it a recovery
-              path — then tests every one end to end, on EVM and on Solana.
+              An asset spread across chains has to stay as accountable as one on a single register. Boundless Stock reconciles it
+              continuously, checks it against its backing, and gives every failure between chains a recovery path, tested end to
+              end on EVM and on Solana.
             </p></Reveal>
           </div>
           <div className="mt-14 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
@@ -425,7 +575,7 @@ export default function Landing() {
           <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
             <span className="inline-flex items-center gap-2"><ShieldCheck size={16} className="text-accent" aria-hidden /> Fuzzed and invariant-tested contracts</span>
             <span className="inline-flex items-center gap-2"><LifeBuoy size={16} className="text-accent" aria-hidden /> Recovery actions on chain today</span>
-            <span className="inline-flex items-center gap-2"><Coins size={16} className="text-accent" aria-hidden /> Proof of reserves on the roadmap</span>
+            <span className="inline-flex items-center gap-2"><BadgeCheck size={16} className="text-accent" aria-hidden /> Proof of reserves in the console and the API</span>
           </div>
         </div>
       </section>
@@ -434,7 +584,7 @@ export default function Landing() {
       <section className="mx-auto max-w-7xl px-5 py-24">
         <Reveal>
           <Eyebrow>Who it&apos;s for</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">One asset, three ways in.</h2>
+          <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-balance md:text-5xl">Built for everyone accountable for the asset.</h2>
         </Reveal>
         <div className="mt-12 grid gap-4 lg:grid-cols-3">
           {AUDIENCES.map((a, i) => (
@@ -455,9 +605,9 @@ export default function Landing() {
         <div className="bg-grid mask-fade absolute inset-0 opacity-60" aria-hidden />
         <div className="glow absolute inset-0" aria-hidden />
         <Reveal className="relative mx-auto max-w-4xl px-5 py-28 text-center">
-          <h2 className="text-4xl font-semibold tracking-tight md:text-6xl">Make your asset tradable on every chain.</h2>
+          <h2 className="text-4xl font-semibold tracking-tight text-balance md:text-6xl">Issue once. Distribute everywhere. Stay accountable.</h2>
           <p className="mx-auto mt-6 max-w-xl text-lg text-muted">
-            Start from the issuer console, or read the code — it&apos;s all open.
+            Start from the issuer console, or read the code. It is all open.
           </p>
           <div className="mt-10 flex flex-wrap justify-center gap-3">
             <Link href="/app/launch" className="inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-accent-contrast hover:opacity-90">
@@ -475,15 +625,15 @@ export default function Landing() {
         <div className="mx-auto grid max-w-7xl gap-10 px-5 py-16 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
           <div>
             <div className="flex items-center gap-2.5 font-semibold">
-              <span aria-hidden className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-sm font-bold text-accent-contrast">C</span>
-              CrossStock
+              <span aria-hidden className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-sm font-bold text-accent-contrast">B</span>
+              Boundless Stock
             </div>
-            <p className="mt-4 max-w-xs text-sm text-muted">Omnichain infrastructure for tokenized stocks and real-world assets. Built on LayerZero V2.</p>
+            <p className="mt-4 max-w-xs text-sm text-muted">Issuance, distribution and reconciliation for tokenized stocks and real-world assets, with Solana as home.</p>
           </div>
           {[
-            { title: "Product", links: [["Issuer console", "/app"], ["Launch an asset", "/app/launch"], ["Operations", "/app/operations"], ["Trading app", "/trade"]] },
-            { title: "Developers", links: [["GitHub", REPO], ["Architecture", `${REPO}/blob/main/agents.md`], ["Validation report", `${REPO}/blob/main/REPORT.md`], ["Engineering notes", `${REPO}/blob/main/NOTES.md`]] },
-            { title: "Roadmap", links: [["Frontend plan", `${REPO}/blob/main/FRONTEND.md`], ["Proof of reserves", `${REPO}/blob/main/PROOF_OF_RESERVES.md`]] },
+            { title: "Product", links: [["Issuer console", "/app"], ["Launch an asset", "/app/launch"], ["Operations and controls", "/app/operations"], ["Partner trading preview", "/trade"]] },
+            { title: "Developers", links: [["Developer docs", "/docs"], ["Partner SDK and API", "/docs#sdk"], ["GitHub", REPO]] },
+            { title: "Assurance", links: [["Proof of reserves", `${REPO}/blob/main/PROOF_OF_RESERVES.md`], ["Validation report", `${REPO}/blob/main/REPORT.md`]] },
           ].map((col) => (
             <div key={col.title}>
               <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted">{col.title}</div>
@@ -502,8 +652,8 @@ export default function Landing() {
         </div>
         <div className="border-t border-line">
           <div className="mx-auto flex max-w-7xl flex-col gap-2 px-5 py-6 text-xs text-muted sm:flex-row sm:justify-between">
-            <span>© {new Date().getFullYear()} CrossStock</span>
-            <span>Figures measured by the open validation suite on local multi-chain sets.</span>
+            <span>© {new Date().getFullYear()} Boundless Stock</span>
+            <span>Figures measured on local multi-chain deployments.</span>
           </div>
         </div>
       </footer>

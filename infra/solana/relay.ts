@@ -155,6 +155,8 @@ export class SolanaRelayEndpoint {
         // The packet itself was delivered; only its compose failed, and it stays queued.
         this.failedComposes.push({ from: c.from.toString(), to: c.to.toString(), guid: c.guid, index: c.index, message: c.message });
         log.fail(`compose on ${c.to} reverted; still queued and retryable: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
+        const logs = (e as { logs?: string[]; transactionLogs?: string[] }).logs ?? (e as { transactionLogs?: string[] }).transactionLogs;
+        if (process.env.CROSSSTOCK_DEBUG && logs) for (const l of logs.slice(-15)) log.dim(`  ${l}`);
       }
     }
     return composed;

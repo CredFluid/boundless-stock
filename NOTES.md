@@ -1901,3 +1901,87 @@ reimplementing it, which surfaced four things.
   applies to anything else that caches per deployment name.
 - If `PoolQuoter` ever needs constructor arguments, the state-override technique breaks: the
   runtime code would then depend on immutables set at deploy time.
+
+---
+
+### [2026-09-25] Token-2022: what is supported, what is refused, and why
+**Milestone:** Solana-first (Token-2022 support)
+
+**What happened / what to know:**
+
+- **Real tokenized stocks on Solana are Token-2022 mints.** That covers xStocks and PreStocks.
+  Until now every CrossStock program assumed classic SPL Token, so none of them could be
+  carried.
+- **The token program is a property of the mint, recorded once.**
+  - `swap_request` and `swap_relay` store a Token-2022 flag per mint at initialisation (`Store`
+    / `RelayStore`, inside the existing size headroom, so older accounts read "classic").
+  - The deployment file records `tokenProgram` per asset, and `programOf(asset)` reads it.
+  - Everything that names a token account derives it under that program:
+    - the programs' payout checks and delivery planning;
+    - the Solana client, the relay's routes and lookup table;
+    - the harness.
+
+    An associated token account address is different under Token-2022, so a single classic
+    derivation would send deliveries to an account that does not exist.
+- **The token program is never the caller's choice.** Each instruction checks the passed token
+  program against the mint's. This matters most for `open_request_via_partner`: with a
+  stand-in "token program", a fee transfer could be reported without happening, the escrow
+  would record fees never paid, and `settle_fees` would pay them from other orders' fees.
+- **The relay always uses Orca's `swap_v2`.** It serves classic and Token-2022 mints alike,
+  and Orca itself checks each side's program against the mint. The delivery gains two
+  accounts, the second token program and SPL Memo, which `swap_v2` requires. Both are in the
+  relay's lookup table, so the transaction size barely changes. Orca's SDK already picks
+  `initialize_pool_v2` and the v2 liquidity instructions for Token-2022 mints.
+- **Gotcha: `swap_v2` takes the pool's oracle PDA as writable; v1 `swap` took it read-only.**
+  The oracle usually doesn't exist (it is only created for adaptive-fee pools), but the runtime
+  still refuses a CPI that escalates an account to writable. The first end-to-end run failed
+  its compose with "Cross-program invocation with unauthorized signer or writable account" on
+  the (nonexistent) oracle address. The relay now plans and declares the oracle as `mut`.
+  `CROSSSTOCK_DEBUG=1` makes the local relayer print a failed compose's program logs.
+- **Refused extensions, checked both at `init_store`/`init_relay` and in the infra before
+  anything is sent:**
+
+  | Extension | Why it is refused |
+  |---|---|
+  | Transfer fee (and the confidential transfer fee) | Deliveries arrive short, so escrow, refunds and supply stop adding up. |
+  | Permanent delegate | Someone else can move tokens out of the escrow. |
+  | Transfer hook | An issuer-chosen program runs on every transfer, with accounts planning cannot name. |
+  | Default-frozen accounts | Accounts a delivery creates could start frozen. |
+  | Non-transferable | The token cannot move at all. |
+
+  Metadata, metadata pointer, mint close authority, interest-bearing and scaled-UI-amount
+  are allowed: none of them changes the raw amount a transfer moves.
+- **Stack warnings in the relay build are Orca's.** Building `swap_relay` reports stack-offset
+  warnings in `ModifyLiquidityV2` and `RepositionLiquidityV2`. That is Orca's own
+  position-management code, compiled in because the Whirlpool crate is built whole. The relay
+  never calls it; it calls only `swap_v2`.
+
+- **Found while testing: one deployment per program per validator.**
+  - `swap_request`'s `Store` (`[b"Store"]`) and `swap_relay`'s `RelayStore` (`[b"Relay"]`) are
+    single PDAs per program. A validator, and so a cluster, can hold one CrossStock deployment
+    per program deployment.
+  - Two consequences surfaced here:
+    - A second local deployment on the same validators finds the first one's relay, and
+      correctly refuses its mints (`WrongMint`). Tests of two deployments need reset validators.
+    - Setup reused a recorded Solana deployment whenever the request store existed, which it
+      does for any deployment. It now also requires the record's OFT stores and mints to exist.
+  - On a real cluster, several assets would mean deploying the programs once per asset, or
+    seeding these PDAs by asset. That is a design choice to make before a second asset.
+
+- **Verified end to end on clean chains** with `config/localnet-solana-home-t22.json` (stock
+  and USDC as Token-2022 mints on both Solana chains). Scenarios 8–11 pass 4/4 with the same
+  figures as the classic run, and supply is conserved exactly. The classic config was re-run
+  afterwards as a regression: also 4/4, conserved.
+
+**Why it matters / what breaks if ignored:**
+
+- **Supporting a refused extension later is a product decision first:**
+  - who bears a transfer fee;
+  - whether an issuer's permanent delegate over the escrow is acceptable;
+  - whether a transfer hook can be allowed with its extra accounts.
+
+  Lifting a refusal without that decision would silently break the conservation and custody
+  guarantees.
+- **Any new code that derives a token account must take the mint's program.** A hard-coded
+  classic derivation works in every classic test and fails the first time a real Solana stock
+  is used.

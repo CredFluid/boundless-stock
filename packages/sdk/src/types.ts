@@ -184,3 +184,27 @@ export interface WebhookEvent {
 export interface ApiErrorBody {
   error: { code: string; message: string };
 }
+
+/** Proof of reserves for an asset, from `GET /api/v1/reserves/:deployment`. Amounts in whole units. */
+export interface Reserves {
+  deployment: string;
+  asset: { symbol: string; name: string };
+  /** Supply on every chain plus in transit, measured from chain state. */
+  issued: string;
+  inTransit: string;
+  chains: { key: string; name: string; vm: "evm" | "svm"; role: "home" | "mirror"; supply: string }[];
+  /** Supply on every chain plus in transit equals what was issued at launch. */
+  reconciled: boolean;
+  /** Absent when the asset has no reserve source configured. */
+  reserves?: {
+    shares: string;
+    tokensPerShare: number;
+    source: string;
+    asOf?: string;
+    backed: string;
+    /** backed / issued in basis points: 10000 = 100%. */
+    coverageBps: number;
+    fullyBacked: boolean;
+  };
+  at: string;
+}

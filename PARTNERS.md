@@ -1,7 +1,7 @@
 # Partner orders: access and fees
 
 Partners (wallets, exchanges and apps) are how users on a mirror chain buy and sell. A partner
-owns its users, including their KYC, and approves each order it sends. CrossStock provides the
+owns its users, including their KYC, and approves each order it sends. Boundless Stock provides the
 buy and sell endpoints, and the contracts check that approval on chain.
 
 - **Partners handle KYC.** With `partnerRequired` set, the plain `buy` / `sell` entrypoints are
@@ -94,7 +94,7 @@ the platform fee applies to plain orders too while they are open.
 
 ## Integrating: the SDK and API
 
-`@crossstock/sdk` (`packages/sdk`) and the partner API (`/api/v1`, served by `apps/web`) are how
+`@boundless-stock/sdk` (`packages/sdk`) and the partner API (`/api/v1`, served by `apps/web`) are how
 a partner integrates. The API holds no keys: it quotes, and builds transactions for the user to
 sign. The partner's backend authorises each order with the SDK.
 
@@ -140,9 +140,9 @@ mirrors.
 ### The flow, EVM mirror
 
 ```ts
-import { CrossStockApi, authorizeEvmOrder, orderIdFromLogs } from "@crossstock/sdk";
+import { BoundlessStockApi, authorizeEvmOrder, orderIdFromLogs } from "@boundless-stock/sdk";
 
-const api = new CrossStockApi({ baseUrl, apiKey });
+const api = new BoundlessStockApi({ baseUrl, apiKey });
 const mirror = (await api.deployment("crossstock-aapl")).mirrors.find((m) => m.key === "arbitrum");
 const q = await api.quote({ deployment, chain: "arbitrum", side: "buy", amountIn, partnerId, partnerFeeBps: 25 });
 
@@ -165,7 +165,7 @@ KMS-backed one.
 ### The flow, Solana mirror
 
 ```ts
-import { authorizeSolanaOrder } from "@crossstock/sdk";
+import { authorizeSolanaOrder } from "@boundless-stock/sdk";
 
 const built = await api.buildOrder({ deployment, chain: "solana", side: "buy", user: userPubkey,
   amountIn: q.amountIn, minAmountOut: q.minAmountOut, partnerId, partnerFeeBps: 25 });

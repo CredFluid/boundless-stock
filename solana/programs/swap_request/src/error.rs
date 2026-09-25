@@ -50,4 +50,8 @@ pub enum SwapRequestError {
     FeesNotEscrowed,
     #[msg("The request has not settled yet, so its fees cannot be released")]
     RequestNotSettled,
+    #[msg("Mint is owned by neither SPL Token nor Token-2022")]
+    UnsupportedTokenProgram,
+    #[msg("Mint carries a Token-2022 extension CrossStock does not support")]
+    UnsupportedMintExtension,
 }

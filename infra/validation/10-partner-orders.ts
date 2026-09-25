@@ -303,7 +303,7 @@ async function solanaMirror(
 }
 
 async function balanceOfAta(sol: SolanaSwapClient, owner: PublicKey): Promise<bigint> {
-  const ata = ataOf(owner, sol.quoteMint);
+  const ata = ataOf(owner, sol.quoteMint, sol.tokenProgram("quote"));
   if (!(await sol.chain.connection.getAccountInfo(ata))) return 0n;
   return BigInt((await sol.chain.connection.getTokenAccountBalance(ata)).value.amount);
 }

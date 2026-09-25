@@ -48,6 +48,13 @@ export interface SvmConfig {
    */
   decimals?: { base?: number; quote?: number };
   /**
+   * The token program for mints created on this chain (launch mode): "spl-token" (default) or
+   * "token-2022". An existing mint (adapt mode) keeps whichever program it already lives under.
+   * Token-2022 mints with a transfer fee, permanent delegate, transfer hook, default-frozen
+   * accounts or non-transferability are refused.
+   */
+  tokenProgram?: "spl-token" | "token-2022";
+  /**
    * LOCAL validators only: the native fee, in lamports, the test message library charges per
    * send. Default 50,000. Nonzero on purpose — a real network always charges, and a client or
    * program that forgets to quote and pay should fail here, not on devnet.
@@ -115,6 +122,22 @@ export interface TokenConfig {
    * Only meaningful for the home chain. Mirror chains always receive fresh OmniTokens.
    */
   existingToken?: string;
+  /**
+   * What backs the token off chain, for proof of reserves: the shares held for it, and who
+   * reports them. Compared with the supply measured across every chain.
+   */
+  reserves?: ReservesConfig;
+}
+
+export interface ReservesConfig {
+  /** Shares held for the token, in whole shares. */
+  shares: string;
+  /** Tokens issued per share. Defaults to 1. */
+  tokensPerShare?: number;
+  /** Who reports the figure: a custodian, the issuer, an oracle. */
+  source: string;
+  /** When the figure was reported (ISO date). */
+  asOf?: string;
 }
 
 export interface PoolConfig {

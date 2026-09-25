@@ -6,7 +6,7 @@
  * EIP-712 digest `SwapRequest.hashPartnerOrder` does; scenario 10 checks the two agree.
  */
 import { parseAbi, type Address, type Hex } from "viem";
-import { authorizeEvmOrder } from "@crossstock/sdk";
+import { authorizeEvmOrder } from "@boundless-stock/sdk";
 import { PublicKey, type Keypair } from "@solana/web3.js";
 
 import type { DeploymentConfig, Manifest } from "./types.js";

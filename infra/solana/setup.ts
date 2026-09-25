@@ -53,7 +53,7 @@ const SEEDS = {
   store: Buffer.from("Store"),
 };
 
-const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+import { TOKEN_PROGRAM, TOKEN_2022_PROGRAM, REFUSED_EXTENSIONS, mintExtensions } from "./token.js";
 
 
 // ---------------------------------------------------------------------------- helpers
@@ -91,10 +91,13 @@ export function toBytes32(address: string): Buffer {
   return new PublicKey(address).toBuffer();
 }
 
-export function createMint(rpcUrl: string, keypairPath: string, decimals: number): PublicKey {
+export function createMint(rpcUrl: string, keypairPath: string, decimals: number, tokenProgram: PublicKey = TOKEN_PROGRAM): PublicKey {
   const out = execFileSync(
     "spl-token",
-    ["create-token", "--decimals", String(decimals), "--url", rpcUrl, "--fee-payer", keypairPath, "--owner", keypairPath],
+    [
+      "create-token", "--decimals", String(decimals), "--program-id", tokenProgram.toBase58(),
+      "--url", rpcUrl, "--fee-payer", keypairPath, "--owner", keypairPath,
+    ],
     { encoding: "utf8" }
   );
   const m = out.match(/Address:\s+([1-9A-HJ-NP-Za-km-z]{32,44})/);
@@ -117,21 +120,30 @@ interface OftDeployment {
    * `OmniTokenAdapter`. Absent in files written before adapt mode existed: launch.
    */
   mode?: "launch" | "adapt";
+  /** The mint's token program: SPL Token or Token-2022. Absent in older files: SPL Token. */
+  tokenProgram?: string;
 }
 
 /**
- * Checks an existing mint before adapting it: that it is a classic SPL Token mint and has the
- * decimals the config expects. Bridging maths depends on the decimals, so a mismatch is refused
- * rather than guessed at — as on EVM.
+ * Checks an existing mint before adapting it: that it is an SPL Token or Token-2022 mint with
+ * no extension CrossStock refuses, and has the decimals the config expects. Bridging maths
+ * depends on the decimals, so a mismatch is refused rather than guessed at — as on EVM.
+ * @returns The mint's token program.
  */
-export async function checkExistingMint(chain: SolanaChain, mint: PublicKey, symbol: string, decimals: number): Promise<void> {
+export async function checkExistingMint(chain: SolanaChain, mint: PublicKey, symbol: string, decimals: number): Promise<PublicKey> {
   const info = await chain.accountInfo(mint.toBase58());
   if (!info) throw new Error(`${symbol}: config names an existing mint ${mint.toBase58()} but no account exists there.`);
-  if (!info.owner.equals(TOKEN_PROGRAM) || info.data.length !== 82) {
-    throw new Error(
-      `${symbol}: ${mint.toBase58()} is not a classic SPL Token mint (owner ${info.owner.toBase58()}). ` +
-        "Token-2022 mints are not supported yet: CrossStock's programs address the classic SPL Token program."
-    );
+  if (!info.owner.equals(TOKEN_PROGRAM) && !info.owner.equals(TOKEN_2022_PROGRAM)) {
+    throw new Error(`${symbol}: ${mint.toBase58()} is not a token mint (owner ${info.owner.toBase58()}).`);
+  }
+  if (info.owner.equals(TOKEN_2022_PROGRAM)) {
+    const refused = mintExtensions(info.data).filter((k) => REFUSED_EXTENSIONS[k]);
+    if (refused.length > 0) {
+      throw new Error(
+        `${symbol}: ${mint.toBase58()} is a Token-2022 mint with ${refused.map((k) => REFUSED_EXTENSIONS[k]).join(", ")}, ` +
+          "which CrossStock does not support yet (see NOTES.md)."
+      );
+    }
   }
   // Mint layout: mint_authority COption 36 | supply 8 | decimals 1
   const onChain = info.data[44];
@@ -141,6 +153,7 @@ export async function checkExistingMint(chain: SolanaChain, mint: PublicKey, sym
         `Set svm.decimals for this asset to ${onChain}.`
     );
   }
+  return info.owner;
 }
 
 /** One remote chain this chain's OApps talk to, and each OApp's counterpart there. */
@@ -180,15 +193,17 @@ export async function initOft(
 
   const keypairPath = chainConfig.svm!.keypairPath!;
   let mint: PublicKey;
+  let tokenProgram = chainConfig.svm?.tokenProgram === "token-2022" ? TOKEN_2022_PROGRAM : TOKEN_PROGRAM;
   if (adapt) {
     // ADAPT: the issuer brought their own mint. Nothing is minted and its authority is not
     // touched; the OFT locks tokens leaving this chain and releases them on return.
     mint = new PublicKey(asset.existingMint!);
-    await checkExistingMint(chain, mint, asset.symbol, asset.decimals);
+    tokenProgram = await checkExistingMint(chain, mint, asset.symbol, asset.decimals);
     log.kv("mode", "ADAPT — existing mint locked, not replaced");
   } else {
-    mint = createMint(chainConfig.rpcUrl, keypairPath, asset.decimals);
+    mint = createMint(chainConfig.rpcUrl, keypairPath, asset.decimals, tokenProgram);
   }
+  if (tokenProgram.equals(TOKEN_2022_PROGRAM)) log.kv("token program", "Token-2022");
 
   // On the HOME chain the whole supply exists at genesis, in the deployer's wallet — minted
   // now, while the deployer still holds mint authority. After the handover below only the OFT
@@ -236,7 +251,7 @@ export async function initOft(
     { pubkey: lzReceiveTypes, isSigner: false, isWritable: true },
     { pubkey: mint, isSigner: false, isWritable: false },
     { pubkey: escrow.publicKey, isSigner: true, isWritable: true },
-    { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+    { pubkey: tokenProgram, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     // register_oapp: target program first, then its declared accounts, then #[event_cpi]'s two
     { pubkey: chain.endpointProgramId, isSigner: false, isWritable: false },
@@ -281,6 +296,7 @@ export async function initOft(
     escrow: escrow.publicKey.toBase58(),
     peers,
     mode: adapt ? "adapt" : "launch",
+    tokenProgram: tokenProgram.toBase58(),
   };
 }
 
@@ -513,7 +529,16 @@ export async function setupSolanaMirror(
   const previous: SolanaDeployment | undefined = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : undefined;
   let deployment: SolanaDeployment;
 
-  if (previous && (await chain.accountInfo(previous.swapRequest.store))) {
+  // Reuse a recorded deployment only if everything it names still exists. The request store
+  // alone is not enough: its address is fixed per program, so it exists whenever ANY
+  // deployment used this validator, and a stale record would then be trusted.
+  const recordIsLive = async (d: SolanaDeployment): Promise<boolean> => {
+    for (const a of [d.swapRequest.store, d.assets.base.oftStore, d.assets.quote.oftStore, d.assets.base.mint, d.assets.quote.mint]) {
+      if (!(await chain.accountInfo(a))) return false;
+    }
+    return true;
+  };
+  if (previous && (await recordIsLive(previous))) {
     log.dim(`reusing Solana deployment recorded in ${path}`);
     deployment = previous;
     for (const [asset, key] of [[deployment.assets.base, "baseOft"], [deployment.assets.quote, "quoteOft"]] as const) {

@@ -32,7 +32,8 @@ import { lzLocal } from "./lz-local.js";
 import { solanaManifestPath, toBytes32, type SolanaDeployment } from "./setup.js";
 import { repoRoot } from "../lib/root.js";
 
-export const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+export { TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from "./token.js";
+import { TOKEN_PROGRAM, programOf } from "./token.js";
 export const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
 export enum SolanaDirection {
@@ -84,20 +85,26 @@ export interface SolanaFeeEscrow {
   state: SolanaFeeState;
 }
 
-export const ataOf = (owner: PublicKey, mint: PublicKey): PublicKey =>
-  PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN_PROGRAM.toBuffer(), mint.toBuffer()], ATA_PROGRAM)[0];
+/** The associated token account of `owner` for `mint`, under the mint's token program. */
+export const ataOf = (owner: PublicKey, mint: PublicKey, tokenProgram: PublicKey = TOKEN_PROGRAM): PublicKey =>
+  PublicKey.findProgramAddressSync([owner.toBuffer(), tokenProgram.toBuffer(), mint.toBuffer()], ATA_PROGRAM)[0];
 
 /** `CreateIdempotent`: creates the associated token account if missing, else does nothing. */
-export const createAtaIdempotent = (payer: PublicKey, owner: PublicKey, mint: PublicKey): TransactionInstruction =>
+export const createAtaIdempotent = (
+  payer: PublicKey,
+  owner: PublicKey,
+  mint: PublicKey,
+  tokenProgram: PublicKey = TOKEN_PROGRAM
+): TransactionInstruction =>
   new TransactionInstruction({
     programId: ATA_PROGRAM,
     keys: [
       { pubkey: payer, isSigner: true, isWritable: true },
-      { pubkey: ataOf(owner, mint), isSigner: false, isWritable: true },
+      { pubkey: ataOf(owner, mint, tokenProgram), isSigner: false, isWritable: true },
       { pubkey: owner, isSigner: false, isWritable: false },
       { pubkey: mint, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+      { pubkey: tokenProgram, isSigner: false, isWritable: false },
     ],
     data: Buffer.from([1]),
   });
@@ -139,9 +146,19 @@ export class SolanaSwapClient {
     return side === "base" ? this.baseMint : this.quoteMint;
   }
 
+  /** The token program of one asset's mint on this chain: SPL Token or Token-2022. */
+  tokenProgram(side: "base" | "quote"): PublicKey {
+    return programOf(this.deployment.assets[side]);
+  }
+
+  /** The token program of one of this deployment's mints. */
+  programForMint(mint: PublicKey): PublicKey {
+    return this.tokenProgram(mint.equals(this.baseMint) ? "base" : "quote");
+  }
+
   /** A holder's balance of one asset, in this chain's local decimals. Zero if no account yet. */
   async balance(owner: PublicKey, side: "base" | "quote"): Promise<bigint> {
-    const ata = ataOf(owner, this.mint(side));
+    const ata = ataOf(owner, this.mint(side), this.tokenProgram(side));
     if (!(await this.chain.connection.getAccountInfo(ata))) return 0n;
     return BigInt((await this.chain.connection.getTokenAccountBalance(ata)).value.amount);
   }
@@ -233,7 +250,7 @@ export class SolanaSwapClient {
     });
     const tx = new Transaction().add(
       ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-      createAtaIdempotent(user.publicKey, this.store, o.tokenIn),
+      createAtaIdempotent(user.publicKey, this.store, o.tokenIn, o.tokenProgram),
       ix
     );
     const signature = await this.chain.connection.sendTransaction(tx, [user]);
@@ -304,7 +321,7 @@ export class SolanaSwapClient {
     const o = await this.buildOpen(user, direction, amountIn, minAmountOut, options);
     const instructions = [
       ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-      createAtaIdempotent(user, this.store, o.tokenIn),
+      createAtaIdempotent(user, this.store, o.tokenIn, o.tokenProgram),
       new TransactionInstruction({
         programId: this.program,
         keys: [...o.baseKeys, ...o.remaining],
@@ -346,7 +363,7 @@ export class SolanaSwapClient {
         { pubkey: partnerSigner, isSigner: true, isWritable: false },
         { pubkey: this.partnerAddress(partnerId), isSigner: false, isWritable: false },
         { pubkey: this.feeEscrowAddress(o.requestId), isSigner: false, isWritable: true },
-        { pubkey: ataOf(this.feeVault(), o.tokenIn), isSigner: false, isWritable: true },
+        { pubkey: ataOf(this.feeVault(), o.tokenIn, o.tokenProgram), isSigner: false, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ...o.remaining,
       ],
@@ -355,8 +372,8 @@ export class SolanaSwapClient {
     return {
       instructions: [
         ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-        createAtaIdempotent(user, this.store, o.tokenIn),
-        createAtaIdempotent(user, this.feeVault(), o.tokenIn),
+        createAtaIdempotent(user, this.store, o.tokenIn, o.tokenProgram),
+        createAtaIdempotent(user, this.feeVault(), o.tokenIn, o.tokenProgram),
         ix,
       ],
       requestId: o.requestId,
@@ -404,7 +421,9 @@ export class SolanaSwapClient {
         for (const k of i.keys) if (!k.isSigner) keys.add(k.pubkey.toBase58());
       }
     }
-    for (const side of ["base", "quote"] as const) perOrder.add(ataOf(sampleUser, this.mint(side)).toBase58());
+    for (const side of ["base", "quote"] as const) {
+      perOrder.add(ataOf(sampleUser, this.mint(side), this.tokenProgram(side)).toBase58());
+    }
     const addresses = [...keys].filter((k) => !perOrder.has(k) && k !== sampleUser.toBase58()).map((k) => new PublicKey(k));
 
     const payer = this.chain.payer;
@@ -458,7 +477,8 @@ export class SolanaSwapClient {
     const inOftStore = new PublicKey(inAsset.oftStore);
     const homePeer = Buffer.from(inAsset.peers.find((p) => p.remoteEid === this.deployment.homeChain.eid)!.address.slice(2), "hex");
     const nonceIndex = this.nonceIndexAddress(inOftStore, await this.nextOutboundNonce(inOftStore, homePeer));
-    const storeEscrow = ataOf(this.store, tokenIn);
+    const tokenProgram = this.programForMint(tokenIn);
+    const storeEscrow = ataOf(this.store, tokenIn, tokenProgram);
     const homeRelay = toBytes32(this.deployment.homeChain.relay);
 
     // The messaging fee, quoted as the send will be made: the same path, options, and a
@@ -502,7 +522,7 @@ export class SolanaSwapClient {
         options: optionBytes,
         nativeFee,
       },
-      { oft: publicKey(this.deployment.programs.oft) }
+      { oft: publicKey(this.deployment.programs.oft), token: publicKey(tokenProgram.toBase58()) }
     );
     const remaining = toWeb3JsInstruction(oftIx.instruction).keys.map((k, i) =>
       i === 0
@@ -529,13 +549,13 @@ export class SolanaSwapClient {
       { pubkey: nonceIndex, isSigner: false, isWritable: true },
       { pubkey: tokenIn, isSigner: false, isWritable: false },
       { pubkey: tokenOut, isSigner: false, isWritable: false },
-      { pubkey: ataOf(user, tokenIn), isSigner: false, isWritable: true },
+      { pubkey: ataOf(user, tokenIn, tokenProgram), isSigner: false, isWritable: true },
       { pubkey: storeEscrow, isSigner: false, isWritable: true },
       { pubkey: new PublicKey(this.deployment.programs.oft), isSigner: false, isWritable: false },
-      { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+      { pubkey: tokenProgram, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ];
-    return { requestId, nativeFee, tokenIn, params, baseKeys, remaining };
+    return { requestId, nativeFee, tokenIn, tokenProgram, params, baseKeys, remaining };
   }
 
   /** The native fee an order would pay for its leg home, in lamports. */
@@ -610,20 +630,21 @@ export class SolanaSwapClient {
     if (!e) throw new Error(`request ${requestId} has no fee escrow`);
     const vault = this.feeVault();
     const recipients = [e.partnerRecipient, e.platformRecipient, e.user];
+    const tp = this.programForMint(e.mint);
     const keys = [
       { pubkey: this.requestAddress(requestId), isSigner: false, isWritable: false },
       { pubkey: this.feeEscrowAddress(requestId), isSigner: false, isWritable: true },
       { pubkey: vault, isSigner: false, isWritable: false },
       { pubkey: e.mint, isSigner: false, isWritable: false },
-      { pubkey: ataOf(vault, e.mint), isSigner: false, isWritable: true },
-      ...recipients.map((r) => ({ pubkey: ataOf(r, e.mint), isSigner: false, isWritable: true })),
-      { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+      { pubkey: ataOf(vault, e.mint, tp), isSigner: false, isWritable: true },
+      ...recipients.map((r) => ({ pubkey: ataOf(r, e.mint, tp), isSigner: false, isWritable: true })),
+      { pubkey: tp, isSigner: false, isWritable: false },
     ];
     const tx = new Transaction();
     // A recipient that has never held this mint needs its account first. A zero platform
     // recipient is only named when its fee is zero, and then nothing is paid to it.
     for (const r of recipients) {
-      if (!r.equals(PublicKey.default)) tx.add(createAtaIdempotent(payer.publicKey, r, e.mint));
+      if (!r.equals(PublicKey.default)) tx.add(createAtaIdempotent(payer.publicKey, r, e.mint, tp));
     }
     tx.add(new TransactionInstruction({ programId: this.program, keys, data: discriminator("settle_fees") }));
     const sig = await this.chain.connection.sendTransaction(tx, [payer]);
@@ -711,7 +732,7 @@ export class SolanaSwapClient {
 export async function sendOftFromSolana(
   chain: SolanaChain,
   sender: Keypair,
-  asset: { mint: string; escrow: string },
+  asset: { mint: string; escrow: string; tokenProgram?: string },
   oftProgram: string,
   dstEid: number,
   to: Uint8Array,
@@ -732,10 +753,10 @@ export async function sendOftFromSolana(
       payer: createNoopSigner(publicKey(sender.publicKey.toBase58())),
       tokenMint: publicKey(asset.mint),
       tokenEscrow: publicKey(asset.escrow),
-      tokenSource: publicKey(ataOf(sender.publicKey, new PublicKey(asset.mint)).toBase58()),
+      tokenSource: publicKey(ataOf(sender.publicKey, new PublicKey(asset.mint), programOf(asset)).toBase58()),
     },
     { ...params, nativeFee },
-    { oft: publicKey(oftProgram) }
+    { oft: publicKey(oftProgram), token: publicKey(programOf(asset).toBase58()) }
   );
   const tx = new Transaction().add(
     ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),

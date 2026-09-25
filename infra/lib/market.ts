@@ -14,6 +14,7 @@ import type { DeploymentConfig, Manifest } from "./types.js";
 import { SolanaChain } from "../solana/chain.js";
 import { solanaManifestPath } from "../solana/setup.js";
 import { ataOf } from "../solana/client.js";
+import { programOf } from "../solana/token.js";
 import { relayStoreAddress, type SolanaHomeDeployment } from "../solana/home.js";
 
 export interface HomeMarket {
@@ -104,9 +105,10 @@ export async function readRelayHealth(cfg: DeploymentConfig, manifest: Manifest,
     if (!home) return undefined;
     const sol = new SolanaChain(cfg.homeChain);
     const store = relayStoreAddress(new PublicKey(home.programs.swapRelay));
-    const held = async (mint: string) => {
+    const held = async (asset: { mint: string; tokenProgram?: string }) => {
       try {
-        return (await sol.connection.getTokenAccountBalance(ataOf(store, new PublicKey(mint)))).value.uiAmountString ?? "0";
+        const ata = ataOf(store, new PublicKey(asset.mint), programOf(asset));
+        return (await sol.connection.getTokenAccountBalance(ata)).value.uiAmountString ?? "0";
       } catch {
         return "0";
       }
@@ -114,7 +116,7 @@ export async function readRelayHealth(cfg: DeploymentConfig, manifest: Manifest,
     return {
       native: formatUnits(BigInt(await sol.connection.getBalance(store)), 9),
       nativeSymbol: "SOL",
-      holds: { base: await held(home.assets.base.mint), quote: await held(home.assets.quote.mint) },
+      holds: { base: await held(home.assets.base), quote: await held(home.assets.quote) },
     };
   }
 

@@ -15,7 +15,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import * as anchorNs from "@coral-xyz/anchor";
 import { Percentage } from "@orca-so/common-sdk";
 import { buildWhirlpoolClient, swapQuoteByInputToken, IGNORE_CACHE, WhirlpoolContext } from "@orca-so/whirlpools-sdk";
-import type { Quote, QuoteRequest, Side, TokenRef } from "@crossstock/sdk";
+import type { Quote, QuoteRequest, Side, TokenRef } from "@boundless-stock/sdk";
 
 import { forgeArtifact } from "../lib/artifacts.js";
 import { localDecimals, SHARED_DECIMALS } from "../lib/decimals.js";

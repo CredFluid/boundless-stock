@@ -89,7 +89,11 @@ pub mod swap_request {
                 spl::mint_decimals(mint)? >= params.shared_decimals,
                 SwapRequestError::UnsupportedDecimals
             );
+            // Classic SPL Token or Token-2022, without an extension that breaks a guarantee.
+            spl::check_mint(mint)?;
         }
+        let base_token_2022 = spl::token_program_of(&ctx.accounts.base_mint)? == spl::TOKEN_2022_PROGRAM_ID;
+        let quote_token_2022 = spl::token_program_of(&ctx.accounts.quote_mint)? == spl::TOKEN_2022_PROGRAM_ID;
 
         let store = &mut ctx.accounts.store;
         store.admin = ctx.accounts.admin.key();
@@ -97,6 +101,8 @@ pub mod swap_request {
         store.home_relay = [0u8; 32];
         store.base_mint = ctx.accounts.base_mint.key();
         store.quote_mint = ctx.accounts.quote_mint.key();
+        store.base_token_2022 = base_token_2022;
+        store.quote_token_2022 = quote_token_2022;
         store.base_oft = params.base_oft;
         store.quote_oft = params.quote_oft;
         store.endpoint_program = params.endpoint_program;
@@ -175,9 +181,21 @@ pub mod swap_request {
 
         let (vault, _) = Pubkey::find_program_address(&[FEE_VAULT_SEED], ctx.program_id);
         let mint_key = ctx.accounts.base.token_in_mint.key();
+        // Checked before the fee moves: a stand-in token program could report a fee transfer
+        // that never happened, and settle_fees would then pay it out of other orders' fees.
+        let expected_in = match params.direction {
+            Direction::Buy => store.quote_mint,
+            Direction::Sell => store.base_mint,
+        };
+        require_keys_eq!(mint_key, expected_in, SwapRequestError::WrongMint);
+        require_keys_eq!(
+            ctx.accounts.base.token_program.key(),
+            store.token_program_for(&mint_key),
+            SwapRequestError::UnsupportedTokenProgram
+        );
         require_keys_eq!(
             ctx.accounts.fee_vault_token_account.key(),
-            spl::associated_token_address(&vault, &mint_key),
+            spl::associated_token_address(&vault, &mint_key, &store.token_program_for(&mint_key)),
             SwapRequestError::WrongTokenAccount
         );
 
@@ -230,11 +248,13 @@ pub mod swap_request {
 
         let a = &ctx.accounts;
         require_keys_eq!(a.mint.key(), escrow.mint, SwapRequestError::WrongMint);
+        let token_program = spl::token_program_of(&a.mint)?;
+        require_keys_eq!(a.token_program.key(), token_program, SwapRequestError::UnsupportedTokenProgram);
         let (vault, vault_bump) = Pubkey::find_program_address(&[FEE_VAULT_SEED], ctx.program_id);
         require_keys_eq!(a.fee_vault.key(), vault, SwapRequestError::WrongTokenAccount);
         require_keys_eq!(
             a.fee_vault_token_account.key(),
-            spl::associated_token_address(&vault, &escrow.mint),
+            spl::associated_token_address(&vault, &escrow.mint, &token_program),
             SwapRequestError::WrongTokenAccount
         );
 
@@ -250,7 +270,7 @@ pub mod swap_request {
             }
             require_keys_eq!(
                 dest.key(),
-                spl::associated_token_address(&owner, &escrow.mint),
+                spl::associated_token_address(&owner, &escrow.mint, &token_program),
                 SwapRequestError::WrongTokenAccount
             );
             spl::transfer_checked_signed(
@@ -354,7 +374,8 @@ pub mod swap_request {
             accounts.push(AccountMetaRef { pubkey: request.into(), is_writable: true });
 
             let oft_store = Pubkey::new_from_array(notice.cancelled_path);
-            let user_ata = spl::associated_token_address(&index.user, &index.token_in);
+            let token_program = store.token_program_for(&index.token_in);
+            let user_ata = spl::associated_token_address(&index.user, &index.token_in, &token_program);
             instructions.push(ReceiveIx::Standard {
                 program_id: spl::ASSOCIATED_TOKEN_PROGRAM_ID,
                 accounts: vec![
@@ -363,7 +384,7 @@ pub mod swap_request {
                     AccountMetaRef { pubkey: index.user.into(), is_writable: false },
                     AccountMetaRef { pubkey: index.token_in.into(), is_writable: false },
                     AccountMetaRef { pubkey: System::id().into(), is_writable: false },
-                    AccountMetaRef { pubkey: spl::TOKEN_PROGRAM_ID.into(), is_writable: false },
+                    AccountMetaRef { pubkey: token_program.into(), is_writable: false },
                 ],
                 data: vec![spl::ATA_CREATE_IDEMPOTENT_TAG],
             });
@@ -375,7 +396,7 @@ pub mod swap_request {
                 AccountMetaRef { pubkey: oft_store.into(), is_writable: true },
                 AccountMetaRef { pubkey: index.token_in.into(), is_writable: true },
                 AccountMetaRef { pubkey: user_ata.into(), is_writable: true },
-                AccountMetaRef { pubkey: spl::TOKEN_PROGRAM_ID.into(), is_writable: false },
+                AccountMetaRef { pubkey: token_program.into(), is_writable: false },
             ];
         } else {
             let (request, _) = Pubkey::find_program_address(&[Request::SEED, &notice.request_id.to_be_bytes()], ctx.program_id);
@@ -522,8 +543,9 @@ pub mod swap_request {
             &[Request::SEED, &settlement.request_id.to_be_bytes()],
             ctx.program_id,
         );
-        let user_ata = spl::associated_token_address(&user, &mint);
-        let store_ata = spl::associated_token_address(&store.key(), &mint);
+        let token_program = store.token_program_for(&mint);
+        let user_ata = spl::associated_token_address(&user, &mint, &token_program);
+        let store_ata = spl::associated_token_address(&store.key(), &mint, &token_program);
 
         let create_user_ata = PlannedIx::Standard {
             program_id: spl::ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -533,7 +555,7 @@ pub mod swap_request {
                 AccountMetaRef { pubkey: user.into(), is_writable: false },
                 AccountMetaRef { pubkey: mint.into(), is_writable: false },
                 AccountMetaRef { pubkey: System::id().into(), is_writable: false },
-                AccountMetaRef { pubkey: spl::TOKEN_PROGRAM_ID.into(), is_writable: false },
+                AccountMetaRef { pubkey: token_program.into(), is_writable: false },
             ],
             data: vec![spl::ATA_CREATE_IDEMPOTENT_TAG],
         };
@@ -546,7 +568,7 @@ pub mod swap_request {
             AccountMetaRef { pubkey: mint.into(), is_writable: false },
             AccountMetaRef { pubkey: store_ata.into(), is_writable: true },
             AccountMetaRef { pubkey: user_ata.into(), is_writable: true },
-            AccountMetaRef { pubkey: spl::TOKEN_PROGRAM_ID.into(), is_writable: false },
+            AccountMetaRef { pubkey: token_program.into(), is_writable: false },
         ];
         compose_accounts.extend(lz_compose_types_v2::get_accounts_for_clear_compose(
             store.endpoint_program,
@@ -589,6 +611,7 @@ pub mod swap_request {
                 mint: ctx.accounts.mint.key(),
                 store_token_account: ctx.accounts.store_token_account.key(),
                 user_token_account: ctx.accounts.user_token_account.key(),
+                token_program: ctx.accounts.token_program.key(),
             },
         )?;
         let user = ctx.accounts.request.user;
@@ -686,6 +709,13 @@ fn open<'info>(
     };
     require_keys_eq!(a.token_in_mint.key(), expected_in, SwapRequestError::WrongMint);
     require_keys_eq!(a.token_out_mint.key(), expected_out, SwapRequestError::WrongMint);
+    // The input's own token program, never a caller's choice: a stand-in program could report
+    // a transfer that never happened.
+    require_keys_eq!(
+        a.token_program.key(),
+        store.token_program_for(&expected_in),
+        SwapRequestError::UnsupportedTokenProgram
+    );
 
     // Anything below the bridge's precision floor crosses as zero, which would leave a
     // request that can never settle. Same guard as the EVM side, and found there by the
@@ -798,6 +828,7 @@ pub struct DeliveryAccounts {
     pub mint: Pubkey,
     pub store_token_account: Pubkey,
     pub user_token_account: Pubkey,
+    pub token_program: Pubkey,
 }
 
 /// What `lz_compose` may act on once every check has passed.
@@ -848,14 +879,16 @@ pub fn verify_settlement(
     // Token accounts are derived, not accepted: a submitter who could name the destination
     // could take the payout.
     require_keys_eq!(accounts.mint, mint, SwapRequestError::WrongMint);
+    let token_program = store.token_program_for(&mint);
+    require_keys_eq!(accounts.token_program, token_program, SwapRequestError::UnsupportedTokenProgram);
     require_keys_eq!(
         accounts.store_token_account,
-        spl::associated_token_address(store_key, &mint),
+        spl::associated_token_address(store_key, &mint, &token_program),
         SwapRequestError::WrongTokenAccount
     );
     require_keys_eq!(
         accounts.user_token_account,
-        spl::associated_token_address(request_user, &mint),
+        spl::associated_token_address(request_user, &mint, &token_program),
         SwapRequestError::WrongTokenAccount
     );
 
@@ -974,7 +1007,7 @@ pub fn verify_cancellation(
     require_keys_eq!(a.token_mint, a.index.token_in, SwapRequestError::WrongMint);
     require_keys_eq!(
         a.token_dest,
-        spl::associated_token_address(&a.index.user, &a.token_mint),
+        spl::associated_token_address(&a.index.user, &a.token_mint, &store.token_program_for(&a.token_mint)),
         SwapRequestError::WrongTokenAccount
     );
     Ok(())
@@ -1315,8 +1348,7 @@ pub struct SettleFees<'info> {
     /// CHECK: the user's token account; checked when anything is paid to it.
     #[account(mut)]
     pub user_token_account: UncheckedAccount<'info>,
-    /// CHECK: pinned to the SPL Token program.
-    #[account(address = spl::TOKEN_PROGRAM_ID)]
+    /// CHECK: the mint's token program — SPL Token or Token-2022 — checked in the handler.
     pub token_program: UncheckedAccount<'info>,
 }
 
@@ -1393,8 +1425,7 @@ pub struct LzCompose<'info> {
     /// handler. Created beforehand by the planned `CreateIdempotent` instruction.
     #[account(mut)]
     pub user_token_account: UncheckedAccount<'info>,
-    /// CHECK: pinned to the SPL Token program.
-    #[account(address = spl::TOKEN_PROGRAM_ID)]
+    /// CHECK: the mint's token program — SPL Token or Token-2022 — checked in the handler.
     pub token_program: UncheckedAccount<'info>,
 }
 

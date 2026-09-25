@@ -7,17 +7,18 @@ import type {
   OrderStatus,
   Quote,
   QuoteRequest,
+  Reserves,
 } from "./types.js";
 
 /** An error the API returned, with its machine-readable code (e.g. `partner_required`). */
-export class CrossStockApiError extends Error {
+export class BoundlessStockApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
     message: string
   ) {
     super(message);
-    this.name = "CrossStockApiError";
+    this.name = "BoundlessStockApiError";
   }
 }
 
@@ -33,7 +34,7 @@ export interface ApiClientOptions {
  * The partner API, typed. Every method maps to one endpoint; amounts are strings of integer
  * base units, as in {@link Quote}.
  */
-export class CrossStockApi {
+export class BoundlessStockApi {
   private readonly base: string;
   private readonly key?: string;
   private readonly http: typeof fetch;
@@ -50,6 +51,11 @@ export class CrossStockApi {
 
   deployment(name: string): Promise<DeploymentDescriptor> {
     return this.call("GET", `/deployments/${encodeURIComponent(name)}`);
+  }
+
+  /** Proof of reserves: supply measured on every chain, in transit included, against the shares held. */
+  reserves(deployment: string): Promise<Reserves> {
+    return this.call("GET", `/reserves/${encodeURIComponent(deployment)}`);
   }
 
   quote(req: QuoteRequest): Promise<Quote> {
@@ -103,7 +109,7 @@ export class CrossStockApi {
     const json = text ? JSON.parse(text) : {};
     if (!res.ok) {
       const e = (json as Partial<ApiErrorBody>).error;
-      throw new CrossStockApiError(res.status, e?.code ?? "http_error", e?.message ?? `HTTP ${res.status}`);
+      throw new BoundlessStockApiError(res.status, e?.code ?? "http_error", e?.message ?? `HTTP ${res.status}`);
     }
     return json as T;
   }

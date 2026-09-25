@@ -27,6 +27,19 @@ pub struct RelayStore {
     /// returns it so a delivery — swap, clear, and a full OFT send — fits in one transaction.
     pub alt: Pubkey,
     pub bump: u8,
+    /// Whether each mint is a Token-2022 mint, so planning can derive the relay's token accounts
+    /// before it can read the mints. Appended within the headroom: a relay created before them
+    /// reads false — classic SPL Token.
+    pub base_token_2022: bool,
+    pub quote_token_2022: bool,
+}
+
+impl RelayStore {
+    /// The token program of one of this relay's mints.
+    pub fn token_program_for(&self, mint: &Pubkey) -> Pubkey {
+        let t22 = if *mint == self.base_mint { self.base_token_2022 } else { self.quote_token_2022 };
+        if t22 { swap_request::spl::TOKEN_2022_PROGRAM_ID } else { swap_request::spl::TOKEN_PROGRAM_ID }
+    }
 }
 
 impl RelayStore {

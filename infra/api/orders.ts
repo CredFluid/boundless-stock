@@ -7,7 +7,7 @@
  */
 import { getAddress, isAddress, parseAbi, parseUnits, recoverAddress, type Address, type Hex, encodeFunctionData } from "viem";
 import { PublicKey } from "@solana/web3.js";
-import type { BuildOrderRequest, BuiltOrder, Order, OrderStatus, Side } from "@crossstock/sdk";
+import type { BuildOrderRequest, BuiltOrder, Order, OrderStatus, Side } from "@boundless-stock/sdk";
 
 import { forgeArtifact } from "../lib/artifacts.js";
 import { PARTNER_ABI } from "../lib/partners.js";

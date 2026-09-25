@@ -11,7 +11,14 @@ import { toBytes32 } from "../lib/address.js";
 import { Relayer } from "../relayer.js";
 import { SolanaChain } from "../solana/chain.js";
 import { SolanaRelayEndpoint } from "../solana/relay.js";
-import { SolanaSwapClient } from "../solana/client.js";
+import { SolanaSwapClient, ataOf } from "../solana/client.js";
+import { ComputeBudgetProgram, PublicKey, Transaction } from "@solana/web3.js";
+import { createNoopSigner, publicKey } from "@metaplex-foundation/umi";
+import { toWeb3JsInstruction } from "@metaplex-foundation/umi-web3js-adapters";
+import { oft } from "@layerzerolabs/oft-v2-solana-sdk";
+import { lzLocal } from "../solana/lz-local.js";
+import { solanaHome } from "../lib/market.js";
+import { programOf } from "../solana/token.js";
 
 /** Anvil account #1 — the end user, deliberately not the deployer. */
 const ANVIL_KEY_1: Hex = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
@@ -172,6 +179,7 @@ export class Harness {
     contract: "TokenizedStock" | "QuoteAsset",
     amount: bigint
   ): Promise<void> {
+    if (vmOf(this.config.homeChain) === "svm") return this.bridgeFromSolanaHome(dstEid, to, contract, amount);
     const homeKey = this.manifest.homeChainKey;
     const oft = this.oftAddr(homeKey, contract);
 
@@ -194,6 +202,52 @@ export class Harness {
     ]);
     await this.home.write(oft, OFT_ABI, "send", [sendParam, fee, this.home.deployer], fee.nativeFee);
   }
+  /**
+   * {@link bridgeFromHomeTo} when home is Solana: an OFT send from the Solana deployer's genesis
+   * balance, with the messaging fee quoted and paid. `amount` is in the home mint's decimals.
+   */
+  private async bridgeFromSolanaHome(
+    dstEid: number,
+    to: Hex,
+    contract: "TokenizedStock" | "QuoteAsset",
+    amount: bigint
+  ): Promise<void> {
+    const home = solanaHome(this.config)!;
+    const sol = new SolanaChain(this.config.homeChain);
+    const a = home.assets[contract === "TokenizedStock" ? "base" : "quote"];
+    const params = {
+      dstEid,
+      to: Buffer.from(to.slice(2).padStart(64, "0"), "hex"),
+      amountLd: amount,
+      minAmountLd: amount,
+      options: Buffer.from(Options.new().addExecutorLzReceive(200_000n).build().slice(2), "hex"),
+    };
+    const rpc = lzLocal(sol).rpc;
+    const payer = sol.payer.publicKey.toBase58();
+    const { nativeFee } = await oft.quote(
+      rpc,
+      { payer: publicKey(payer), tokenMint: publicKey(a.mint), tokenEscrow: publicKey(a.escrow) },
+      params,
+      { oft: publicKey(home.programs.oft) }
+    );
+    const ix = await oft.send(
+      rpc,
+      {
+        payer: createNoopSigner(publicKey(payer)),
+        tokenMint: publicKey(a.mint),
+        tokenEscrow: publicKey(a.escrow),
+        tokenSource: publicKey(ataOf(sol.payer.publicKey, new PublicKey(a.mint), programOf(a)).toBase58()),
+      },
+      { ...params, nativeFee },
+      { oft: publicKey(home.programs.oft), token: publicKey(programOf(a).toBase58()) }
+    );
+    const tx = new Transaction().add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }),
+      toWeb3JsInstruction(ix.instruction)
+    );
+    await sol.connection.confirmTransaction(await sol.connection.sendTransaction(tx, [sol.payer]), "confirmed");
+  }
+
   eid(chainKey: string): number {
     return this.manifest.chains[chainKey].eid;
   }

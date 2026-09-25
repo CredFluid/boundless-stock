@@ -1,5 +1,5 @@
 {
-  "name": "@crossstock/sdk",
+  "name": "@boundless-stock/sdk",
   "version": "0.1.0",
   "private": true,
   "description": "CrossStock partner SDK: quote, build, authorise and track buy/sell orders from any mirror chain, and verify webhooks.",

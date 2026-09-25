@@ -58,7 +58,7 @@ Later additions, in the phases below: `/app/deployments/[name]/supply`, `/app/de
     chain, mirrors, contracts, pool, peer verification and pipeline steps are what was actually
     deployed.
   - The manifest and config types are imported from the infra's own definitions, through
-    `@crossstock/shared`. If the pipeline changes a field, the UI fails to compile rather than
+    `@boundless-stock/shared`. If the pipeline changes a field, the UI fails to compile rather than
     drifting.
 - **A launch wizard that produces a working config.** Its chain presets come from the repo's
   `config/*.json`, and its output is a `DeploymentConfig` for `npm run deploy -- --config`.
@@ -151,7 +151,7 @@ and the contracts enforce that orders come through a registered partner. See `PA
    - `partnerRequired`;
    - escrowed partner and platform fees, kept only on a fill.
 2. **Partner SDK and API.** Done, on the same branch:
-   - `@crossstock/sdk`;
+   - `@boundless-stock/sdk`;
    - `/api/v1`: descriptor, exact quotes, order building, tracking and order lists;
    - API keys and rate limits;
    - signed webhooks (`npm run webhooks`).

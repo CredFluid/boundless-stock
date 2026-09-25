@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import type { BuildOrderRequest } from "@crossstock/sdk";
+import type { BuildOrderRequest } from "@boundless-stock/sdk";
 import { ApiError, apiContext, buildOrder, listOrders } from "@infra/api/index";
 import { handle, jsonBody, requireLive } from "@/lib/partner-api";
 

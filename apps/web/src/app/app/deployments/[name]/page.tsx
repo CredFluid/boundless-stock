@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CheckCircle2, CircleAlert } from "lucide-react";
-import { getDeployment, type ChainView } from "@/lib/deployments";
+import { ArrowLeft, CheckCircle2, CircleAlert, Handshake } from "lucide-react";
+import { backingPct, getDeployment, type ChainView } from "@/lib/deployments";
 import { Address, Badge, Card, CardHeader, PageHeader, Stat, VmBadge } from "@/components/ui";
 import { DeploymentLive } from "@/components/live/deployment-live";
 import { RequestHistory } from "@/components/live/requests";
@@ -19,7 +19,7 @@ function ChainNode({ chain }: { chain: ChainView }) {
         <span className="truncate text-sm font-medium">{chain.name}</span>
         <VmBadge vm={chain.vm} />
       </div>
-      <div className="mt-0.5 font-mono text-xs text-muted">eid {chain.eid}</div>
+      <div className="mt-0.5 text-xs text-muted">{chain.role === "home" ? "issued and traded here" : "mirror · no market required"}</div>
     </div>
   );
 }
@@ -29,38 +29,44 @@ export default async function DeploymentPage({ params }: { params: Promise<{ nam
   if (!d) notFound();
   const chains = [d.home, ...d.mirrors];
   const byKind = Object.groupBy(d.peers.records, (p) => p.kind);
+  const pct = backingPct(d);
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
       <Link href="/app" className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
-        <ArrowLeft size={14} aria-hidden /> Deployments
+        <ArrowLeft size={14} aria-hidden /> Assets
       </Link>
 
       <PageHeader
-        eyebrow={d.name}
+        eyebrow={`${d.token.symbol} · issuer console`}
         title={`${d.token.name} (${d.token.symbol})`}
         description={
           <>
-            Priced against {d.quoteAsset.symbol} on {d.home.name} by {d.venue}; mirrored to {d.mirrors.length} chain
-            {d.mirrors.length === 1 ? "" : "s"}. {d.mode === "adapt" ? "An existing token, adapted rather than replaced." : "Launched as a new omnichain asset."}
+            Issued on {d.home.name} and distributed to {d.mirrors.length} chain{d.mirrors.length === 1 ? "" : "s"}.{" "}
+            {d.mode === "adapt" ? "An existing token, adapted rather than replaced: the issuer keeps the mint." : "Launched as a new asset."}{" "}
+            {d.reserves && `Backed by ${Number(d.reserves.shares).toLocaleString()} shares (${d.reserves.source}).`}
           </>
         }
         actions={
           <div className="flex flex-wrap gap-2">
-            <Badge>{d.environment}</Badge>
-            {d.mode === "adapt" ? <Badge tone="warn">Adapted</Badge> : <Badge tone="accent">Launched</Badge>}
+            {d.environment === "local" && <Badge>Local demo</Badge>}
+            {d.mode === "adapt" ? <Badge tone="warn">Existing token</Badge> : <Badge tone="accent">Issued</Badge>}
           </div>
         }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Home chain" value={<span className="text-lg">{d.home.name}</span>} hint={<VmBadge vm={d.home.vm} />} />
-        <Stat label="Mirrors" value={d.mirrors.length} hint={`${d.mirrors.filter((m) => m.vm === "svm").length} on Solana`} />
-        <Stat label="Genesis supply" value={<span className="text-lg">{Number(d.token.initialSupply).toLocaleString()} {d.token.symbol}</span>} hint={`${d.token.decimals} decimals at home`} />
+        <Stat label="Issued" value={<span className="text-lg">{Number(d.token.initialSupply).toLocaleString()} {d.token.symbol}</span>} hint={`on ${d.home.name}, its home`} />
         <Stat
-          label="Peer links"
-          value={`${d.peers.verified}/${d.peers.total}`}
-          hint={d.peers.verified === d.peers.total ? "all read back and match" : "some links do not match"}
+          label="Backing"
+          value={pct === undefined ? "—" : <span className={pct >= 100 ? "text-ok" : "text-bad"}>{pct.toFixed(0)}%</span>}
+          hint={d.reserves ? `${Number(d.reserves.shares).toLocaleString()} shares held` : "no reserve source configured"}
+        />
+        <Stat label="Distribution chains" value={d.mirrors.length} hint={d.mirrors.map((m) => m.name).join(" · ")} />
+        <Stat
+          label="Distribution partners"
+          value={d.partners.length}
+          hint={d.partnerRequired ? "partner-approved orders only" : "partner orders carry fees; direct orders open"}
         />
       </div>
 
@@ -75,14 +81,58 @@ export default async function DeploymentPage({ params }: { params: Promise<{ nam
           seeded: d.pool?.reserves,
           pool: d.pool?.address,
           genesis: Number(d.token.initialSupply).toLocaleString(),
+          reserves: d.reserves,
         }}
       />
 
-      <RequestHistory name={d.name} />
+      {/* ---------------------------------------------------------------- distribution */}
+      <Card>
+        <CardHeader
+          title="Distribution partners"
+          subtitle={
+            d.partnerRequired
+              ? "Only orders approved by one of these partners reach the market. Each partner runs KYC on its own users."
+              : "Registered partners route orders for their verified users and earn a fee on every fill. Switch on the partner gate to accept partner orders only."
+          }
+          action={<Badge tone={d.partnerRequired ? "accent" : "neutral"}>{d.partnerRequired ? "Partner-gated" : "Gate off"}</Badge>}
+        />
+        {d.partners.length === 0 ? (
+          <p className="px-5 py-8 text-center text-sm text-muted">No partners registered yet. Add them to the config&apos;s partners section.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs uppercase tracking-wide text-muted">
+                <tr className="border-b border-line">
+                  <th className="px-5 py-2 font-medium">Partner</th>
+                  <th className="px-5 py-2 font-medium">Chains</th>
+                  <th className="px-5 py-2 text-right font-medium">Fee ceiling</th>
+                  <th className="px-5 py-2 text-right font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {d.partners.map((p) => (
+                  <tr key={p.id}>
+                    <td className="px-5 py-2.5">
+                      <span className="inline-flex items-center gap-2 font-medium"><Handshake size={14} className="text-accent" aria-hidden />{p.name}</span>
+                      <span className="ml-2 font-mono text-xs text-muted">#{p.id}</span>
+                    </td>
+                    <td className="px-5 py-2.5 text-muted">{p.chains.join(" · ") || "—"}</td>
+                    <td className="px-5 py-2.5 text-right tabular-nums">{(p.maxFeeBps / 100).toFixed(2)}%</td>
+                    <td className="px-5 py-2.5 text-right">{p.active ? <Badge tone="ok">Active</Badge> : <Badge>Paused</Badge>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="border-t border-line px-5 py-3 text-xs text-muted">Fees are held in escrow and paid only when an order fills; a refunded or cancelled order returns them in full.</p>
+      </Card>
+
+      <RequestHistory name={d.name} partners={Object.fromEntries(d.partners.map((p) => [p.id, p.name]))} />
 
       {/* ---------------------------------------------------------------- topology */}
       <Card>
-        <CardHeader title="Topology" subtitle="One home market; every mirror reaches it over LayerZero, and each other directly." />
+        <CardHeader title="Distribution network" subtitle="The reference market is on the home chain. Every distribution chain holds a mirror of the same asset, reaches that market over LayerZero, and can also trade the mirror locally." />
         <div className="grid gap-6 p-5 md:grid-cols-[minmax(0,260px)_1fr] md:items-center">
           <div>
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-accent">Home · {d.venue}</div>
@@ -91,7 +141,7 @@ export default async function DeploymentPage({ params }: { params: Promise<{ nam
             </div>
           </div>
           <div>
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Mirrors · no market needed</div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Distribution chains</div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {d.mirrors.map((m) => (
                 <ChainNode key={m.key} chain={m} />
@@ -101,12 +151,16 @@ export default async function DeploymentPage({ params }: { params: Promise<{ nam
         </div>
       </Card>
 
-      {/* ---------------------------------------------------------------- chains */}
+      {/* ---------------------------------------------------------------- technical */}
+      <details className="group space-y-4">
+        <summary className="cursor-pointer list-none text-sm text-muted hover:text-fg">
+          <span className="group-open:hidden">▸</span><span className="hidden group-open:inline">▾</span> Technical details: contracts, cross-chain connections ({d.peers.verified}/{d.peers.total} verified) and the deployment log
+        </summary>
       <Card>
-        <CardHeader title="Chains and contracts" subtitle="Everything the pipeline deployed or initialised, per chain." />
+        <CardHeader title="Contracts and programs" subtitle="Everything deployed or initialised for this asset, per chain." />
         <div className="divide-y divide-line">
           {chains.map((c) => (
-            <details key={c.key} className="group px-5 py-3" open={c.role === "home"}>
+            <details key={c.key} className="group px-5 py-3">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
                 <span className="flex items-center gap-2 text-sm font-medium">
                   {c.name}
@@ -133,8 +187,8 @@ export default async function DeploymentPage({ params }: { params: Promise<{ nam
       {/* ---------------------------------------------------------------- peers */}
       <Card>
         <CardHeader
-          title="Peer links"
-          subtitle="Each LayerZero link was written, then read back from chain. A link from a Solana chain is written by the Solana setup and not listed here."
+          title="Cross-chain connections"
+          subtitle="Each connection was written, then read back from chain and checked."
         />
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -170,7 +224,7 @@ export default async function DeploymentPage({ params }: { params: Promise<{ nam
 
       {/* ---------------------------------------------------------------- pipeline */}
       <Card>
-        <CardHeader title="Pipeline" subtitle="The modules that produced this deployment, in order." />
+        <CardHeader title="Deployment log" subtitle="The steps that produced this deployment, in order." />
         <ol className="space-y-3 p-5">
           {d.steps.map((s, i) => (
             <li key={`${s.module}-${i}`} className="flex gap-3 text-sm">
@@ -188,6 +242,7 @@ export default async function DeploymentPage({ params }: { params: Promise<{ nam
           ))}
         </ol>
       </Card>
+      </details>
     </div>
   );
 }

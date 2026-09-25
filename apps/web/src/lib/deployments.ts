@@ -1,7 +1,8 @@
 import "server-only";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Manifest, PeerRecord, SolanaChainRecord } from "@crossstock/shared";
+import type { Manifest, PeerRecord, SolanaChainRecord } from "@boundless-stock/shared";
+import { configForDeployment } from "@infra/lib/deployment-config";
 
 /**
  * Read model over the deployment records the infra writes to `deployments/`.
@@ -45,13 +46,20 @@ export interface DeploymentView {
   token: Manifest["token"];
   quoteAsset: Manifest["quoteAsset"];
   mode: "launch" | "adapt";
-  venue: "Uniswap V3" | "Orca Whirlpool";
+  /** Where the asset's one market is, in the words an issuer uses. */
+  venue: string;
   home: ChainView;
   mirrors: ChainView[];
   peers: { total: number; verified: number; records: PeerRecord[] };
   steps: Manifest["steps"];
   pool?: Manifest["pool"];
   initialPrice?: string;
+  /** What backs the asset, from its config: shares held, per-share ratio, source and date. */
+  reserves?: { shares: string; tokensPerShare: number; source: string; asOf?: string };
+  /** Distribution partners registered on every EVM distribution chain, from its config. */
+  partners: { id: number; name: string; maxFeeBps: number; active: boolean; chains: string[] }[];
+  /** Whether only partner-approved orders get in. */
+  partnerRequired: boolean;
 }
 
 function readJson<T>(path: string): T {
@@ -148,13 +156,39 @@ function toView(m: Manifest): DeploymentView {
     token: m.token,
     quoteAsset: m.quoteAsset,
     mode: adapted ? "adapt" : "launch",
-    venue: home.vm === "svm" ? "Orca Whirlpool" : "Uniswap V3",
+    venue: home.vm === "svm" ? "Solana market" : `${home.name} market`,
     home,
     mirrors: all.filter((c) => c.key !== home.key).sort((a, b) => a.name.localeCompare(b.name)),
     peers: { total: m.peers.length, verified: m.peers.filter((p) => p.verified).length, records: m.peers },
     steps: m.steps,
     pool: m.pool,
     initialPrice: m.pool?.initialPrice,
+    ...fromConfig(m.name, all),
+  };
+}
+
+/** The parts of a deployment only its config knows: backing and distribution partners. */
+function fromConfig(name: string, chains: ChainView[]): Pick<DeploymentView, "reserves" | "partners" | "partnerRequired"> {
+  let cfg: ReturnType<typeof configForDeployment>;
+  try {
+    cfg = configForDeployment(name);
+  } catch {
+    cfg = undefined;
+  }
+  const c = cfg?.config;
+  const r = c?.token.reserves;
+  const evmMirrors = chains.filter((x) => x.role === "mirror" && x.vm === "evm").map((x) => x.name);
+  const svmMirrors = chains.filter((x) => x.role === "mirror" && x.vm === "svm").map((x) => x.name);
+  return {
+    reserves: r ? { shares: r.shares, tokensPerShare: r.tokensPerShare ?? 1, source: r.source, asOf: r.asOf } : undefined,
+    partners: (c?.partners?.partners ?? []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      maxFeeBps: p.maxFeeBps,
+      active: p.active ?? true,
+      chains: [...(p.evm ? evmMirrors : []), ...(p.svm ? svmMirrors : [])],
+    })),
+    partnerRequired: c?.partners?.required ?? false,
   };
 }
 
@@ -170,4 +204,11 @@ export function getDeployment(name: string): DeploymentView | undefined {
   const path = resolve(deploymentsDir(), `${name}.manifest.json`);
   if (!/^[a-z0-9-]+$/i.test(name) || !existsSync(path)) return undefined;
   return toView(readJson<Manifest>(path));
+}
+
+/** Backing as a share of what was issued, from the config's reserves; undefined when none is set. */
+export function backingPct(d: DeploymentView): number | undefined {
+  if (!d.reserves) return undefined;
+  const issued = Number(d.token.initialSupply);
+  return issued === 0 ? undefined : (Number(d.reserves.shares) * d.reserves.tokensPerShare * 100) / issued;
 }

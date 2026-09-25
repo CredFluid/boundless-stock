@@ -5,7 +5,12 @@
     "name": "Tokenized Apple Inc.",
     "symbol": "tAAPL",
     "decimals": 18,
-    "initialSupply": "1000000"
+    "initialSupply": "1000000",
+    "reserves": {
+      "shares": "1000000",
+      "source": "custodian attestation",
+      "asOf": "2026-09-25"
+    }
   },
   "quoteAsset": {
     "name": "USD Coin",
@@ -15,7 +20,7 @@
   },
   "homeChain": {
     "key": "solana-devnet",
-    "name": "Solana Devnet (local)",
+    "name": "Solana",
     "vm": "svm",
     "eid": 40168,
     "rpcUrl": "http://127.0.0.1:8899",
@@ -29,7 +34,7 @@
   "mirrorChains": [
     {
       "key": "base-sepolia",
-      "name": "Base Sepolia",
+      "name": "Base",
       "chainId": 84532,
       "eid": 40245,
       "rpcUrl": "http://127.0.0.1:8545",
@@ -37,7 +42,7 @@
     },
     {
       "key": "arbitrum-sepolia",
-      "name": "Arbitrum Sepolia",
+      "name": "Arbitrum",
       "chainId": 421614,
       "eid": 40231,
       "rpcUrl": "http://127.0.0.1:8546",
@@ -45,7 +50,7 @@
     },
     {
       "key": "optimism-sepolia",
-      "name": "Optimism Sepolia",
+      "name": "Optimism",
       "chainId": 11155420,
       "eid": 40232,
       "rpcUrl": "http://127.0.0.1:8547",
@@ -53,7 +58,7 @@
     },
     {
       "key": "svm-b",
-      "name": "SVM chain B (local)",
+      "name": "SVM chain",
       "vm": "svm",
       "eid": 40999,
       "rpcUrl": "http://127.0.0.1:8999",
@@ -80,5 +85,28 @@
     "relayNativeBuffer": "1",
     "returnComposeGas": 400000
   },
-  "localMessageLibFee": "0.0001"
+  "localMessageLibFee": "0.0001",
+  "partners": {
+    "required": false,
+    "partners": [
+      {
+        "id": 1,
+        "name": "Demo Broker",
+        "maxFeeBps": 50,
+        "evm": {
+          "signer": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+          "feeRecipient": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+        }
+      },
+      {
+        "id": 2,
+        "name": "Demo Wallet",
+        "maxFeeBps": 30,
+        "evm": {
+          "signer": "0x90f79bf6eB2c4f870365e785982e1F89c4a8b906",
+          "feeRecipient": "0x90f79bf6eB2c4f870365e785982e1F89c4a8b906"
+        }
+      }
+    ]
+  }
 }

@@ -61,7 +61,8 @@ async function main(): Promise<void> {
   // Scenarios 1–7 exercise an EVM home chain's pool and relay directly; with the home on Solana
   // the same claims are made by scenario 8, through `swap_relay` and the Whirlpool. Scenario 9
   // (Solana to Solana) applies to either, when the deployment has the chains for it.
-  const applicable = solanaHome ? all.filter((s) => s.id === "8" || s.id === "9") : all;
+  // Partner orders and the partner SDK (10, 11) live on the mirrors, so they apply to either home.
+  const applicable = solanaHome ? all.filter((s) => ["8", "9", "10", "11"].includes(s.id)) : all;
   const selected = only ? applicable.filter((s) => s.id === only) : applicable;
   if (selected.length === 0) throw new Error(`No scenario matching --only ${only}`);
 

@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutGrid, Rocket, LifeBuoy, ArrowLeftRight } from "lucide-react";
+import { LayoutGrid, Rocket, ShieldCheck, ArrowLeftRight, BookOpen } from "lucide-react";
 import { cx } from "./ui";
 
 const ITEMS = [
-  { href: "/app", label: "Deployments", icon: LayoutGrid, exact: true },
+  { href: "/app", label: "Assets", icon: LayoutGrid, exact: true },
   { href: "/app/launch", label: "Launch an asset", icon: Rocket },
-  { href: "/app/operations", label: "Operations", icon: LifeBuoy },
-  { href: "/trade", label: "Trading app", icon: ArrowLeftRight },
+  { href: "/app/operations", label: "Operations and controls", icon: ShieldCheck },
+  { href: "/trade", label: "Partner preview", icon: ArrowLeftRight },
+  { href: "/docs", label: "Developer docs", icon: BookOpen },
 ];
 
 export function AppNav() {
@@ -27,7 +28,7 @@ export function AppNav() {
               active ? "bg-surface-2 font-medium text-fg" : "text-muted hover:bg-surface-2 hover:text-fg"
             )}
           >
-            <Icon size={16} aria-hidden />
+            <Icon size={16} className="shrink-0" aria-hidden />
             {label}
           </Link>
         );

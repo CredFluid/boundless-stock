@@ -1,7 +1,7 @@
 import "server-only";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { ChainConfig, DeploymentConfig } from "@crossstock/shared";
+import type { ChainConfig, DeploymentConfig } from "@boundless-stock/shared";
 import { repoRoot } from "./deployments";
 
 export interface ChainPreset {

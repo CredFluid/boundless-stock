@@ -94,7 +94,7 @@ export function TypedTerminal({ lines, title }: { lines: TermLine[]; title: stri
   }, 0.5);
 
   return (
-    <div ref={ref} data-terminal className="overflow-hidden rounded-xl border border-line bg-surface shadow-2xl shadow-black/40">
+    <div ref={ref} data-terminal className="overflow-hidden rounded-xl border border-line bg-surface shadow-xl shadow-black/5">
       <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
         <span className="h-2.5 w-2.5 rounded-full bg-bad/70" />
         <span className="h-2.5 w-2.5 rounded-full bg-warn/70" />

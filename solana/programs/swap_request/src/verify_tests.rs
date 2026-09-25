@@ -35,6 +35,8 @@ impl Fixture {
             partner_required: false,
             platform_fee_bps: 0,
             platform_fee_recipient: Pubkey::default(),
+            base_token_2022: false,
+            quote_token_2022: false,
         };
         Self { store, store_key: Pubkey::new_unique(), user: Pubkey::new_unique(), request_id: 7 }
     }
@@ -82,8 +84,9 @@ impl Fixture {
         let mint = self.store.base_mint;
         DeliveryAccounts {
             mint,
-            store_token_account: spl::associated_token_address(&self.store_key, &mint),
-            user_token_account: spl::associated_token_address(&self.user, &mint),
+            store_token_account: spl::associated_token_address(&self.store_key, &mint, &spl::TOKEN_PROGRAM_ID),
+            user_token_account: spl::associated_token_address(&self.user, &mint, &spl::TOKEN_PROGRAM_ID),
+            token_program: spl::TOKEN_PROGRAM_ID,
         }
     }
 
@@ -135,8 +138,9 @@ fn quote_oft_delivers_the_quote_mint() {
     let mint = f.store.quote_mint;
     let accounts = DeliveryAccounts {
         mint,
-        store_token_account: spl::associated_token_address(&f.store_key, &mint),
-        user_token_account: spl::associated_token_address(&f.user, &mint),
+        store_token_account: spl::associated_token_address(&f.store_key, &mint, &spl::TOKEN_PROGRAM_ID),
+        user_token_account: spl::associated_token_address(&f.user, &mint, &spl::TOKEN_PROGRAM_ID),
+        token_program: spl::TOKEN_PROGRAM_ID,
     };
     let v = f.verify(&params, &f.request_key(f.request_id), &f.user, &accounts).unwrap();
     assert_eq!(v.mint, mint);
@@ -228,7 +232,7 @@ fn the_wrong_mint_is_refused() {
 fn the_payout_cannot_be_redirected() {
     let f = Fixture::new();
     let mut accounts = f.accounts();
-    accounts.user_token_account = spl::associated_token_address(&Pubkey::new_unique(), &f.store.base_mint);
+    accounts.user_token_account = spl::associated_token_address(&Pubkey::new_unique(), &f.store.base_mint, &spl::TOKEN_PROGRAM_ID);
     let params = f.params(&f.frame(&f.settlement()));
     assert_code(
         f.verify(&params, &f.request_key(f.request_id), &f.user, &accounts),
@@ -350,7 +354,7 @@ impl Cancellation {
                 oft_program: self.f.store.oft_program,
                 oft_store: self.f.store.quote_oft,
                 token_mint: mint,
-                token_dest: spl::associated_token_address(&self.f.user, &mint),
+                token_dest: spl::associated_token_address(&self.f.user, &mint, &spl::TOKEN_PROGRAM_ID),
             },
         )
     }
@@ -414,6 +418,38 @@ fn minting_the_other_asset_is_refused() {
 fn the_restored_input_cannot_be_redirected() {
     let c = Cancellation::new();
     let (request, mut a) = c.accounts();
-    a.token_dest = spl::associated_token_address(&Pubkey::new_unique(), &c.f.store.quote_mint);
+    a.token_dest = spl::associated_token_address(&Pubkey::new_unique(), &c.f.store.quote_mint, &spl::TOKEN_PROGRAM_ID);
     assert_err(c.verify(&request, &c.f.user, &a), SwapRequestError::WrongTokenAccount);
+}
+
+// ---------------------------------------------------------------------------- Token-2022
+
+/// A Token-2022 store: deliveries must name Token-2022 accounts and the Token-2022 program.
+#[test]
+fn a_token_2022_delivery_uses_token_2022_accounts_and_program() {
+    let mut f = Fixture::new();
+    f.store.base_token_2022 = true;
+    let params = f.params(&f.frame(&f.settlement()));
+    let mint = f.store.base_mint;
+    let t22 = spl::TOKEN_2022_PROGRAM_ID;
+    let good = DeliveryAccounts {
+        mint,
+        store_token_account: spl::associated_token_address(&f.store_key, &mint, &t22),
+        user_token_account: spl::associated_token_address(&f.user, &mint, &t22),
+        token_program: t22,
+    };
+    assert!(f.verify(&params, &f.request_key(f.request_id), &f.user, &good).is_ok());
+
+    // The classic program, or classic-derived accounts, are refused for a Token-2022 mint.
+    let wrong_program = DeliveryAccounts { token_program: spl::TOKEN_PROGRAM_ID, ..good };
+    assert_code(
+        f.verify(&params, &f.request_key(f.request_id), &f.user, &wrong_program),
+        SwapRequestError::UnsupportedTokenProgram,
+    );
+    let classic_accounts = f.accounts(); // derived under the classic program
+    let with_t22 = DeliveryAccounts { token_program: t22, ..classic_accounts };
+    assert_code(
+        f.verify(&params, &f.request_key(f.request_id), &f.user, &with_t22),
+        SwapRequestError::WrongTokenAccount,
+    );
 }

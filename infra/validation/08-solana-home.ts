@@ -32,6 +32,7 @@ import { MessageLibPDA } from "@layerzerolabs/lz-solana-sdk-v2/umi";
 import { formatUnits, parseUnits, type Address } from "viem";
 
 import type { Harness, ScenarioResult } from "./harness.js";
+import { programOf } from "../solana/token.js";
 import { Direction, Status } from "./harness.js";
 import { forgeArtifact } from "../lib/artifacts.js";
 import { Options } from "../lib/options.js";
@@ -95,10 +96,10 @@ export async function scenario8(h: Harness): Promise<ScenarioResult> {
         payer: createNoopSigner(publicKey(sol.payer.publicKey.toBase58())),
         tokenMint: publicKey(a.mint),
         tokenEscrow: publicKey(a.escrow),
-        tokenSource: publicKey(ataOf(sol.payer.publicKey, new PublicKey(a.mint)).toBase58()),
+        tokenSource: publicKey(ataOf(sol.payer.publicKey, new PublicKey(a.mint), programOf(a)).toBase58()),
       },
       { ...sendParams, nativeFee },
-      { oft: publicKey(home.programs.oft) }
+      { oft: publicKey(home.programs.oft), token: publicKey(programOf(a).toBase58()) }
     );
     const token = asset === "base" ? stockOnMirror : quoteOnMirror;
     const before = await bal(token);

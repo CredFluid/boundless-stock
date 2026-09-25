@@ -15,7 +15,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { signWebhook, WEBHOOK_SIGNATURE_HEADER, type WebhookEvent, type WebhookEventType } from "@crossstock/sdk";
+import { signWebhook, WEBHOOK_SIGNATURE_HEADER, type WebhookEvent, type WebhookEventType } from "@boundless-stock/sdk";
 
 import { loadConfig } from "./lib/config.js";
 import { repoRoot } from "./lib/root.js";

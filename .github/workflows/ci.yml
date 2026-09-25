@@ -78,9 +78,9 @@ jobs:
       - name: Infra typecheck
         run: npm run typecheck
       - name: Web typecheck
-        run: npm run typecheck -w @crossstock/web
+        run: npm run typecheck -w @boundless-stock/web
       - name: SDK typecheck and tests
-        run: npm run typecheck -w @crossstock/sdk && npm test -w @crossstock/sdk
+        run: npm run typecheck -w @boundless-stock/sdk && npm test -w @boundless-stock/sdk
       - name: Web build
         run: npm run web:build
 

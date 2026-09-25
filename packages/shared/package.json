@@ -1,5 +1,5 @@
 {
-  "name": "@crossstock/shared",
+  "name": "@boundless-stock/shared",
   "version": "0.1.0",
   "private": true,
   "description": "Types shared by the CrossStock infra and apps: deployment configs, manifests, Solana deployment records.",

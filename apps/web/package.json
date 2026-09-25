@@ -1,5 +1,5 @@
 {
-  "name": "@crossstock/web",
+  "name": "@boundless-stock/web",
   "version": "0.1.0",
   "private": true,
   "description": "CrossStock web: landing page, issuer dashboard and trading app.",
@@ -10,13 +10,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@crossstock/shared": "*",
+    "@boundless-stock/shared": "*",
     "lucide-react": "^1.48.0",
     "next": "^16.3.6",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "server-only": "^0.0.1",
-    "@crossstock/sdk": "*"
+    "@boundless-stock/sdk": "*"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

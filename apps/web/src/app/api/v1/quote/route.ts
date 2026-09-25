@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import type { QuoteRequest } from "@crossstock/sdk";
+import type { QuoteRequest } from "@boundless-stock/sdk";
 import { apiContext, quote } from "@infra/api/index";
 import { handle, jsonBody, requireLive } from "@/lib/partner-api";
 

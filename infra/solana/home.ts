@@ -28,7 +28,11 @@ import { isLocal } from "../lib/config.js";
 import { Options } from "../lib/options.js";
 import { log } from "../lib/logger.js";
 import { SolanaChain } from "./chain.js";
-import { ataOf, createAtaIdempotent, TOKEN_PROGRAM } from "./client.js";
+import { ataOf, createAtaIdempotent } from "./client.js";
+import { programOf } from "./token.js";
+
+/** SPL Memo: `swap_relay` names it for Orca's `swap_v2`, so it goes in the relay's lookup table. */
+const MEMO_PROGRAM = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 import { initLocalEndpoint, initOAppPath, lzLocal } from "./lz-local.js";
 import { deploySolanaPool, type SolanaPoolDeployment } from "./pool.js";
 import { checkExistingMint, toBytes32, initOft, programIdFrom, type OftDeployment } from "./setup.js";
@@ -205,6 +209,8 @@ export async function setupSolanaHomeRelay(
   const endpoint = chain.endpointProgramId;
   const baseMint = new PublicKey(home.assets.base.mint);
   const quoteMint = new PublicKey(home.assets.quote.mint);
+  // Each mint's own token program: SPL Token or Token-2022.
+  const [baseProgram, quoteProgram] = [programOf(home.assets.base), programOf(home.assets.quote)];
   const whirlpool = new PublicKey(home.pool.whirlpool);
 
   // ---- init
@@ -251,8 +257,8 @@ export async function setupSolanaHomeRelay(
   // associated accounts, which the OFT and the pool both address.
   await send(
     chain,
-    createAtaIdempotent(chain.payer.publicKey, store, baseMint),
-    createAtaIdempotent(chain.payer.publicKey, store, quoteMint)
+    createAtaIdempotent(chain.payer.publicKey, store, baseMint, baseProgram),
+    createAtaIdempotent(chain.payer.publicKey, store, quoteMint, quoteProgram)
   );
 
   // ---- peers: each mirror's SwapRequest, with the executor options for returns to it — in
@@ -313,10 +319,10 @@ export async function setupSolanaHomeRelay(
           payer: createNoopSigner(publicKey(chain.payer.publicKey.toBase58())),
           tokenMint: publicKey(asset.mint),
           tokenEscrow: publicKey(asset.escrow),
-          tokenSource: publicKey(ataOf(store, mint).toBase58()),
+          tokenSource: publicKey(ataOf(store, mint, programOf(asset)).toBase58()),
         },
         { dstEid: m.eid, to: toBytes32(m.request), amountLd: 1n, minAmountLd: 0n, nativeFee: 0n },
-        { oft: publicKey(home.programs.oft) }
+        { oft: publicKey(home.programs.oft), token: publicKey(programOf(asset).toBase58()) }
       );
       const keys = toWeb3JsInstruction(ix.instruction).keys;
       const accounts = keys.map((k, i) => ({
@@ -432,13 +438,15 @@ export async function setupSolanaHomeRelay(
     vaultA,
     vaultB,
     PublicKey.findProgramAddressSync([Buffer.from("oracle"), whirlpool.toBuffer()], whirlpoolProgram)[0],
-    ataOf(store, baseMint),
-    ataOf(store, quoteMint),
+    ataOf(store, baseMint, baseProgram),
+    ataOf(store, quoteMint, quoteProgram),
     baseMint,
     quoteMint,
     whirlpoolProgram,
     new PublicKey(home.programs.oft),
-    TOKEN_PROGRAM,
+    baseProgram,
+    quoteProgram,
+    MEMO_PROGRAM,
     endpoint,
     SystemProgram.programId,
     PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], endpoint)[0],

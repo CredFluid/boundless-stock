@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 /** A terminal/editor frame for code on the landing page. */
 export function CodeWindow({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-2xl shadow-black/40">
+    <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-xl shadow-black/5">
       <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
         <span className="h-2.5 w-2.5 rounded-full bg-bad/70" />
         <span className="h-2.5 w-2.5 rounded-full bg-warn/70" />
