@@ -103,6 +103,27 @@ the order is refunded, cancelled or stranded.
 | **An issuer dashboard** | Supply per chain with the conservation check, the live market, trade history and operations queues. |
 | **Solana as the home chain** | The market, the liquidity and the operations live on Solana. Other chains, EVM chains and other Solana chains alike, connect to it as spokes. |
 
+## For developers
+
+Issuers bring the stock. Developers bring the users. Any wallet, exchange, neobank or trading
+app on another chain can offer buy and sell for a tokenized stock without running a pool, a
+bridge or its own liquidity. The developer handles its users and their KYC; the market is ours.
+
+The SDK (`@crossstock/sdk`) and API (`/api/v1`) do this in a few calls today:
+
+| Call | What it gives the developer |
+|---|---|
+| `deployments()` / `deployment(name)` | Which stocks are available, on which chains, with every address needed to trade them |
+| `quote()` | An exact price for a given size, from the home market itself. Orders fill at their quote to the base unit; price impact and the cross-chain messaging fee are included. |
+| `buildOrder()` | A ready-to-sign transaction, on an EVM chain or Solana, signed in the user's own wallet. The developer never holds user funds. |
+| Authorise helpers | Approve an order as the partner: a typed-data signature on EVM, a checked co-signature on Solana that refuses anything but the approved amount, side, fee and floor |
+| `order()` / `orders()` / `waitForOrder()` | Track an order until it is filled, refunded or cancelled |
+| Webhooks | Signed notifications when an order settles, with a helper to verify them |
+| Partner fee | The developer sets its own fee, up to a cap, charged only on a fill: a business model built in |
+
+The trading API is for developers who bring users, and it needs a partner agreement because of
+KYC. The data behind it can be open to everyone else (see below).
+
 ## What we have proven
 
 Everything above runs today on local chains, with the real LayerZero V2 programs and contracts,
@@ -119,13 +140,29 @@ total supply across chains still equals what was issued. This is covered by 85 c
 
 ## Where it goes next
 
+**For issuers:**
+
 - **Proof of reserves.** The issued half (supply across every chain, in flight included) is
   already measured live. Pairing it with a reserve source (custodian, issuer or oracle) gives a
   continuous "issued ≤ held" check. See [`PROOF_OF_RESERVES.md`](PROOF_OF_RESERVES.md).
-- **One price on every chain.** Publish the home market's price to every spoke, checked against
-  a reference price of the underlying share, so apps on any chain can price the stock without a
-  pool of their own.
 - **Holders across chains,** alongside supply, in the issuer dashboard.
+
+**For developers**, opening what only the home market can see:
+
+- **Market data on every chain.** The stock's price in the home market, and its premium or
+  discount to the real share, for portfolio apps, dashboards and trading tools on any chain.
+- **Supply and holder data.** Supply per chain, stock in flight between chains, and holder
+  counts, for explorers, analytics platforms and investor relations.
+- **Proof of reserves as an API and an on-chain check.** "Is this token fully backed right
+  now?", asked by a lending protocol or custodian before accepting it as collateral.
+- **A price feed on every chain.** An on-chain price, checked against a reference price of the
+  underlying share, that lending and perpetuals protocols on other chains can read. This is what
+  turns a mirror token into collateral, not just something to hold.
+- **Contract-level buying.** Orders placed by smart contracts, not only wallets, so a vault, a
+  savings app or an index product on another chain can buy and hold tokenized stocks
+  automatically. Who carries KYC when the buyer is a contract is the question to settle first.
+- **An embeddable buy widget,** for apps that want the flow without building it.
+- **A sandbox:** test keys against a test deployment, to try it before integrating.
 
 ## Quick start
 
