@@ -12,7 +12,7 @@ export default function LaunchPage() {
       <PageHeader
         eyebrow="Issuer console"
         title="Launch an asset"
-        description="Describe the asset, choose its home chain and the chains it should reach. The result is a deployment config the pipeline runs as-is."
+        description="Describe the asset and what backs it, choose the chains to distribute to and who may route orders. The result is a config that one command deploys."
       />
       <LaunchWizard presets={presets} />
     </div>

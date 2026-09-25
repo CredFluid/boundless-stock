@@ -50,7 +50,7 @@ export function TradeWidget({ markets }: { markets: TradeMarket[] }) {
               setMarketId(e.target.value);
               setChainKey(m?.chains.find((c) => !c.home)?.key ?? "");
             }}>
-            {markets.map((m) => <option key={m.id} value={m.id}>{m.symbol} · home {m.home.name} · {m.id.replace(/^crossstock-/, "")}</option>)}
+            {markets.map((m) => <option key={m.id} value={m.id}>{m.symbol} · {m.name}</option>)}
           </select>
         </label>
         <label className="block text-sm">
@@ -113,8 +113,8 @@ export function TradeWidget({ markets }: { markets: TradeMarket[] }) {
       </button>
       <p className="mt-3 flex gap-2 text-xs text-muted">
         <Info size={14} className="mt-0.5 shrink-0" aria-hidden />
-        Preview: the figure uses the market&apos;s starting price. Wallet connection and live quotes from the home pool arrive in
-        phase 2. If the home market can&apos;t meet your minimum, your {inSym} is returned in full.
+        In this preview the figure uses the market&apos;s launch price; a partner integration gets exact quotes from the market
+        through the SDK. If the market can&apos;t meet the minimum, the {inSym} is returned in full.
       </p>
     </Card>
   );

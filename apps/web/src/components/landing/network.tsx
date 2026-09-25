@@ -6,17 +6,17 @@
 const HUB = { x: 300, y: 250 };
 
 const NODES = [
-  { x: 92, y: 96, label: "Base", vm: "EVM", use: "TRADE" },
+  { x: 92, y: 96, label: "Base", vm: "EVM", use: "DISTRIBUTE" },
   { x: 508, y: 96, label: "Arbitrum", vm: "EVM", use: "TRANSFER" },
   { x: 536, y: 318, label: "Optimism", vm: "EVM", use: "INTEGRATE" },
-  { x: 52, y: 330, label: "Solana", vm: "SVM", use: "TRADE" },
+  { x: 52, y: 330, label: "SVM chain", vm: "SVM", use: "TRADE" },
   { x: 300, y: 462, label: "Any chain", vm: "EVM · SVM", use: "", ghost: true },
 ];
 
 export function NetworkVisual() {
   return (
     <svg viewBox="0 0 600 520" className="h-auto w-full" role="img"
-      aria-label="One home chain runs admin, operations and liquidity; every other chain powers trading, transfers and integrations.">
+      aria-label="Solana runs issuance, controls and liquidity; every other chain powers distribution, transfers and integrations.">
       <defs>
         <radialGradient id="hubGlow" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.35" />
@@ -74,9 +74,9 @@ export function NetworkVisual() {
       ))}
       <g>
         <rect x={HUB.x - 122} y={HUB.y - 42} width="244" height="84" rx="16" fill="var(--surface)" stroke="var(--accent)" strokeWidth="1.5" />
-        <text x={HUB.x} y={HUB.y - 12} textAnchor="middle" fontSize="11" fill="var(--accent)" letterSpacing="1.5">HOME CHAIN</text>
-        <text x={HUB.x} y={HUB.y + 10} textAnchor="middle" fontSize="15" fontWeight="600" fill="var(--text)">Admin · Ops · Liquidity</text>
-        <text x={HUB.x} y={HUB.y + 28} textAnchor="middle" fontSize="11" fill="var(--muted)">one market · one control plane</text>
+        <text x={HUB.x} y={HUB.y - 12} textAnchor="middle" fontSize="11" fill="var(--accent)" letterSpacing="1.5">SOLANA · HOME</text>
+        <text x={HUB.x} y={HUB.y + 10} textAnchor="middle" fontSize="15" fontWeight="600" fill="var(--text)">Issuance · Controls · Liquidity</text>
+        <text x={HUB.x} y={HUB.y + 28} textAnchor="middle" fontSize="11" fill="var(--muted)">one market · one ledger</text>
       </g>
 
       {NODES.map((n) => (

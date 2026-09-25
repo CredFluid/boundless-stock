@@ -40,7 +40,7 @@ Wait
 Sleep 3s
 
 # 2. Deploy: issue on Solana, mirror to the chosen chains, open the home market
-Type "clear && npx boundless-stock deploy --mirrors base,arbitrum,solana-b"
+Type "clear && npx boundless-stock deploy --mirrors base,arbitrum,svm-chain"
 Sleep 400ms
 Enter
 Wait

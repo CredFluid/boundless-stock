@@ -142,7 +142,7 @@ npm install && forge build
 npm run solana:build && npm run solana:build:relay        # the Solana programs (see solana/README.md for the rest)
 
 npx boundless-stock chains                                 # the chains a stock can be mirrored to
-npx boundless-stock deploy --mirrors base,arbitrum,solana-b   # issue on Solana, mirror to those chains, open the home market
+npx boundless-stock deploy --mirrors base,arbitrum,svm-chain  # issue on Solana, mirror to those chains, open the home market
 npx boundless-stock market                                 # price, supply on every chain, proof of reserves
 npx boundless-stock buy --on base --spend 15000            # buy on another chain, filled on Solana
 npm run web:dev                                            # issuer dashboard: http://localhost:3000/app

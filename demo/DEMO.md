@@ -8,7 +8,7 @@ About three minutes: the problem in one breath, then the product in a terminal.
 |---|---|---|---|
 | 0 | Title card | — | The problem (voice-over below) |
 | 1 | Terminal | `npm install`, `npx boundless-stock`, `npx boundless-stock chains` | Installing, the commands, and the chains a stock can be mirrored to |
-| 2 | Terminal | `npx boundless-stock deploy --mirrors base,arbitrum,solana-b` | The stock issued on Solana, mirrors created on the chosen chains, the home market opened |
+| 2 | Terminal | `npx boundless-stock deploy --mirrors base,arbitrum,svm-chain` | The stock issued on Solana, mirrors created on the chosen chains, the home market opened |
 | 3 | Terminal | `npx boundless-stock market` | Price, total supply, how much is on Solana and on each other chain, proof of reserves |
 | 4 | Terminal | `npx boundless-stock buy --on base --spend 15000` | A buy on a chain with no market, filled on Solana |
 | 5 | Terminal | `npx boundless-stock market` | Supply has moved between chains; the total and the backing have not |

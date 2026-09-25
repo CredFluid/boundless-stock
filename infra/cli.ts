@@ -3,7 +3,7 @@
  * `boundless-stock` — the command line an issuer or developer uses.
  *
  *   boundless-stock chains                               the chains a stock can be mirrored to
- *   boundless-stock deploy --mirrors base,solana-b       issue on Solana, mirror to the chosen chains
+ *   boundless-stock deploy --mirrors base,svm-chain       issue on Solana, mirror to the chosen chains
  *   boundless-stock market                               price, supply by chain, proof of reserves
  *   boundless-stock buy --on base --spend 15000          buy on another chain, filled on Solana
  *
@@ -116,9 +116,9 @@ function currentConfig(): string {
   return CATALOG;
 }
 
-/** A short name for a chain: `base` for base-sepolia, `solana-b` for the second Solana chain. */
+/** A short name for a chain: `base` for base-sepolia, `svm-chain` for the second SVM chain. */
 function alias(ch: ChainConfig): string {
-  if (vmOf(ch) === "svm") return "solana-" + ch.key.replace(/^svm-/, "");
+  if (vmOf(ch) === "svm") return ch.key === "svm-b" ? "svm-chain" : ch.key;
   return ch.key.replace(/-(sepolia|testnet|devnet|local)$/, "");
 }
 

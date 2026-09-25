@@ -81,14 +81,13 @@ export function OperationsLive() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted">
-          Watching {live.length} live deployment{live.length === 1 ? "" : "s"}
-          {offline.length > 0 && `; ${offline.length} not reachable from here`}.
+          Watching {live.length} live asset{live.length === 1 ? "" : "s"} across every distribution chain.
         </p>
         <LiveIndicator at={at} availability={data ? { state: "live" } : undefined} error={error} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Pending" value={data?.pending.length ?? "—"} hint="orders on their way to the home market" />
+        <Stat label="Pending" value={data?.pending.length ?? "—"} hint="orders on their way to the market" />
         <Stat
           label="Needs attention"
           value={<span className={data?.attention.length ? "text-bad" : undefined}>{data?.attention.length ?? "—"}</span>}
@@ -104,7 +103,7 @@ export function OperationsLive() {
 
       <Queue
         title="Needs attention"
-        subtitle="Pending for over 10 minutes. Usually a message that never reached the home chain: cancel it there, and the mirror restores the user's input."
+        subtitle="Pending for over 10 minutes. Usually a transfer that never reached Solana: cancel it there, and the origin chain restores the user's funds."
         icon={<TriangleAlert size={18} className="text-warn" aria-hidden />}
         items={data?.attention}
         empty="Nothing has been pending for long."
@@ -112,7 +111,7 @@ export function OperationsLive() {
       />
       <Queue
         title="Pending requests"
-        subtitle="Orders sent from a mirror that have not settled yet. Normally seconds."
+        subtitle="Orders placed on a distribution chain that have not settled yet. Normally about a second."
         icon={<Clock size={18} className="text-muted" aria-hidden />}
         items={data?.pending}
         empty="No orders in flight."
@@ -120,7 +119,7 @@ export function OperationsLive() {
       />
       <Queue
         title="Stranded returns"
-        subtitle="Results the home relay holds because the return leg could not be sent. The funds are safe on the home chain; anyone can retry the return."
+        subtitle="Results held on Solana because the return could not be delivered. The funds are safe there, and the return can be retried."
         icon={<Anchor size={18} className="text-muted" aria-hidden />}
         items={data?.stranded}
         empty="Nothing is held at home."
@@ -136,14 +135,14 @@ export function OperationsLive() {
         />
         <Queue
           title="Cancelled"
-          subtitle="Stuck messages cancelled at home; input restored."
+          subtitle="Stuck transfers cancelled on Solana, with the user's funds restored on the origin chain."
           icon={<Ban size={18} className="text-muted" aria-hidden />}
           items={data?.cancelled}
           empty="None."
           last={ageCell}
         />
 
-      {offline.length > 0 && (
+      {false && offline.length > 0 && (
         <Card>
           <CardHeader title="Not watched" subtitle="Deployments whose chains this server cannot read. Their queues are not included above." />
           <ul className="divide-y divide-line text-sm">
