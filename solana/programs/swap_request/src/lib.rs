@@ -54,12 +54,22 @@ pub mod state;
 
 #[cfg(test)]
 mod verify_tests;
+#[cfg(test)]
+mod partner_tests;
 
 use abi::{ComposeFrame, Order, Settlement};
 use error::SwapRequestError;
-use state::{Direction, LzComposeTypesAccounts, NonceIndex, Request, Status, Store};
+use state::{Direction, FeeEscrow, FeeState, LzComposeTypesAccounts, NonceIndex, Partner, Request, Status, Store};
 
 declare_id!("6cMiunhoxEcYYT29Cp4PgDT97FjtqsuqZ27ChTbr41vL");
+
+/// Hard ceiling on any partner's fee, whatever the admin registers. Matches the EVM side.
+pub const MAX_PARTNER_FEE_BPS: u16 = 300;
+/// Hard ceiling on the platform fee. Matches the EVM side.
+pub const MAX_PLATFORM_FEE_BPS: u16 = 100;
+const BPS: u128 = 10_000;
+/// Owner of the fee vault's token accounts: `[b"FeeVault"]`.
+pub const FEE_VAULT_SEED: &[u8] = b"FeeVault";
 
 #[program]
 pub mod swap_request {
@@ -131,128 +141,172 @@ pub mod swap_request {
     /// The OFT's own account list is passed through `remaining_accounts`: this program does not
     /// depend on the OFT crate, it just forwards and signs. That keeps the two programs
     /// independently upgradeable and avoids pinning to a specific OFT build.
-    pub fn open_request(ctx: Context<OpenRequest>, params: OpenRequestParams) -> Result<()> {
-        require!(params.amount_in > 0, SwapRequestError::ZeroAmount);
-        require!(ctx.accounts.store.home_relay != [0u8; 32], SwapRequestError::PeerNotSet);
-        // The OFT send below is signed as the store. A caller-chosen program would receive that
-        // signature — and with it the power to send as this OApp and to mint by recovery.
+    pub fn open_request<'info>(
+        ctx: Context<'_, '_, 'info, 'info, OpenRequest<'info>>,
+        params: OpenRequestParams,
+    ) -> Result<()> {
+        // Closed while partners are required: the only way in is then `open_request_via_partner`.
+        require!(!ctx.accounts.store.partner_required, SwapRequestError::PartnerRequired);
+        let bump = ctx.bumps.request;
+        open(ctx.accounts, bump, ctx.remaining_accounts, ctx.program_id, params).map(|_| ())
+    }
+
+    /// Opens a trade through a registered partner, with its fee.
+    ///
+    /// The partner's authoriser key must co-sign the transaction. That is the Solana form of the
+    /// EVM side's EIP-712 authorisation: the partner's backend inspects the transaction the user
+    /// will send — who, which direction, how much, what fee — and adds its signature only if it
+    /// approves that exact order. A transaction executes at most once and its blockhash expires,
+    /// so the signature cannot be replayed or held for later.
+    ///
+    /// Fees come off the input and are held in the fee vault until [`settle_fees`] releases
+    /// them: to the partner and the platform if the request filled, back to the user otherwise.
+    pub fn open_request_via_partner<'info>(
+        ctx: Context<'_, '_, 'info, 'info, OpenPartnerRequest<'info>>,
+        params: OpenRequestParams,
+        fee_bps: u16,
+    ) -> Result<()> {
+        let partner = &ctx.accounts.partner;
+        check_partner(partner, &ctx.accounts.partner_signer.key(), fee_bps)?;
+
+        let store = &ctx.accounts.base.store;
+        let fees = compute_fees(params.amount_in, fee_bps, store.platform_fee_bps)?;
+        require!(fees.net > 0, SwapRequestError::ZeroAmount);
+
+        let (vault, _) = Pubkey::find_program_address(&[FEE_VAULT_SEED], ctx.program_id);
+        let mint_key = ctx.accounts.base.token_in_mint.key();
         require_keys_eq!(
-            ctx.accounts.oft_program.key(),
-            ctx.accounts.store.oft_program,
-            SwapRequestError::WrongOftProgram
+            ctx.accounts.fee_vault_token_account.key(),
+            spl::associated_token_address(&vault, &mint_key),
+            SwapRequestError::WrongTokenAccount
         );
 
-        let store = &mut ctx.accounts.store;
-        let (expected_in, expected_out) = match params.direction {
-            Direction::Buy => (store.quote_mint, store.base_mint),
-            Direction::Sell => (store.base_mint, store.quote_mint),
-        };
-        require_keys_eq!(ctx.accounts.token_in_mint.key(), expected_in, SwapRequestError::WrongMint);
-        require_keys_eq!(ctx.accounts.token_out_mint.key(), expected_out, SwapRequestError::WrongMint);
-
-        // Anything below the bridge's precision floor crosses as zero, which would leave a
-        // request that can never settle. Same guard as the EVM side, and found there by the
-        // invariant fuzzer. The quantum is derived from the mint, not taken from the caller.
-        let decimals = spl::mint_decimals(&ctx.accounts.token_in_mint)?;
-        let quantum = 10u64
-            .checked_pow(u32::from(decimals.saturating_sub(store.shared_decimals)))
-            .ok_or(SwapRequestError::UnsupportedDecimals)?;
-        let quantised = params.amount_in - (params.amount_in % quantum);
-        require!(quantised > 0, SwapRequestError::AmountBelowBridgeableMinimum);
-
-        // The floor crosses in shared decimals, rounded up so conversion never loosens it.
-        let out_decimals = spl::mint_decimals(&ctx.accounts.token_out_mint)?;
-        let min_out_sd = abi::ld_to_sd_ceil(params.min_amount_out, out_decimals, store.shared_decimals)?;
-
         let request_id = store.next_request_id;
-        store.next_request_id = request_id
-            .checked_add(1)
-            .ok_or(SwapRequestError::PayloadValueTooLarge)?;
+        let escrow = &mut ctx.accounts.fee_escrow;
+        escrow.request_id = request_id;
+        escrow.partner_id = partner.partner_id;
+        escrow.user = ctx.accounts.base.user.key();
+        escrow.mint = mint_key;
+        escrow.partner_recipient = partner.fee_recipient;
+        escrow.platform_recipient = store.platform_fee_recipient;
+        escrow.partner_fee = fees.partner;
+        escrow.platform_fee = fees.platform;
+        escrow.state = if fees.partner + fees.platform > 0 { FeeState::Escrowed } else { FeeState::None };
+        escrow.bump = ctx.bumps.fee_escrow;
 
-        let (token_in, token_out) = match params.direction {
-            Direction::Buy => (store.quote_mint, store.base_mint),
-            Direction::Sell => (store.base_mint, store.quote_mint),
-        };
+        if fees.partner + fees.platform > 0 {
+            let decimals = spl::mint_decimals(&ctx.accounts.base.token_in_mint)?;
+            spl::transfer_checked(
+                &ctx.accounts.base.token_program,
+                &ctx.accounts.base.user_token_account,
+                &ctx.accounts.base.token_in_mint,
+                &ctx.accounts.fee_vault_token_account,
+                &ctx.accounts.base.user.to_account_info(),
+                fees.partner + fees.platform,
+                decimals,
+            )?;
+        }
 
-        // Move the user's input into the program's escrow. Only the quantised part travels;
-        // the remainder stays with the user rather than being stranded here.
-        spl::transfer_checked(
-            &ctx.accounts.token_program,
-            &ctx.accounts.user_token_account,
-            &ctx.accounts.token_in_mint,
-            &ctx.accounts.escrow_token_account,
-            &ctx.accounts.user.to_account_info(),
-            quantised,
-            decimals,
-        )?;
+        let partner_id = partner.partner_id;
+        let bump = ctx.bumps.base.request;
+        let net_params = OpenRequestParams { amount_in: fees.net, ..params };
+        let opened = open(&mut ctx.accounts.base, bump, ctx.remaining_accounts, ctx.program_id, net_params)?;
+        require!(opened == request_id, SwapRequestError::RequestMismatch);
 
-        let request = &mut ctx.accounts.request;
-        request.user = ctx.accounts.user.key();
-        request.direction = params.direction;
-        request.token_in = token_in;
-        request.token_out = token_out;
-        request.amount_in = quantised;
-        request.min_amount_out = params.min_amount_out;
-        request.amount_out = 0;
-        request.created_at = Clock::get()?.unix_timestamp;
-        request.settled_at = 0;
-        request.status = Status::Pending;
-        request.failure_reason = 0;
-        request.bump = ctx.bumps.request;
+        emit!(FeesEscrowed { request_id, partner_id, partner_fee: fees.partner, platform_fee: fees.platform });
+        Ok(())
+    }
 
-        // The order rides as the OFT's composeMsg, so funds and instruction arrive together.
-        let order = Order {
-            request_id,
-            direction: params.direction as u8,
-            min_amount_out: u128::from(min_out_sd),
-            recipient: ctx.accounts.user.key().to_bytes(),
-        };
+    /// Releases a finished request's fees. Permissionless: anyone may pay to run it, and the
+    /// destinations are fixed by the escrow record, so it can only ever pay whom it must.
+    ///
+    /// Filled: the partner's fee to the partner and the platform's to the platform. Refunded,
+    /// cancelled or stranded: the whole fee back to the user — a strand may follow a fill whose
+    /// return leg failed, and the user is not charged for an order they did not receive here.
+    pub fn settle_fees(ctx: Context<SettleFees>) -> Result<()> {
+        let escrow = &ctx.accounts.fee_escrow;
+        require!(escrow.state == FeeState::Escrowed, SwapRequestError::FeesNotEscrowed);
+        let payout = fee_payout(ctx.accounts.request.status, escrow)?;
 
-        let store_bump = store.bump;
-        let store_key = store.key();
-        let oft_store = match params.direction {
-            Direction::Buy => store.quote_oft,
-            Direction::Sell => store.base_oft,
-        };
-        dispatch_oft_send(
-            &ctx.accounts.oft_program.key(),
-            ctx.remaining_accounts,
-            &store_key,
-            &[Store::SEED, &[store_bump]],
-            OftSendArgs {
-                dst_eid: store.home_eid,
-                to: store.home_relay,
-                amount_ld: quantised,
-                min_amount_ld: quantised,
-                options: params.options,
-                compose_msg: Some(order.encode()),
-                native_fee: params.native_fee,
-                lz_token_fee: params.lz_token_fee,
-            },
-        )?;
+        let a = &ctx.accounts;
+        require_keys_eq!(a.mint.key(), escrow.mint, SwapRequestError::WrongMint);
+        let (vault, vault_bump) = Pubkey::find_program_address(&[FEE_VAULT_SEED], ctx.program_id);
+        require_keys_eq!(a.fee_vault.key(), vault, SwapRequestError::WrongTokenAccount);
+        require_keys_eq!(
+            a.fee_vault_token_account.key(),
+            spl::associated_token_address(&vault, &escrow.mint),
+            SwapRequestError::WrongTokenAccount
+        );
 
-        // Record the message's nonce against the request. Without it a message that never
-        // arrives cannot even be named, so it could never be cancelled; it is also the only
-        // moment it can be learned — `send` returns it and nothing stores it.
-        let lz_nonce = sent_nonce(&ctx.accounts.oft_program.key())?;
-        ctx.accounts.request.lz_nonce = lz_nonce;
-        create_nonce_index(
-            &ctx.accounts.nonce_index,
-            &ctx.accounts.user,
-            &ctx.accounts.system_program,
-            ctx.program_id,
-            &oft_store,
-            lz_nonce,
-            NonceIndex { request_id, user: ctx.accounts.user.key(), token_in },
-        )?;
+        let decimals = spl::mint_decimals(&a.mint)?;
+        let seeds: &[&[u8]] = &[FEE_VAULT_SEED, &[vault_bump]];
+        for (amount, owner, dest) in [
+            (payout.partner, escrow.partner_recipient, &a.partner_token_account),
+            (payout.platform, escrow.platform_recipient, &a.platform_token_account),
+            (payout.user, escrow.user, &a.user_token_account),
+        ] {
+            if amount == 0 {
+                continue;
+            }
+            require_keys_eq!(
+                dest.key(),
+                spl::associated_token_address(&owner, &escrow.mint),
+                SwapRequestError::WrongTokenAccount
+            );
+            spl::transfer_checked_signed(
+                &a.token_program,
+                &a.fee_vault_token_account,
+                &a.mint,
+                dest,
+                &a.fee_vault,
+                amount,
+                decimals,
+                seeds,
+            )?;
+        }
 
-        emit!(SwapRequested {
-            request_id,
-            user: ctx.accounts.user.key(),
-            direction: params.direction as u8,
-            amount_in: quantised,
-            min_amount_out: params.min_amount_out,
-        });
+        let request_id = escrow.request_id;
+        let escrow = &mut ctx.accounts.fee_escrow;
+        escrow.state = if payout.user > 0 { FeeState::Returned } else { FeeState::Paid };
+        emit!(FeesSettled { request_id, partner: payout.partner, platform: payout.platform, user: payout.user });
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------ partner admin
+
+    /// Registers a partner. Its authoriser co-signs the orders it approves; its fees are paid
+    /// to `fee_recipient`'s token account for the input mint.
+    pub fn register_partner(ctx: Context<RegisterPartner>, partner_id: u32, terms: PartnerTerms) -> Result<()> {
+        validate_terms(partner_id, &terms)?;
+        let p = &mut ctx.accounts.partner;
+        p.partner_id = partner_id;
+        p.bump = ctx.bumps.partner;
+        apply_terms(p, &terms);
+        emit!(PartnerSet { partner_id, signer: terms.signer, fee_recipient: terms.fee_recipient, max_fee_bps: terms.max_fee_bps, active: terms.active });
+        Ok(())
+    }
+
+    /// Updates or deactivates a partner. Deactivating stops new orders at once; fees already
+    /// escrowed are unaffected.
+    pub fn update_partner(ctx: Context<UpdatePartner>, terms: PartnerTerms) -> Result<()> {
+        let p = &mut ctx.accounts.partner;
+        validate_terms(p.partner_id, &terms)?;
+        apply_terms(p, &terms);
+        emit!(PartnerSet { partner_id: p.partner_id, signer: terms.signer, fee_recipient: terms.fee_recipient, max_fee_bps: terms.max_fee_bps, active: terms.active });
+        Ok(())
+    }
+
+    /// Closes (or reopens) `open_request` to orders without a partner.
+    pub fn set_partner_required(ctx: Context<AdminOnly>, required: bool) -> Result<()> {
+        ctx.accounts.store.partner_required = required;
+        Ok(())
+    }
+
+    pub fn set_platform_fee(ctx: Context<AdminOnly>, bps: u16, recipient: Pubkey) -> Result<()> {
+        require!(bps <= MAX_PLATFORM_FEE_BPS, SwapRequestError::FeeTooHigh);
+        require!(bps == 0 || recipient != Pubkey::default(), SwapRequestError::InvalidPartner);
+        ctx.accounts.store.platform_fee_bps = bps;
+        ctx.accounts.store.platform_fee_recipient = recipient;
         Ok(())
     }
 
@@ -605,6 +659,140 @@ pub mod swap_request {
     }
 }
 
+/// The body of `open_request`, shared with `open_request_via_partner`: validate, escrow the
+/// input, record the request, dispatch it to the home chain, and index its nonce.
+/// Returns the request id.
+fn open<'info>(
+    a: &mut OpenRequest<'info>,
+    request_bump: u8,
+    remaining: &[AccountInfo<'info>],
+    program_id: &Pubkey,
+    params: OpenRequestParams,
+) -> Result<u64> {
+    require!(params.amount_in > 0, SwapRequestError::ZeroAmount);
+    require!(a.store.home_relay != [0u8; 32], SwapRequestError::PeerNotSet);
+    // The OFT send below is signed as the store. A caller-chosen program would receive that
+    // signature — and with it the power to send as this OApp and to mint by recovery.
+    require_keys_eq!(
+        a.oft_program.key(),
+        a.store.oft_program,
+        SwapRequestError::WrongOftProgram
+    );
+
+    let store = &mut a.store;
+    let (expected_in, expected_out) = match params.direction {
+        Direction::Buy => (store.quote_mint, store.base_mint),
+        Direction::Sell => (store.base_mint, store.quote_mint),
+    };
+    require_keys_eq!(a.token_in_mint.key(), expected_in, SwapRequestError::WrongMint);
+    require_keys_eq!(a.token_out_mint.key(), expected_out, SwapRequestError::WrongMint);
+
+    // Anything below the bridge's precision floor crosses as zero, which would leave a
+    // request that can never settle. Same guard as the EVM side, and found there by the
+    // invariant fuzzer. The quantum is derived from the mint, not taken from the caller.
+    let decimals = spl::mint_decimals(&a.token_in_mint)?;
+    let quantum = 10u64
+        .checked_pow(u32::from(decimals.saturating_sub(store.shared_decimals)))
+        .ok_or(SwapRequestError::UnsupportedDecimals)?;
+    let quantised = params.amount_in - (params.amount_in % quantum);
+    require!(quantised > 0, SwapRequestError::AmountBelowBridgeableMinimum);
+
+    // The floor crosses in shared decimals, rounded up so conversion never loosens it.
+    let out_decimals = spl::mint_decimals(&a.token_out_mint)?;
+    let min_out_sd = abi::ld_to_sd_ceil(params.min_amount_out, out_decimals, store.shared_decimals)?;
+
+    let request_id = store.next_request_id;
+    store.next_request_id = request_id
+        .checked_add(1)
+        .ok_or(SwapRequestError::PayloadValueTooLarge)?;
+
+    let (token_in, token_out) = match params.direction {
+        Direction::Buy => (store.quote_mint, store.base_mint),
+        Direction::Sell => (store.base_mint, store.quote_mint),
+    };
+
+    // Move the user's input into the program's escrow. Only the quantised part travels;
+    // the remainder stays with the user rather than being stranded here.
+    spl::transfer_checked(
+        &a.token_program,
+        &a.user_token_account,
+        &a.token_in_mint,
+        &a.escrow_token_account,
+        &a.user.to_account_info(),
+        quantised,
+        decimals,
+    )?;
+
+    let request = &mut a.request;
+    request.user = a.user.key();
+    request.direction = params.direction;
+    request.token_in = token_in;
+    request.token_out = token_out;
+    request.amount_in = quantised;
+    request.min_amount_out = params.min_amount_out;
+    request.amount_out = 0;
+    request.created_at = Clock::get()?.unix_timestamp;
+    request.settled_at = 0;
+    request.status = Status::Pending;
+    request.failure_reason = 0;
+    request.bump = request_bump;
+
+    // The order rides as the OFT's composeMsg, so funds and instruction arrive together.
+    let order = Order {
+        request_id,
+        direction: params.direction as u8,
+        min_amount_out: u128::from(min_out_sd),
+        recipient: a.user.key().to_bytes(),
+    };
+
+    let store_bump = store.bump;
+    let store_key = store.key();
+    let oft_store = match params.direction {
+        Direction::Buy => store.quote_oft,
+        Direction::Sell => store.base_oft,
+    };
+    dispatch_oft_send(
+        &a.oft_program.key(),
+        remaining,
+        &store_key,
+        &[Store::SEED, &[store_bump]],
+        OftSendArgs {
+            dst_eid: store.home_eid,
+            to: store.home_relay,
+            amount_ld: quantised,
+            min_amount_ld: quantised,
+            options: params.options,
+            compose_msg: Some(order.encode()),
+            native_fee: params.native_fee,
+            lz_token_fee: params.lz_token_fee,
+        },
+    )?;
+
+    // Record the message's nonce against the request. Without it a message that never
+    // arrives cannot even be named, so it could never be cancelled; it is also the only
+    // moment it can be learned — `send` returns it and nothing stores it.
+    let lz_nonce = sent_nonce(&a.oft_program.key())?;
+    a.request.lz_nonce = lz_nonce;
+    create_nonce_index(
+        &a.nonce_index,
+        &a.user,
+        &a.system_program,
+        program_id,
+        &oft_store,
+        lz_nonce,
+        NonceIndex { request_id, user: a.user.key(), token_in },
+    )?;
+
+    emit!(SwapRequested {
+        request_id,
+        user: a.user.key(),
+        direction: params.direction as u8,
+        amount_in: quantised,
+        min_amount_out: params.min_amount_out,
+    });
+        Ok(request_id)
+}
+
 /// The accounts a delivery names for moving tokens, as the submitter supplied them.
 pub struct DeliveryAccounts {
     pub mint: Pubkey,
@@ -843,6 +1031,77 @@ fn delivered_mint(store: &Store, from: &Pubkey) -> Result<Pubkey> {
     }
 }
 
+// ---------------------------------------------------------------------------- partners and fees
+
+/// A partner's terms as the admin sets them.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct PartnerTerms {
+    pub signer: Pubkey,
+    pub fee_recipient: Pubkey,
+    pub max_fee_bps: u16,
+    pub active: bool,
+}
+
+pub fn validate_terms(partner_id: u32, t: &PartnerTerms) -> Result<()> {
+    require!(
+        partner_id != 0 && t.signer != Pubkey::default() && t.fee_recipient != Pubkey::default(),
+        SwapRequestError::InvalidPartner
+    );
+    require!(t.max_fee_bps <= MAX_PARTNER_FEE_BPS, SwapRequestError::FeeTooHigh);
+    Ok(())
+}
+
+fn apply_terms(p: &mut Partner, t: &PartnerTerms) {
+    p.signer = t.signer;
+    p.fee_recipient = t.fee_recipient;
+    p.max_fee_bps = t.max_fee_bps;
+    p.active = t.active;
+}
+
+/// Whether `partner` may authorise an order at `fee_bps`, co-signed by `signer`.
+pub fn check_partner(partner: &Partner, signer: &Pubkey, fee_bps: u16) -> Result<()> {
+    require!(partner.active, SwapRequestError::UnknownPartner);
+    require_keys_eq!(*signer, partner.signer, SwapRequestError::InvalidPartnerSigner);
+    require!(fee_bps <= partner.max_fee_bps, SwapRequestError::FeeTooHigh);
+    Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Fees {
+    pub partner: u64,
+    pub platform: u64,
+    /// What is left to trade.
+    pub net: u64,
+}
+
+/// Fees on a `gross` input, rounded down, as on EVM: `gross × bps / 10 000` for each.
+pub fn compute_fees(gross: u64, partner_bps: u16, platform_bps: u16) -> Result<Fees> {
+    let of = |bps: u16| -> u64 { (u128::from(gross) * u128::from(bps) / BPS) as u64 };
+    let (partner, platform) = (of(partner_bps), of(platform_bps));
+    let net = gross
+        .checked_sub(partner + platform)
+        .ok_or(SwapRequestError::FeeTooHigh)?;
+    Ok(Fees { partner, platform, net })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Payout {
+    pub partner: u64,
+    pub platform: u64,
+    pub user: u64,
+}
+
+/// Who a settled request's fees go to. The whole rule, in one place: kept only for a fill.
+pub fn fee_payout(status: Status, escrow: &FeeEscrow) -> Result<Payout> {
+    match status {
+        Status::Filled => Ok(Payout { partner: escrow.partner_fee, platform: escrow.platform_fee, user: 0 }),
+        Status::Refunded | Status::Cancelled | Status::Stranded => {
+            Ok(Payout { partner: 0, platform: 0, user: escrow.partner_fee + escrow.platform_fee })
+        }
+        Status::Pending | Status::None => err!(SwapRequestError::RequestNotSettled),
+    }
+}
+
 // ---------------------------------------------------------------------------- OFT CPI
 
 /// Arguments for LayerZero's OFT `send`, matching its `SendParams`.
@@ -1011,6 +1270,85 @@ pub struct OpenRequest<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(params: OpenRequestParams, fee_bps: u16)]
+pub struct OpenPartnerRequest<'info> {
+    /// Every account `open_request` takes, in the same order.
+    pub base: OpenRequest<'info>,
+    /// The partner's authoriser, co-signing this exact order.
+    pub partner_signer: Signer<'info>,
+    #[account(seeds = [Partner::SEED, &partner.partner_id.to_be_bytes()], bump = partner.bump)]
+    pub partner: Account<'info, Partner>,
+    #[account(
+        init,
+        payer = base.user,
+        space = FeeEscrow::SIZE,
+        seeds = [FeeEscrow::SEED, &base.store.next_request_id.to_be_bytes()],
+        bump
+    )]
+    pub fee_escrow: Account<'info, FeeEscrow>,
+    /// CHECK: the fee vault's token account for the input mint; checked in the handler and by
+    /// the SPL Token program. Created beforehand, idempotently, by the client.
+    #[account(mut)]
+    pub fee_vault_token_account: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SettleFees<'info> {
+    #[account(seeds = [Request::SEED, &fee_escrow.request_id.to_be_bytes()], bump = request.bump)]
+    pub request: Account<'info, Request>,
+    #[account(mut, seeds = [FeeEscrow::SEED, &fee_escrow.request_id.to_be_bytes()], bump = fee_escrow.bump)]
+    pub fee_escrow: Account<'info, FeeEscrow>,
+    /// CHECK: the fee vault PDA; checked in the handler. Signs the payouts.
+    pub fee_vault: UncheckedAccount<'info>,
+    /// CHECK: the escrowed fees' mint; checked against the escrow record.
+    pub mint: UncheckedAccount<'info>,
+    /// CHECK: the vault's token account for `mint`; checked in the handler.
+    #[account(mut)]
+    pub fee_vault_token_account: UncheckedAccount<'info>,
+    /// CHECK: the partner recipient's token account; checked when anything is paid to it.
+    #[account(mut)]
+    pub partner_token_account: UncheckedAccount<'info>,
+    /// CHECK: the platform recipient's token account; checked when anything is paid to it.
+    #[account(mut)]
+    pub platform_token_account: UncheckedAccount<'info>,
+    /// CHECK: the user's token account; checked when anything is paid to it.
+    #[account(mut)]
+    pub user_token_account: UncheckedAccount<'info>,
+    /// CHECK: pinned to the SPL Token program.
+    #[account(address = spl::TOKEN_PROGRAM_ID)]
+    pub token_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(partner_id: u32)]
+pub struct RegisterPartner<'info> {
+    #[account(mut, constraint = admin.key() == store.admin @ SwapRequestError::Unauthorized)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [Store::SEED], bump = store.bump)]
+    pub store: Account<'info, Store>,
+    #[account(
+        init,
+        payer = admin,
+        space = Partner::SIZE,
+        seeds = [Partner::SEED, &partner_id.to_be_bytes()],
+        bump
+    )]
+    pub partner: Account<'info, Partner>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdatePartner<'info> {
+    #[account(constraint = admin.key() == store.admin @ SwapRequestError::Unauthorized)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [Store::SEED], bump = store.bump)]
+    pub store: Account<'info, Store>,
+    #[account(mut, seeds = [Partner::SEED, &partner.partner_id.to_be_bytes()], bump = partner.bump)]
+    pub partner: Account<'info, Partner>,
+}
+
+#[derive(Accounts)]
 pub struct LzReceiveTypes<'info> {
     #[account(seeds = [Store::SEED], bump = store.bump)]
     pub store: Account<'info, Store>,
@@ -1110,4 +1448,29 @@ pub struct SwapRefunded {
     pub user: Pubkey,
     pub amount: u64,
     pub reason: u8,
+}
+
+#[event]
+pub struct PartnerSet {
+    pub partner_id: u32,
+    pub signer: Pubkey,
+    pub fee_recipient: Pubkey,
+    pub max_fee_bps: u16,
+    pub active: bool,
+}
+
+#[event]
+pub struct FeesEscrowed {
+    pub request_id: u64,
+    pub partner_id: u32,
+    pub partner_fee: u64,
+    pub platform_fee: u64,
+}
+
+#[event]
+pub struct FeesSettled {
+    pub request_id: u64,
+    pub partner: u64,
+    pub platform: u64,
+    pub user: u64,
 }

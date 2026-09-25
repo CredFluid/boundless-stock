@@ -36,4 +36,18 @@ pub enum SwapRequestError {
     WrongTokenAccount,
     #[msg("Only the OFT program recorded at initialisation may be called")]
     WrongOftProgram,
+    #[msg("Orders must come through a partner")]
+    PartnerRequired,
+    #[msg("Partner is not registered or not active")]
+    UnknownPartner,
+    #[msg("Transaction was not co-signed by the partner's authoriser")]
+    InvalidPartnerSigner,
+    #[msg("Fee is above the allowed ceiling")]
+    FeeTooHigh,
+    #[msg("Partner id, signer and fee recipient must all be set")]
+    InvalidPartner,
+    #[msg("This request has no fees in escrow")]
+    FeesNotEscrowed,
+    #[msg("The request has not settled yet, so its fees cannot be released")]
+    RequestNotSettled,
 }
