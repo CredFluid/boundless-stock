@@ -5,12 +5,12 @@ operations are managed from one chain and one place.**
 
 ## The problem: tokenized stocks are breaking into pieces
 
-Tokenized stocks are arriving on every chain at once: Solana, Base, Arbitrum, Optimism and more.
-Each new chain gets its own copy of the stock, and with it:
+Tokenized stocks are arriving on many chains at once. Each new chain gets its own copy of the
+stock, and with it:
 
-- **its own thin pool,** so the same share of Apple trades at different prices on different
-  chains, and a large order moves the price far more than it should;
-- **its own liquidity to fund,** so an issuer seeds five small markets instead of one deep one;
+- **its own thin pool,** so the same share trades at different prices on different chains, and
+  a large order moves the price far more than it should;
+- **its own liquidity to fund,** so an issuer seeds many small markets instead of one deep one;
 - **its own operations,** so contracts, fees, stuck transfers and refunds are handled chain by
   chain, by hand;
 - **its own ledger,** so nobody can say, at a glance, how much of the stock exists in total or
@@ -19,38 +19,37 @@ Each new chain gets its own copy of the stock, and with it:
 This is fragmentation, and it is what has held tokenized assets back. The industry's usual
 answers each fix one part of it:
 
-- **A bridge** moves the token, but the user often ends up holding a wrapped IOU, and every
-  chain still needs its own market.
+- **A bridge** moves the token, but the holder often ends up with a wrapped IOU, and every chain
+  still needs its own market.
 - **A pool on every chain** gives each chain a market, but splits the liquidity further.
 - **Unified accounting** (one hub keeping the books for many chains) fixes the ledger, but the
   stock still trades in separate markets.
 
 The books can be unified. **The market has not been.**
 
-## Our answer: one home market, every chain a doorway
+## Our answer: Solana is the home market, every other chain a doorway
 
-CrossStock makes Solana the **hub**: the one chain where the stock's market lives, with one pool
-of liquidity and one price. Every other chain is a **spoke**, a doorway into that market with
-no pool of its own.
+CrossStock makes Solana the **hub**: the chain where the stock's market lives, with one pool of
+liquidity and one price. Every other chain is a **spoke**, a doorway into that market with no
+pool of its own.
 
 ```
- Spokes: Base / Arbitrum / Optimism / other Solana chains         Hub: Solana
+ Other chains (spokes)                                            Solana (hub)
  ┌──────────────────────────────────┐   order + funds      ┌──────────────────────────────────┐
- │ user presses "buy"                │ ───────────────────► │ the order fills in the one pool: │
- │ in the app they already use       │                      │ one price, one pool of liquidity │
- │ the stock arrives in the same     │ ◄─────────────────── │                                  │
- │ wallet, on the same chain         │   stock + outcome    └──────────────────────────────────┘
+ │ a buy or sell order is placed     │ ───────────────────► │ the order fills in the home      │
+ │                                   │                      │ market: one price, one pool      │
+ │ the stock or proceeds arrive      │ ◄─────────────────── │ of liquidity                     │
+ │ on the same chain                 │   stock + outcome    └──────────────────────────────────┘
  └──────────────────────────────────┘
 ```
 
-A user on Base presses buy once. The order crosses to Solana, fills in the home pool at the real
-market price, and the stock arrives in their wallet on Base, in about three seconds. They never
-leave their chain, never hold a wrapper, and never see a bridge.
+An order placed on another chain crosses to Solana, fills against the home market at the real
+market price, and the stock (or the proceeds of a sale) is delivered back on the chain the order
+came from. Nothing is wrapped, and no market is needed on that chain.
 
 For the issuer, this changes where everything is managed:
 
-- **Liquidity in one place.** One pool on Solana serves every chain. Deepening it improves the
-  price for every user everywhere at once.
+- **Liquidity on Solana.** The liquidity on Solana powers trades on every other chain.
 - **Operations in one place.** Refunds happen automatically at the hub. Stuck-order
   cancellation, recovery of stranded returns, partners and fees are driven from one command line
   across every chain, and tracked in one issuer dashboard.
@@ -64,11 +63,11 @@ OFT):
 
 - it is burned (or, for an issuer's existing token, locked) on the chain it leaves;
 - it is minted on the chain it arrives at;
-- a real swap in the home pool happens in between.
+- a real trade in the home market happens in between.
 
 **Supply is conserved.** Supply on every chain plus what is in flight always equals what was
-issued. A spoke can never create supply. The validation suite checks this across both VMs after
-every scenario, and the dashboard shows it live.
+issued. A spoke can never create supply. The validation suite checks this after every scenario,
+and the dashboard shows it live.
 
 **Nothing is ever lost:**
 
@@ -76,41 +75,32 @@ every scenario, and the dashboard shows it live.
 - a stuck message can be cancelled and the funds restored;
 - a return that can't be delivered is held and retried.
 
-**Fees are only kept on a fill.** Partner and platform fees wait in escrow, and go back to the
-user if the order is refunded, cancelled or stranded.
+**Fees are only kept on a fill.** Partner and platform fees wait in escrow, and are returned if
+the order is refunded, cancelled or stranded.
 
 ## Built to be a platform
 
 | | |
 |---|---|
-| **Issuers keep their token** | Bring an existing SPL mint (Token-2022 included) or ERC-20. It is locked in a vault, never replaced, and the issuer keeps the mint authority. Or launch a new one. |
+| **Issuers keep their token** | Bring an existing SPL mint (Token-2022 included). It is locked in a vault, never replaced, and the issuer keeps the mint authority. Or launch a new one. |
 | **Partners bring the users** | Wallets, exchanges and apps integrate buy and sell through an SDK and API, and handle KYC on their side. With `partnerRequired`, only orders a registered partner approved get in; on Solana the partner co-signs. See [`PARTNERS.md`](PARTNERS.md). |
 | **Exact quotes** | The API asks the home market itself, so an order fills at its quote to the base unit. |
 | **An issuer dashboard** | Supply per chain with the conservation check, the live market, trade history and operations queues. |
-| **Any chain as home** | The home chain is a line in the config. The same infrastructure runs with an EVM chain as the hub and Solana as a spoke. |
+| **Solana as the home chain** | The market, the liquidity and the operations live on Solana. Other chains, EVM chains and other Solana chains alike, connect to it as spokes. |
 
-## Proven, on local chains
+## What we have proven
 
-These figures come from the full pipeline on local validators, with the real LayerZero V2
-programs and contracts, and our local relayer standing in for LayerZero's network:
-
-- **15,000 USDC spent on Base returned 99.32568 tAAPL** in the same wallet on Base, priced by the
-  home pool on Solana (151.02 against a spot of 150.42), in 2.9 s. Base has no market.
-- **10,000 USDC on a second Solana chain bought 66.137881 tAAPL** against the same pool. Its
-  orders and returns never touch an EVM chain.
-- **The safety paths work:** an unfillable order refunded in full, a sell, a stranded return
-  recovered by retry, and a stuck order cancelled and restored.
-- **Partner orders:** unapproved orders are refused, approvals are enforced on both VMs, fees
-  are kept only on fills, and SDK orders fill **exactly** at their quote.
-- **Token-2022 mints, end to end:** the same scenarios pass with the same figures, and mints with
-  unsafe extensions are refused.
-- **Supply conserved across VMs** after every scenario, with Solana's 9-decimal amounts rescaled
-  to compare with EVM's 18.
-- **Tests:**
-  - 85 Foundry tests, fuzz and invariants included;
-  - 45 + 10 Solana program host tests;
-  - 5 SDK tests;
-  - 11 end-to-end validation scenarios.
+Everything above runs today on local chains, with the real LayerZero V2 programs and contracts,
+and our own relayer standing in for LayerZero's network. An order of 15,000 USDC placed on an EVM
+chain crossed to Solana, filled against the home market, and delivered 99.32568 tAAPL back on
+the chain it came from, in 2.9 seconds, on a chain that has no market of its own. The same pool
+served an order from a second Solana chain (10,000 USDC for 66.137881 tAAPL) without it ever
+touching an EVM chain. The safety paths hold: an unfillable order is refunded in full, a stranded
+return is recovered by retry, and a stuck order is cancelled and restored. Partner orders are
+gated and co-signed, fees are kept only on fills, and orders placed through the SDK fill at
+exactly their quote. It all works the same with Token-2022 mints, and after every scenario the
+total supply across chains still equals what was issued. This is covered by 85 contract tests
+(fuzz and invariants included), 55 Solana program tests, SDK tests and 11 end-to-end scenarios.
 
 ## Where it goes next
 
@@ -122,83 +112,32 @@ programs and contracts, and our local relayer standing in for LayerZero's networ
   pool of their own.
 - **Holders across chains,** alongside supply, in the issuer dashboard.
 
-## Quick start (Solana home)
+## Quick start
 
 ```bash
 npm install && forge build
 npm run solana:build && npm run solana:build:relay        # swap_request, swap_relay (see solana/README.md for the rest)
 
-C=config/localnet-solana-home-svm-mirror.json              # Solana home; Base, Arbitrum, Optimism + a second Solana chain as mirrors
+C=config/localnet-solana-home-svm-mirror.json              # Solana home; three EVM chains + a second Solana chain as spokes
 npm run solana:up -- --config $C && npm run chains:up      # local Solana validators + EVM chains
 npm run solana:deploy -- --config $C                       # programs onto the validators
 npm run deploy   -- --config $C                            # full pipeline -> manifest
 npm run validate -- --config $C                            # scenarios 8, 9, 10, 11
-npm run supply   -- --config $C                            # where every token lives, across VMs
+npm run supply   -- --config $C                            # where every token lives, across chains
 npm run web:dev                                            # issuer dashboard: http://localhost:3000/app
 ```
 
-Other topologies are a different config, with no code changes:
+Other setups are a different config, with no code changes:
 
-| Config | Home | Mirrors |
+| Config | Home | Spokes |
 |---|---|---|
-| `localnet-solana-home.json` | Solana | Base, Arbitrum, Optimism |
-| `localnet-solana-home-svm-mirror.json` | Solana | the above plus a second Solana chain |
-| `localnet-solana-home-t22.json` | Solana, **Token-2022 mints** | the above plus a second Solana chain |
-| `localnet-solana-home-adapter.json` | Solana, **the issuer's existing SPL mint** | Base, Arbitrum, Optimism |
-| `localnet-solana.json` | Base | Arbitrum, Optimism, Solana |
-| `localnet.json` | Base | Arbitrum, Optimism |
+| `localnet-solana-home.json` | Solana | three EVM chains |
+| `localnet-solana-home-svm-mirror.json` | Solana | three EVM chains and a second Solana chain |
+| `localnet-solana-home-t22.json` | Solana, **Token-2022 mints** | three EVM chains and a second Solana chain |
+| `localnet-solana-home-adapter.json` | Solana, **the issuer's existing SPL mint** | three EVM chains |
 
 Onboard partners and set fees on a running deployment with `npm run partners -- --config …`. The
 partner API (`/api/v1`) and the SDK (`@crossstock/sdk`) are described in [`PARTNERS.md`](PARTNERS.md).
-
-## Web app
-
-The repo is an npm-workspaces monorepo:
-
-- **`apps/web`:** the landing page, the issuer dashboard, the trading app and the partner API.
-- **`packages/sdk`:** the partner SDK.
-- **`packages/shared`:** shared types.
-
-The dashboard reads the deployment records in `deployments/`, and reads each deployment's chains
-live, through the same infra code the CLI uses:
-
-- supply on every chain;
-- the home market;
-- relay health;
-- trade history;
-- operations queues.
-
-CI (`.github/workflows/ci.yml`) runs:
-
-- the Foundry tests;
-- the Solana programs' unit tests;
-- the TypeScript and SDK checks;
-- the web build.
-
-## Where to read next
-
-| File | What it is |
-|---|---|
-| **[`agents.md`](agents.md)** | **Start here.** Full context for anyone picking this up cold: goal, architecture, current state, open questions. |
-| [`PARTNERS.md`](PARTNERS.md) | Partner orders, fees, the SDK and API, and webhooks. |
-| [`NOTES.md`](NOTES.md) | Running log of gotchas, failures and findings. |
-| [`FRONTEND.md`](FRONTEND.md) | The web app's plan and phases. |
-| [`PROOF_OF_RESERVES.md`](PROOF_OF_RESERVES.md) | Reserves against omnichain supply: parked, and what it needs. |
-| [`REPORT.md`](REPORT.md) | Config-driven vs hardcoded, gas and latency, manual steps. |
-
-## Layout
-
-```
-solana/         Solana programs
-  programs/swap_request   mirror entrypoint: buy/sell, partner orders, fees
-  relay/                  swap_relay: the home-market relay
-  vendor/                 LayerZero OFT (with recovery + flow counters), the pool program
-src/            Solidity: OmniToken / adapter, SwapRequest (mirror), SwapRelay (EVM home), PoolQuoter
-infra/          deployment pipeline, local relayer, validation scenarios, partner API core
-apps/web/       landing, issuer dashboard, /api/v1
-packages/sdk/   partner SDK
-config/         deployment configs — the home chain is one of them
-```
 
 ## Honest limits
 
@@ -206,8 +145,7 @@ config/         deployment configs — the home chain is one of them
   own network is the next step.
 - **Token-2022: standard mints only.** Token-2022 mints work end to end (metadata extensions
   included; see `NOTES.md`). Mints with transfer fees, a permanent delegate or a transfer hook
-  (which includes today's PreStocks) are refused, because each needs a
-  product decision (who bears a fee, whether a delegate over the escrow is acceptable) before it
-  can be carried safely.
+  (which includes today's PreStocks) are refused, because each needs a product decision (who
+  bears a fee, whether a delegate over the escrow is acceptable) before it can be carried safely.
 - **The stock is a test token (tAAPL),** and USDC is our own omnichain token. A live deployment
   would pair the stock with a stablecoin that moves natively between chains.
