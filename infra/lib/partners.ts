@@ -6,7 +6,7 @@
  * EIP-712 digest `SwapRequest.hashPartnerOrder` does; scenario 10 checks the two agree.
  */
 import { parseAbi, type Address, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { authorizeEvmOrder } from "@crossstock/sdk";
 import { PublicKey, type Keypair } from "@solana/web3.js";
 
 import type { DeploymentConfig, Manifest } from "./types.js";
@@ -56,7 +56,8 @@ export interface PartnerOrder {
 }
 
 /**
- * A partner's EIP-712 authorisation of one order on one mirror chain's `SwapRequest`.
+ * A partner's EIP-712 authorisation of one order on one mirror chain's `SwapRequest`, via the
+ * SDK's `authorizeEvmOrder` so there is one implementation of the digest.
  * @returns The `PartnerAuth` tuple `buyVia` / `sellVia` take.
  */
 export async function signPartnerOrder(
@@ -65,24 +66,21 @@ export async function signPartnerOrder(
   swapRequest: Address,
   o: PartnerOrder
 ): Promise<{ partnerId: number; feeBps: number; nonce: bigint; deadline: bigint; signature: Hex }> {
-  const signature = await privateKeyToAccount(partnerKey).signTypedData({
-    domain: { name: "CrossStock SwapRequest", version: "1", chainId, verifyingContract: swapRequest },
-    types: {
-      PartnerOrder: [
-        { name: "user", type: "address" },
-        { name: "direction", type: "uint8" },
-        { name: "amountIn", type: "uint256" },
-        { name: "minAmountOut", type: "uint256" },
-        { name: "partnerId", type: "uint32" },
-        { name: "feeBps", type: "uint16" },
-        { name: "nonce", type: "uint256" },
-        { name: "deadline", type: "uint256" },
-      ],
-    },
-    primaryType: "PartnerOrder",
-    message: o,
-  });
-  return { partnerId: o.partnerId, feeBps: o.feeBps, nonce: o.nonce, deadline: o.deadline, signature };
+  const auth = await authorizeEvmOrder(
+    partnerKey,
+    { eip712: { name: "CrossStock SwapRequest", version: "1", chainId, verifyingContract: swapRequest } },
+    {
+      user: o.user,
+      side: o.direction === 0 ? "buy" : "sell",
+      amountIn: o.amountIn.toString(),
+      minAmountOut: o.minAmountOut.toString(),
+      partnerId: o.partnerId,
+      feeBps: o.feeBps,
+      nonce: o.nonce.toString(),
+      deadline: o.deadline.toString(),
+    }
+  );
+  return { partnerId: o.partnerId, feeBps: o.feeBps, nonce: o.nonce, deadline: o.deadline, signature: auth.signature as Hex };
 }
 
 /**
