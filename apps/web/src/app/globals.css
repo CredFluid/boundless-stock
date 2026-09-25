@@ -26,29 +26,9 @@
   --bad-soft: #fdecec;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b0e12;
-    --surface: #12161c;
-    --surface-2: #181d25;
-    --border: #252b35;
-    --text: #e8ebf0;
-    --muted: #97a1ae;
-    --accent: #34c7a4;
-    --accent-soft: #10302a;
-    --accent-contrast: #06140f;
-    --evm: #8b85ff;
-    --evm-soft: #1d1b3a;
-    --svm: #c084fc;
-    --svm-soft: #2a1a3a;
-    --ok: #4ade80;
-    --ok-soft: #10281a;
-    --warn: #fbbf24;
-    --warn-soft: #2d230d;
-    --bad: #f87171;
-    --bad-soft: #2d1414;
-  }
-}
+/* The whole app is light, whatever the system setting, so the landing page, console and docs
+   look the same on every screen. The dark palette below remains for any subtree that opts in. */
+:root { color-scheme: light; }
 
 /* A subtree that is always dark — the landing page — whatever the system setting. */
 [data-theme="dark"] {

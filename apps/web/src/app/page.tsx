@@ -122,7 +122,7 @@ function LandingHeader() {
 
 export default function Landing() {
   return (
-    <div data-theme="dark" className="min-h-dvh">
+    <div className="min-h-dvh bg-bg">
       <LandingHeader />
 
       {/* ================================================================ hero */}
