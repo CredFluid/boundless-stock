@@ -113,9 +113,9 @@ the order is refunded, cancelled or stranded.
 
 ## The data layer for tokenized assets
 
-Boundless Stock issues the asset and carries every move between chains, so it sees what no
-single-chain explorer can: the backing, the supply in transit, and where the asset sits and
-trades. That makes it **one source of truth for every tokenized asset, on every chain**. Every
+Every chain's copy of an asset is part of one Boundless Stock deployment, and every move between
+chains goes through it, so Boundless Stock sees what no single-chain explorer can: the backing,
+the supply in transit, and where the asset sits and trades. That makes it **one source of truth for every tokenized asset, on every chain**. Every
 figure except the share count is measured from chain state, not reported by the issuer.
 
 | Data | What it answers |
