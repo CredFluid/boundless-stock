@@ -36,7 +36,7 @@ import {
   type EvmMirror,
   type SolanaMirror,
   type WebhookEvent,
-} from "@crossstock/sdk";
+} from "@boundless-stock/sdk";
 
 import type { Harness, ScenarioResult } from "./harness.js";
 import { ApiError, buildOrder, contextFromConfig, describe, getOrder, listOrders, quote, resetApiContexts } from "../api/index.js";

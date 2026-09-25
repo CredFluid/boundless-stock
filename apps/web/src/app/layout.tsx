@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "CrossStock", template: "%s · CrossStock" },
+  title: { default: "Boundless Stock", template: "%s · Boundless Stock" },
   description: "Manage the admin, operations and liquidity of tokenized stocks and RWAs from one chain, and power use cases across every other.",
 };
 

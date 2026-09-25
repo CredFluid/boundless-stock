@@ -1,12 +1,12 @@
 # The terminal demo, recorded with VHS (https://github.com/charmbracelet/vhs):
 #
-#   vhs demo/crossstock.tape      ->  demo/crossstock.mp4
+#   vhs demo/boundless-stock.tape  ->  demo/boundless-stock.mp4
 #
 # Run it from the repo root, on a machine where the one-time build has already run (see
 # demo/DEMO.md). Deployment takes about two minutes; speed that part up in editing.
 
-Output demo/crossstock.mp4
-Output demo/crossstock.gif
+Output demo/boundless-stock.mp4
+Output demo/boundless-stock.gif
 
 Set Shell "bash"
 Set FontSize 18
@@ -30,32 +30,36 @@ Sleep 400ms
 Enter
 Wait
 Sleep 1s
-Type "npx crossstock"
+Type "npx boundless-stock"
+Enter
+Wait
+Sleep 3s
+Type "clear && npx boundless-stock chains"
 Enter
 Wait
 Sleep 3s
 
-# 2. Deploy: issue on Solana, mirror to every chain, open the home market
-Type "npx crossstock deploy"
+# 2. Deploy: issue on Solana, mirror to the chosen chains, open the home market
+Type "clear && npx boundless-stock deploy --mirrors base,arbitrum,solana-b"
 Sleep 400ms
 Enter
 Wait
 Sleep 3s
 
 # 3. Market data: price, supply on the home chain and every other chain, proof of reserves
-Type "clear && npx crossstock market"
+Type "clear && npx boundless-stock market"
 Enter
 Wait
 Sleep 8s
 
 # 4. A buy on a chain with no market, filled on Solana
-Type "clear && npx crossstock buy --on base-sepolia --spend 15000"
+Type "clear && npx boundless-stock buy --on base --spend 15000"
 Enter
 Wait
 Sleep 5s
 
 # 5. Supply has moved; the total and the backing have not
-Type "clear && npx crossstock market"
+Type "clear && npx boundless-stock market"
 Enter
 Wait
 Sleep 10s

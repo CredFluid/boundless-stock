@@ -4,7 +4,7 @@ export function Logo() {
   return (
     <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
       <span aria-hidden className="grid h-7 w-7 place-items-center rounded-lg bg-accent text-sm text-accent-contrast">C</span>
-      CrossStock
+      Boundless Stock
     </Link>
   );
 }

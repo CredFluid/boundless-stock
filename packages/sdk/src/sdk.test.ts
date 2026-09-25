@@ -13,8 +13,8 @@ import {
 } from "@solana/web3.js";
 
 import {
-  CrossStockApi,
-  CrossStockApiError,
+  BoundlessStockApi,
+  BoundlessStockApiError,
   PARTNER_ORDER_TYPES,
   authorizeEvmOrder,
   authorizeSolanaOrder,
@@ -160,10 +160,10 @@ test("the API client sends the key and surfaces error codes", async () => {
       ? new Response(JSON.stringify({ error: { code: "partner_required", message: "needs a partner" } }), { status: 400 })
       : new Response(JSON.stringify({ name: "d" }), { status: 200 });
   };
-  const api = new CrossStockApi({ baseUrl: "https://x.test/", apiKey: "k1", fetch: fake });
+  const api = new BoundlessStockApi({ baseUrl: "https://x.test/", apiKey: "k1", fetch: fake });
   assert.equal((await api.deployment("d")).name, "d");
   await assert.rejects(api.quote({ deployment: "d", chain: "c", side: "buy", amountIn: "1" }), (e: unknown) => {
-    assert.ok(e instanceof CrossStockApiError);
+    assert.ok(e instanceof BoundlessStockApiError);
     assert.equal(e.code, "partner_required");
     assert.equal(e.status, 400);
     return true;

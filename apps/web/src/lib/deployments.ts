@@ -1,7 +1,7 @@
 import "server-only";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Manifest, PeerRecord, SolanaChainRecord } from "@crossstock/shared";
+import type { Manifest, PeerRecord, SolanaChainRecord } from "@boundless-stock/shared";
 
 /**
  * Read model over the deployment records the infra writes to `deployments/`.

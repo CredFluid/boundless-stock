@@ -1,8 +1,8 @@
 {
-  "name": "@crossstock/cli",
+  "name": "@boundless-stock/cli",
   "version": "0.1.0",
   "private": true,
-  "description": "The crossstock command: deploy, market data (price, supply by chain, proof of reserves) and trading from any chain.",
+  "description": "The boundless-stock command: deploy to chosen mirror chains, market data (price, supply by chain, proof of reserves) and trading from any chain.",
   "type": "module",
-  "bin": { "crossstock": "bin/crossstock.mjs" }
+  "bin": { "boundless-stock": "bin/boundless-stock.mjs" }
 }

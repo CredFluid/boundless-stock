@@ -3,7 +3,7 @@
  * and tokens there, and each mirror's partner settings, read live.
  */
 import type { Address } from "viem";
-import type { DeploymentDescriptor, MirrorDescriptor, TokenRef } from "@crossstock/sdk";
+import type { DeploymentDescriptor, MirrorDescriptor, TokenRef } from "@boundless-stock/sdk";
 
 import { localDecimals } from "../lib/decimals.js";
 import { vmOf } from "../lib/config.js";

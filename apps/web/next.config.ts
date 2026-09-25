@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 const config: NextConfig = {
   // The shared package is TypeScript source, compiled by Next rather than prebuilt.
-  transpilePackages: ["@crossstock/shared", "@crossstock/sdk"],
+  transpilePackages: ["@boundless-stock/shared", "@boundless-stock/sdk"],
   // The monorepo root, so file tracing includes the deployment records the dashboard reads.
   outputFileTracingRoot: resolve(__dirname, "../.."),
   // The read API reuses the infra's own chain code. Its Solana and LayerZero SDKs are Node

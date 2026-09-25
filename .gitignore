@@ -15,3 +15,7 @@ deployments/*.local.json
 
 # Local caches written by the infra and the web app (trade history).
 .crossstock/
+
+# The boundless-stock command: logs, generated configs, the current deployment.
+.boundless/
+deployments/boundless-*

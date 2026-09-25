@@ -1,17 +1,18 @@
 #!/usr/bin/env tsx
 /**
- * `crossstock` — the command line an issuer or developer uses.
+ * `boundless-stock` — the command line an issuer or developer uses.
  *
- *   crossstock deploy --config <file>                 bring a deployment up, step by step
- *   crossstock market --config <file>                 price, supply by chain, proof of reserves
- *   crossstock buy    --config <file> --on <chain> --spend <USDC>
- *                                                     buy on another chain, filled on the home market
+ *   boundless-stock chains                               the chains a stock can be mirrored to
+ *   boundless-stock deploy --mirrors base,solana-b       issue on Solana, mirror to the chosen chains
+ *   boundless-stock market                               price, supply by chain, proof of reserves
+ *   boundless-stock buy --on base --spend 15000          buy on another chain, filled on Solana
  *
  * It drives the same pipeline and readers as the npm scripts, and prints only what matters. The
- * full output of each deployment step is kept in `.crossstock/logs/`.
+ * full output of each deployment step is kept in `.boundless/logs/`, and the last deployment is
+ * remembered, so `market` and `buy` need no flags after `deploy`.
  */
 import { spawn } from "node:child_process";
-import { createWriteStream, mkdirSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { formatUnits, parseUnits, type Address } from "viem";
 
@@ -23,7 +24,7 @@ import { readHomeMarket } from "./lib/market.js";
 import { forgeArtifact } from "./lib/artifacts.js";
 import { repoRoot } from "./lib/root.js";
 import { log } from "./lib/logger.js";
-import type { DeploymentConfig } from "./lib/types.js";
+import type { ChainConfig, DeploymentConfig } from "./lib/types.js";
 
 // ------------------------------------------------------------------------------------ output
 
@@ -102,7 +103,55 @@ function arg(name: string, fallback?: string): string | undefined {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-const DEFAULT_CONFIG = "config/localnet-solana-home-svm-mirror.json";
+/** Every chain a stock can be mirrored to, with Solana as home: the full local set. */
+const CATALOG = "config/localnet-solana-home-svm-mirror.json";
+const STATE = () => resolve(repoRoot(), ".boundless");
+const CURRENT = () => resolve(STATE(), "current");
+
+/** `--config`, else the last deployment, else the full catalog. */
+function currentConfig(): string {
+  const explicit = arg("config");
+  if (explicit) return explicit;
+  if (existsSync(CURRENT())) return readFileSync(CURRENT(), "utf8").trim();
+  return CATALOG;
+}
+
+/** A short name for a chain: `base` for base-sepolia, `solana-b` for the second Solana chain. */
+function alias(ch: ChainConfig): string {
+  if (vmOf(ch) === "svm") return "solana-" + ch.key.replace(/^svm-/, "");
+  return ch.key.replace(/-(sepolia|testnet|devnet|local)$/, "");
+}
+
+function findChain(chains: ChainConfig[], want: string): ChainConfig {
+  const w = want.trim().toLowerCase();
+  const hit = chains.find((ch) => ch.key === w || alias(ch) === w);
+  if (!hit) throw new Error(`unknown chain "${want}". Available: ${chains.map(alias).join(", ")}`);
+  return hit;
+}
+
+/**
+ * The deployment config for `--mirrors`: the catalog with only the chosen mirror chains, written
+ * under `.boundless/configs/` and named after them, so each selection keeps its own records.
+ */
+function configFor(base: string, mirrors: string | undefined): string {
+  if (!mirrors) return base;
+  const cfg = loadConfigRaw(base);
+  const chosen = mirrors.split(",").filter(Boolean).map((m) => findChain(cfg.mirrorChains, m));
+  const keys = [...new Set(chosen.map((ch) => ch.key))];
+  if (keys.length === 0) throw new Error("--mirrors needs at least one chain");
+  cfg.mirrorChains = cfg.mirrorChains.filter((ch: ChainConfig) => keys.includes(ch.key));
+  cfg.name = `boundless-${String(cfg.token.symbol).toLowerCase()}--${cfg.mirrorChains.map(alias).join("-")}`;
+  const dir = resolve(STATE(), "configs");
+  mkdirSync(dir, { recursive: true });
+  const path = resolve(dir, `${cfg.name}.json`);
+  writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
+  return path.replace(repoRoot() + "/", "");
+}
+
+/** The config file as written, before any defaults are applied, so it can be re-written. */
+function loadConfigRaw(path: string) {
+  return JSON.parse(readFileSync(resolve(repoRoot(), path), "utf8"));
+}
 
 // ------------------------------------------------------------------------------------ deploy
 
@@ -113,7 +162,10 @@ const DEFAULT_CONFIG = "config/localnet-solana-home-svm-mirror.json";
 const MILESTONES: [RegExp, (cfg: DeploymentConfig) => string][] = [
   [/Solana programs deployed/, () => "Programs deployed on Solana: omnichain token, orders, market relay"],
   [/Module 0 — LayerZero endpoints/, () => "Cross-chain messaging endpoints ready"],
-  [/Module 2 — mirror deployment/, (cfg) => `Mirror tokens created on ${cfg.mirrorChains.filter((m) => vmOf(m) === "evm").length} EVM chains`],
+  [/Module 2 — mirror deployment/, (cfg) => {
+    const n = cfg.mirrorChains.filter((m) => vmOf(m) === "evm").length;
+    return `Mirror tokens created on ${n} EVM chain${n === 1 ? "" : "s"}`;
+  }],
   [/Solana mirror chain ready/, () => "Mirror tokens created on a second Solana chain"],
   [/pool \+ seed liquidity/, (cfg) => `${cfg.token.symbol} and ${cfg.quoteAsset.symbol} issued on Solana, home market opened`],
   [/Module 3 — peer wiring/, () => "Every mirror linked to the home chain"],
@@ -142,9 +194,9 @@ function run(script: string, args: string[], logFile: string, onLine?: (line: st
 }
 
 async function deploy(): Promise<void> {
-  const config = arg("config", DEFAULT_CONFIG)!;
+  const config = configFor(arg("config") ?? CATALOG, arg("mirrors"));
   const cfg = loadConfig(config);
-  const logs = resolve(repoRoot(), ".crossstock/logs");
+  const logs = resolve(STATE(), "logs");
   mkdirSync(logs, { recursive: true });
   const logFile = resolve(logs, `deploy-${cfg.name}.log`);
   const svm = allChains(cfg).filter((ch) => vmOf(ch) === "svm").length;
@@ -176,14 +228,30 @@ async function deploy(): Promise<void> {
     await run("solana:deploy", ["--config", config], logFile, watch(u));
   });
   flush();
-  await task(`Issuing ${cfg.token.symbol} on Solana and mirroring it to every chain`, async (u) => {
+  const targets = cfg.mirrorChains.map((m) => alias(m)).join(", ");
+  await task(`Issuing ${cfg.token.symbol} on Solana and mirroring it to ${targets}`, async (u) => {
     await run("deploy", ["--config", config, "--fresh"], logFile, watch(u));
   });
   flush();
 
   out();
   out(`  ${bold(green("Deployed"))} in ${((Date.now() - t0) / 1000).toFixed(0)}s  ${dim("· full log: " + logFile.replace(repoRoot() + "/", ""))}`);
-  out(`  ${dim("next:")} crossstock market --config ${config}`);
+  writeFileSync(CURRENT(), config + "\n");
+  out(`  ${dim("next:")} boundless-stock market`);
+  out();
+}
+
+// ------------------------------------------------------------------------------------ chains
+
+async function chains(): Promise<void> {
+  const cfg = loadConfig(arg("config") ?? CATALOG);
+  header("Chains", "Solana is home; any of these can hold a mirror");
+  out(`    ${bold("solana".padEnd(14))}${cfg.homeChain.name.padEnd(26)}${dim("home: the stock and its market live here")}`);
+  for (const ch of cfg.mirrorChains) {
+    out(`    ${alias(ch).padEnd(14)}${ch.name.padEnd(26)}${dim(vmOf(ch) === "svm" ? "Solana chain" : "EVM chain")}`);
+  }
+  out();
+  out(`  ${dim("deploy to some of them:")} boundless-stock deploy --mirrors ${cfg.mirrorChains.slice(0, 2).map(alias).join(",")}`);
   out();
 }
 
@@ -191,10 +259,10 @@ async function deploy(): Promise<void> {
 
 async function market(): Promise<void> {
   silencePipelineLog();
-  const config = arg("config", DEFAULT_CONFIG)!;
+  const config = currentConfig();
   const cfg = loadConfig(config);
   const manifest = loadManifest(cfg.name);
-  if (!manifest) throw new Error(`No deployment for "${cfg.name}" yet: run crossstock deploy --config ${config}`);
+  if (!manifest) throw new Error(`No deployment for "${cfg.name}" yet: run boundless-stock deploy`);
   const evm = buildChains(allChains(cfg).filter((ch) => vmOf(ch) === "evm"));
 
   const [supply, home] = await Promise.all([measureSupply(cfg, manifest, evm), readHomeMarket(cfg, manifest, evm)]);
@@ -251,13 +319,12 @@ async function market(): Promise<void> {
 async function buy(): Promise<void> {
   silencePipelineLog();
   const { Harness, Direction, Status } = await import("./validation/harness.js");
-  const config = arg("config", DEFAULT_CONFIG)!;
+  const config = currentConfig();
   const spendWhole = arg("spend", "15000")!;
   const h = await Harness.create({ config });
-  const on = arg("on", h.mirrorKeys[0])!;
-  if (!h.mirrorKeys.includes(on)) {
-    throw new Error(`--on must be one of the EVM mirror chains: ${h.mirrorKeys.join(", ")}`);
-  }
+  const evmMirrors = h.config.mirrorChains.filter((ch) => vmOf(ch) === "evm");
+  if (evmMirrors.length === 0) throw new Error("this deployment has no EVM chain to buy on");
+  const on = findChain(evmMirrors, arg("on") ?? alias(evmMirrors[0])).key;
   const where = h.name(on);
   const q = h.quoteSymbol;
   const t = h.tokenSymbol;
@@ -310,22 +377,25 @@ async function buy(): Promise<void> {
   } else {
     out(`    ${yellow("!")} order ${Status[rec.status]}: the ${q} was returned in full`);
   }
-  out(`    ${dim("next:")} crossstock market --config ${config}`);
+  out(`    ${dim("next:")} boundless-stock market`);
   out();
 }
 
 // ------------------------------------------------------------------------------------ main
 
-const commands: Record<string, () => Promise<void>> = { deploy, market, buy };
+const commands: Record<string, () => Promise<void>> = { chains, deploy, market, buy };
 const cmd = process.argv[2];
 
 if (!cmd || !commands[cmd]) {
   out();
-  out(`  ${bold("crossstock")}  ${dim("one market for tokenized stocks, on Solana, reachable from every chain")}`);
+  out(`  ${bold("boundless-stock")}  ${dim("one market for tokenized stocks, on Solana, reachable from every chain")}`);
   out();
-  out(`    crossstock deploy --config <file>                         bring a deployment up`);
-  out(`    crossstock market --config <file>                         price, supply by chain, proof of reserves`);
-  out(`    crossstock buy    --config <file> --on <chain> --spend <n>  buy on another chain`);
+  out(`    boundless-stock chains                             the chains a stock can be mirrored to`);
+  out(`    boundless-stock deploy --mirrors <chain,chain,…>   issue on Solana, mirror to those chains`);
+  out(`    boundless-stock market                             price, supply by chain, proof of reserves`);
+  out(`    boundless-stock buy --on <chain> --spend <n>       buy on another chain, filled on Solana`);
+  out();
+  out(`  ${dim("every command also takes --config <file>; market and buy default to the last deployment")}`);
   out();
   process.exit(cmd ? 1 : 0);
 }

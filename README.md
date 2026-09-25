@@ -1,4 +1,4 @@
-# CrossStock
+# Boundless Stock
 
 **One market for every tokenized stock, on Solana, reachable from every chain. Liquidity and
 operations are managed from one chain and one place.**
@@ -36,7 +36,7 @@ The books can be unified. **The market has not been.**
 
 ## Our answer: Solana is the home market, every other chain a doorway
 
-CrossStock makes Solana the **hub**. The stock is issued on Solana and lives there, and its
+Boundless Stock makes Solana the **hub**. The stock is issued on Solana and lives there, and its
 market lives there too: one pool of liquidity and one price, holding the backed supply in one
 place instead of splitting it.
 
@@ -109,7 +109,7 @@ the order is refunded, cancelled or stranded.
 Issuers bring the stock. Developers bring the users. Any wallet, exchange, neobank or trading
 app on another chain can offer buy and sell for a tokenized stock without running a pool, a
 bridge or its own liquidity, and any app can build on what only the home market can see. The
-SDK (`@crossstock/sdk`) and API (`/api/v1`) offer:
+SDK (`@boundless-stock/sdk`) and API (`/api/v1`) offer:
 
 **Trading** (for developers who bring users; they handle KYC, the market is ours):
 
@@ -141,15 +141,17 @@ SDK (`@crossstock/sdk`) and API (`/api/v1`) offer:
 npm install && forge build
 npm run solana:build && npm run solana:build:relay        # the Solana programs (see solana/README.md for the rest)
 
-npx crossstock deploy                                      # issue on Solana, mirror to every chain, open the home market
-npx crossstock market                                      # price, supply on every chain, proof of reserves
-npx crossstock buy --on base-sepolia --spend 15000         # buy on another chain, filled on Solana
+npx boundless-stock chains                                 # the chains a stock can be mirrored to
+npx boundless-stock deploy --mirrors base,arbitrum,solana-b   # issue on Solana, mirror to those chains, open the home market
+npx boundless-stock market                                 # price, supply on every chain, proof of reserves
+npx boundless-stock buy --on base --spend 15000            # buy on another chain, filled on Solana
 npm run web:dev                                            # issuer dashboard: http://localhost:3000/app
 ```
 
-Every command takes `--config <file>`; the default is a Solana home with three EVM chains and a
-second Solana chain as spokes. The step-by-step scripts behind it (`solana:up`, `chains:up`,
-`solana:deploy`, `deploy`, `validate`, `supply`) are still there to run one at a time.
+Leave out `--mirrors` to mirror to every available chain. `market` and `buy` read the last
+deployment; every command also takes `--config <file>`. The step-by-step scripts behind it
+(`solana:up`, `chains:up`, `solana:deploy`, `deploy`, `validate`, `supply`) are still there to run
+one at a time.
 
 Other setups are a different config, with no code changes:
 
@@ -161,4 +163,4 @@ Other setups are a different config, with no code changes:
 | `localnet-solana-home-adapter.json` | Solana, **the issuer's existing SPL mint** | three EVM chains |
 
 Onboard partners and set fees on a running deployment with `npm run partners -- --config …`. The
-partner API (`/api/v1`) and the SDK (`@crossstock/sdk`) are described in [`PARTNERS.md`](PARTNERS.md).
+partner API (`/api/v1`) and the SDK (`@boundless-stock/sdk`) are described in [`PARTNERS.md`](PARTNERS.md).

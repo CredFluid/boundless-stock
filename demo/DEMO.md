@@ -7,11 +7,11 @@ About three minutes: the problem in one breath, then the product in a terminal.
 | # | On screen | Command | What it shows |
 |---|---|---|---|
 | 0 | Title card | — | The problem (voice-over below) |
-| 1 | Terminal | `npm install`, then `npx crossstock` | Installing, and the three commands |
-| 2 | Terminal | `npx crossstock deploy` | The stock issued on Solana, mirrors created on every other chain, the home market opened |
-| 3 | Terminal | `npx crossstock market` | Price, total supply, how much is on Solana and on each other chain, proof of reserves |
-| 4 | Terminal | `npx crossstock buy --on base-sepolia --spend 15000` | A buy on a chain with no market, filled on Solana |
-| 5 | Terminal | `npx crossstock market` | Supply has moved between chains; the total and the backing have not |
+| 1 | Terminal | `npm install`, `npx boundless-stock`, `npx boundless-stock chains` | Installing, the commands, and the chains a stock can be mirrored to |
+| 2 | Terminal | `npx boundless-stock deploy --mirrors base,arbitrum,solana-b` | The stock issued on Solana, mirrors created on the chosen chains, the home market opened |
+| 3 | Terminal | `npx boundless-stock market` | Price, total supply, how much is on Solana and on each other chain, proof of reserves |
+| 4 | Terminal | `npx boundless-stock buy --on base --spend 15000` | A buy on a chain with no market, filled on Solana |
+| 5 | Terminal | `npx boundless-stock market` | Supply has moved between chains; the total and the backing have not |
 | 6 | Browser (optional) | `npm run web:dev`, then `/app` | The issuer dashboard |
 
 ## Voice-over
@@ -21,10 +21,11 @@ shares behind it: a million shares, a million tokens, and not one more. As token
 spread across chains, every chain carves a thin market out of that same fixed supply. Different
 prices, split liquidity, operations everywhere. We built one market instead."
 
-**1 · Install.** "CrossStock is one install and one command."
+**1 · Install.** "Boundless Stock is one install and one command. Solana is home; these are the
+chains a stock can be mirrored to."
 
-**2 · Deploy.** "One command deploys a stock. It's issued on Solana, its home. Every other chain
-gets a mirror: a real token on that chain, minted only when stock arrives from Solana. And the
+**2 · Deploy.** "One command deploys a stock, to whichever chains the issuer picks. It's issued on
+Solana, its home. Each chosen chain gets a mirror: a real token on that chain, minted only when stock arrives from Solana. And the
 home market opens on Solana, with one pool of liquidity for every chain."
 
 **3 · Market data.** "From one place, the issuer sees everything. The price, from the home market.
@@ -42,7 +43,7 @@ checked, not assumed. One market, on Solana, reachable from every chain."
 
 ## Recording it
 
-The terminal part is scripted in [`crossstock.tape`](crossstock.tape) for
+The terminal part is scripted in [`boundless-stock.tape`](boundless-stock.tape) for
 [VHS](https://github.com/charmbracelet/vhs), so it can be re-recorded identically:
 
 ```bash
@@ -51,11 +52,12 @@ npm install && forge build
 npm run solana:build && npm run solana:build:relay
 
 # record
-vhs demo/crossstock.tape        # -> demo/crossstock.mp4 and .gif
+vhs demo/boundless-stock.tape   # -> demo/boundless-stock.mp4 and .gif
 ```
 
 - Deployment takes about two minutes on a laptop: speed that section up in editing.
 - The tape expects the Solana CLI on `PATH`; edit the first hidden line if yours lives elsewhere.
 - Without VHS, run the same commands in a large-font terminal and screen-record it.
-- `--config` defaults to `config/localnet-solana-home-svm-mirror.json`: Solana home, three EVM
-  chains and a second Solana chain. Proof of reserves reads `token.reserves` from that file.
+- `--mirrors` picks from the chains `boundless-stock chains` lists; leave it out for all of them.
+  `market` and `buy` read the last deployment. Proof of reserves reads `token.reserves` from
+  `config/localnet-solana-home-svm-mirror.json`.

@@ -1,7 +1,7 @@
 import "server-only";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Manifest } from "@crossstock/shared";
+import type { Manifest } from "@boundless-stock/shared";
 import { configForDeployment } from "@infra/lib/deployment-config";
 import { loadManifest } from "@infra/lib/manifest";
 import { allChains, vmOf } from "@infra/lib/config";

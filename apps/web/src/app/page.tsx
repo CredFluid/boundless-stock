@@ -93,7 +93,7 @@ function LandingHeader() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5">
         <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight">
           <span aria-hidden className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-sm font-bold text-accent-contrast">C</span>
-          CrossStock
+          Boundless Stock
         </Link>
         <nav className="hidden items-center gap-7 text-sm text-muted md:flex">
           <a href="#architecture" className="hover:text-fg">Architecture</a>
@@ -283,7 +283,7 @@ export default function Landing() {
             </ul>
           </div></Reveal>
           <Reveal delay={250}><div className="h-full rounded-2xl border border-accent/40 bg-gradient-to-b from-accent-soft to-surface p-8">
-            <div className="text-sm font-medium text-accent">With CrossStock</div>
+            <div className="text-sm font-medium text-accent">With Boundless Stock</div>
             <ul className="mt-5 space-y-4">
               <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />One market, on the home chain. Every other chain is a mirror with no market of its own.</li>
               <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />One transaction for the user; the order, the funds and the result travel together.</li>
@@ -300,7 +300,7 @@ export default function Landing() {
             <Eyebrow>Architecture</Eyebrow>
             <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">Four layers. One market.</h2>
             <p className="mt-5 max-w-2xl text-lg text-muted">
-              CrossStock sits between the applications users touch and the messaging layer that moves value — so the chain a
+              Boundless Stock sits between the applications users touch and the messaging layer that moves value — so the chain a
               user is on stops mattering.
             </p>
           </Reveal>
@@ -309,8 +309,8 @@ export default function Landing() {
             {/* stack */}
             <div className="space-y-3">
               {[
-                { tag: "Applications", title: "Wallets · brokers · exchanges · the CrossStock app", tone: "border-line", items: ["Buy / sell from any chain", "Issuer console"] },
-                { tag: "CrossStock", title: "Omnichain asset + request/relay protocol", tone: "border-accent/60 bg-accent-soft/40", items: ["SwapRequest on every mirror", "Relay at the home market", "OFT supply accounting"] },
+                { tag: "Applications", title: "Wallets · brokers · exchanges · the Boundless Stock app", tone: "border-line", items: ["Buy / sell from any chain", "Issuer console"] },
+                { tag: "Boundless Stock", title: "Omnichain asset + request/relay protocol", tone: "border-accent/60 bg-accent-soft/40", items: ["SwapRequest on every mirror", "Relay at the home market", "OFT supply accounting"] },
                 { tag: "LayerZero V2", title: "Verified messaging between chains", tone: "border-line", items: ["DVN verification", "Executor delivery", "Compose messages"] },
                 { tag: "Chains", title: "EVM and SVM networks", tone: "border-line", items: ["Uniswap V3 on EVM homes", "Orca Whirlpool on Solana homes"] },
               ].map((l, i) => (
@@ -409,7 +409,7 @@ export default function Landing() {
               <h2 className="mt-4 text-4xl font-semibold tracking-tight md:text-5xl">Funds are never lost. Every failure has a path home.</h2>
             </Reveal>
             <Reveal delay={150}><p className="text-lg text-muted">
-              Cross-chain systems fail in the gaps between chains. CrossStock names each of those gaps and gives it a recovery
+              Cross-chain systems fail in the gaps between chains. Boundless Stock names each of those gaps and gives it a recovery
               path — then tests every one end to end, on EVM and on Solana.
             </p></Reveal>
           </div>
@@ -476,7 +476,7 @@ export default function Landing() {
           <div>
             <div className="flex items-center gap-2.5 font-semibold">
               <span aria-hidden className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-sm font-bold text-accent-contrast">C</span>
-              CrossStock
+              Boundless Stock
             </div>
             <p className="mt-4 max-w-xs text-sm text-muted">Omnichain infrastructure for tokenized stocks and real-world assets. Built on LayerZero V2.</p>
           </div>
@@ -502,7 +502,7 @@ export default function Landing() {
         </div>
         <div className="border-t border-line">
           <div className="mx-auto flex max-w-7xl flex-col gap-2 px-5 py-6 text-xs text-muted sm:flex-row sm:justify-between">
-            <span>© {new Date().getFullYear()} CrossStock</span>
+            <span>© {new Date().getFullYear()} Boundless Stock</span>
             <span>Figures measured by the open validation suite on local multi-chain sets.</span>
           </div>
         </div>
