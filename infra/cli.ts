@@ -205,6 +205,9 @@ async function deploy(): Promise<void> {
   header(`Deploying ${cfg.token.symbol}`, `${cfg.token.name} · home: Solana · ${cfg.mirrorChains.length} other chains`);
   const t0 = Date.now();
 
+  // A deployment starts from fresh local chains: stop whatever an earlier run left up.
+  await run("solana:down", [], logFile).catch(() => {});
+  await run("chains:down", [], logFile).catch(() => {});
   await task(`Starting ${svm} local Solana validator${svm > 1 ? "s" : ""}`, () => run("solana:up", ["--config", config], logFile));
   await task(`Starting ${evm} local EVM chain${evm > 1 ? "s" : ""}`, () => run("chains:up", [], logFile));
 
