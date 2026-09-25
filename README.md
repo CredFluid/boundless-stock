@@ -1,112 +1,163 @@
 # CrossStock
 
-Config-driven deployment infrastructure for launching an omnichain token across a **home
-chain** and any number of **mirror chains**, using LayerZero V2 — plus a validation suite that
-proves the resulting deployment actually works.
+**Solana as the home market for tokenized stocks, tradable from every chain.**
 
-## The claim being proven
+A tokenized stock is issued on Solana, and its one market is an Orca Whirlpool there. Wallets and
+apps on other chains (Base, Arbitrum, Optimism, other Solana chains) buy and sell it **against
+that market**:
 
-> A token deployed and liquid on one chain can be traded from any other chain where only a
-> mirror instance exists, with **no market required on that other chain**.
+- no pool of their own;
+- no wrapped IOU from a bridge operator;
+- no split liquidity.
 
-A user holds USDC on a chain that has no pool, no market maker and no price for the asset. They
-press buy once. The stock arrives in their wallet **on that same chain**, priced by the home
-chain's Uniswap V3 pool. Selling works the same way in reverse.
+The user presses buy once, on the chain they are on. The order crosses to Solana, fills in the
+Orca pool at the real market price, and the stock arrives in their wallet back on their chain.
 
-**Status: proven.** 15,000 USDC spent on Arbitrum Sepolia — a chain with no market — returned
-**99.605634 tAAPL to the user's wallet on Arbitrum Sepolia**, at 0.3944% total cost, which
-decomposes exactly into the 0.30% pool fee plus 0.0944% price impact. One transaction, one fee,
-84 ms. Reproduced on a second mirror chain and in the sell direction.
-
-## Quick start
-
-```bash
-npm install
-forge build
-
-npm test                                             # 40 Foundry tests (fuzz + invariants)
-
-npm run chains:up                                    # local chain set
-npm run deploy   -- --config config/localnet.json    # full pipeline -> manifest
-npm run validate -- --config config/localnet.json    # 6/6 scenarios
-npm run supply   -- --config config/localnet.json    # where every token lives
-npm run chains:down
+```
+ Base / Arbitrum / Optimism / other Solana chains                   Solana — the home market
+ ┌──────────────────────────────────┐   order + funds      ┌──────────────────────────────────┐
+ │ user presses "buy"                │ ── LayerZero ──────► │ swap_relay swaps in the          │
+ │ (SwapRequest, or swap_request     │                      │ Orca Whirlpool: the one price,   │
+ │  on another Solana chain)         │ ◄───── LayerZero ─── │ the one pool of liquidity        │
+ │ stock arrives in the same wallet  │   stock + outcome    └──────────────────────────────────┘
+ └──────────────────────────────────┘
 ```
 
-Targeting live testnets is a config swap plus a funded key — no code changes:
+**How the tokens move.** Every asset is a LayerZero omnichain token:
+
+- a burn (or, for an issuer's existing token, a lock) on the chain it leaves;
+- a mint on the chain it arrives at;
+- a real swap in the Orca pool in between.
+
+Supply summed across chains plus what is in flight always equals what was issued. The validation
+suite checks this across both VMs.
+
+**What makes it a platform, not a bridge:**
+
+| | |
+|---|---|
+| **Issuers keep their token** | Bring an existing SPL mint (or ERC-20) and it is locked in a vault, never replaced. The issuer keeps the mint authority. Or launch a new one. |
+| **Partners do KYC, on chain** | With `partnerRequired`, only orders approved by a registered partner (a wallet, exchange or app) get in. On Solana, the partner co-signs the transaction. See [`PARTNERS.md`](PARTNERS.md). |
+| **Fees only on a fill** | Partner and platform fees are held in escrow, and returned in full if the order is refunded, cancelled or stranded. |
+| **Exact quotes** | The API asks the market itself (Orca's quote of the live Whirlpool), so a fill matches its quote to the base unit. |
+| **Nothing is ever lost** | Refunds, cancellation of stuck messages, and recovery of stranded returns, on both VMs. |
+| **An issuer dashboard** | Supply per chain with the conservation check, the live market, trade history and operations queues. |
+
+The same infrastructure also runs with an EVM chain as home (a Uniswap V3 pool on Base) and
+Solana as a mirror. The home chain is a line in the config.
+
+## Proven, on local chains
+
+These figures come from the full pipeline on local validators, with the real LayerZero V2
+programs and contracts and our local relayer standing in for LayerZero's network:
+
+- **A Solana home with EVM mirrors and a second Solana chain as a mirror.**
+  - **15,000 USDC spent on Base returned 99.32568 tAAPL** in the same wallet on Base, priced by
+    the Orca Whirlpool on Solana (151.02 against a spot of 150.42), in 2.9 s. Base has no market.
+  - The same run also proves:
+    - an unfillable order refunded in full;
+    - a sell;
+    - a stranded return recovered by retry;
+    - a stuck order cancelled and restored.
+  - **10,000 USDC on a second Solana chain bought 66.137881 tAAPL** against the same pool. Its
+    orders and returns never touch an EVM chain.
+- **Partner orders on a Solana home.**
+  - The gate refuses unapproved orders.
+  - EIP-712 (EVM) and co-signed (Solana) approvals are enforced.
+  - Fees are kept only on fills.
+  - Partner-SDK orders fill **exactly** at their Orca-priced quote.
+- **Supply conserved across VMs** after every scenario, with Solana's 9-decimal amounts rescaled
+  to compare with EVM's 18.
+- **Tests:**
+  - 85 Foundry tests, fuzz and invariants included;
+  - 41 + 10 Solana program host tests;
+  - 5 SDK tests;
+  - 11 end-to-end validation scenarios.
+
+## Quick start (Solana home)
 
 ```bash
-cp .env.example .env    # DEPLOYER_PRIVATE_KEY + RPC URLs
-npm run deploy -- --config config/testnet.json
+npm install && forge build
+npm run solana:build && npm run solana:build:relay        # swap_request, swap_relay (see solana/README.md for OFT, Orca)
+
+C=config/localnet-solana-home-svm-mirror.json              # Solana home; Base, Arbitrum, Optimism + a second Solana chain as mirrors
+npm run solana:up -- --config $C && npm run chains:up      # local Solana validators + EVM chains
+npm run solana:deploy -- --config $C                       # programs onto the validators
+npm run deploy   -- --config $C                            # full pipeline -> manifest
+npm run validate -- --config $C                            # scenarios 8, 9, 10, 11
+npm run supply   -- --config $C                            # where every token lives, across VMs
+npm run web:dev                                            # issuer dashboard: http://localhost:3000/app
 ```
 
-Already have a tokenized stock deployed? Point at it and the infra adapts rather than replaces
-it — holders keep their balances, the address never changes:
+Other topologies are a different config, with no code changes:
 
-```bash
-EXISTING_STOCK_ADDRESS=0x... npm run deploy -- --config config/localnet-adapter.json
-```
+| Config | Home | Mirrors |
+|---|---|---|
+| `localnet-solana-home.json` | Solana (Orca) | Base, Arbitrum, Optimism |
+| `localnet-solana-home-svm-mirror.json` | Solana (Orca) | the above plus a second Solana chain |
+| `localnet-solana-home-adapter.json` | Solana, **the issuer's existing SPL mint** | Base, Arbitrum, Optimism |
+| `localnet-solana.json` | Base (Uniswap V3) | Arbitrum, Optimism, Solana |
+| `localnet.json` | Base (Uniswap V3) | Arbitrum, Optimism |
 
-Adding a chain to an already-launched token is one extra entry in `mirrorChains` and a re-run:
-
-```bash
-npm run deploy -- --config config/localnet-add-chain.json
-```
+Onboard partners and set fees on a running deployment with `npm run partners -- --config …`. The
+partner API (`/api/v1`) and the SDK (`@crossstock/sdk`) are described in [`PARTNERS.md`](PARTNERS.md).
 
 ## Web app
 
-The repo is an npm-workspaces monorepo: the web app lives in `apps/web` (landing page, issuer
-dashboard, trading app) and shared types in `packages/shared`. The dashboard reads the deployment
-records in `deployments/`, and reads live state from each deployment's chains: supply on every
-chain, the home market, relay health, trade history and the operations queues. It does this through
-a read API (`/api/...`) that reuses the infra's own code.
+The repo is an npm-workspaces monorepo:
 
-```bash
-npm install
-npm run web:dev    # http://localhost:3000
+- **`apps/web`:** the landing page, the issuer dashboard, the trading app and the partner API.
+- **`packages/sdk`:** the partner SDK.
+- **`packages/shared`:** shared types.
 
-# With local chains running and a deployment on them, the dashboard goes live:
-npm run chains:up && npm run deploy -- --config config/localnet.json
-npm run validate -- --config config/localnet.json   # places real trades to look at
-npm run history -- --config config/localnet.json    # the same trade history, from the CLI
-```
+The dashboard reads the deployment records in `deployments/`, and reads each deployment's chains
+live, through the same infra code the CLI uses:
 
-CI (`.github/workflows/ci.yml`) runs the Foundry tests, the Solana programs' unit tests, the
-TypeScript typecheck and the web build on every pull request and every push to main. The local end-to-end
-suite runs nightly and on demand.
+- supply on every chain;
+- the home market;
+- relay health;
+- trade history;
+- operations queues.
 
-See [`FRONTEND.md`](FRONTEND.md) for the plan and phases.
+CI (`.github/workflows/ci.yml`) runs:
+
+- the Foundry tests;
+- the Solana programs' unit tests;
+- the TypeScript and SDK checks;
+- the web build.
 
 ## Where to read next
 
 | File | What it is |
 |---|---|
 | **[`agents.md`](agents.md)** | **Start here.** Full context for anyone picking this up cold: goal, architecture, current state, open questions. |
-| [`NOTES.md`](NOTES.md) | Running log of gotchas, failures and findings — including several that cost real debugging time. |
-| [`PARTNERS.md`](PARTNERS.md) | Partner orders: how wallets and apps route users' trades (EIP-712 on EVM, co-signing on Solana), fees, and configuring them. |
-| [`REPORT.md`](REPORT.md) | Final report: config-driven vs hardcoded, gas and latency, what still needs manual intervention. |
-
-Testing is two non-overlapping layers: Foundry (`test/`) proves the **contracts** are correct
-under adversarial fuzzing; the TypeScript suite (`infra/validation/`) proves the **deployment**
-works across separate chains with a real relayer. See `agents.md` §10.
+| [`PARTNERS.md`](PARTNERS.md) | Partner orders, fees, the SDK and API, and webhooks. |
+| [`NOTES.md`](NOTES.md) | Running log of gotchas, failures and findings. |
+| [`FRONTEND.md`](FRONTEND.md) | The web app's plan and phases. |
+| [`PROOF_OF_RESERVES.md`](PROOF_OF_RESERVES.md) | Reserves against omnichain supply: parked, and what it needs. |
+| [`REPORT.md`](REPORT.md) | Config-driven vs hardcoded, gas and latency, manual steps. |
 
 ## Layout
 
 ```
-src/            Solidity
-  core/         OmniToken (OFT base), TokenizedStock, USDC
-  relay/        SwapRelay (home), SwapRequest (mirror: buy/sell), wire format
-test/
-  fuzz/         stateless property tests (precision, codecs)
-  invariant/    stateful fuzzing (supply conservation, relay accounting)
-  helpers/      multi-endpoint fixtures, mock venue
-  mocks/        local-only: EndpointV2 wrapper, message library, WETH9
-infra/          TypeScript deployment infrastructure
-  modules/      the deployment modules, 0-6, run in order
-  lib/          config, chain clients, artifacts, manifest, Uniswap math
-  validation/   the five validation scenarios
-config/         deployment configs
-deployments/    generated manifests
+solana/         Solana programs
+  programs/swap_request   mirror entrypoint: buy/sell, partner orders, fees
+  relay/                  swap_relay: the home-market relay (Orca Whirlpool)
+  vendor/                 LayerZero OFT (with recovery + flow counters), Orca Whirlpool
+src/            Solidity: OmniToken / adapter, SwapRequest (mirror), SwapRelay (EVM home), PoolQuoter
+infra/          deployment pipeline, local relayer, validation scenarios, partner API core
+apps/web/       landing, issuer dashboard, /api/v1
+packages/sdk/   partner SDK
+config/         deployment configs — the home chain is one of them
 ```
 
-Not in scope for this POC: front-end, freeze/pause/KYC, market-maker fast path.
+## Honest limits
+
+- **Local chains only so far.** Deploying on Solana devnet and public testnets with LayerZero's
+  own network is the next step.
+- **Token-2022 is partial.** Standard Token-2022 mints are supported (see `NOTES.md`). Mints with
+  transfer fees, a permanent delegate or a transfer hook are refused, because each needs a
+  product decision (who bears a fee, whether a delegate over the escrow is acceptable) before it
+  can be carried safely.
+- **The stock is a test token (tAAPL),** and USDC is our own omnichain token. A live deployment
+  would pair the stock with a stablecoin that moves natively between chains.
