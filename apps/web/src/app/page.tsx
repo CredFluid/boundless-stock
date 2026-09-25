@@ -105,7 +105,7 @@ const GUARANTEES = [
 ];
 
 const AUDIENCES = [
-  { icon: Building2, title: "Issuers and asset managers", body: "Issue a tokenized stock or RWA once, on Solana, or bring the token you already have. Choose the chains to distribute to, and run supply, backing and controls from one console.", cta: { href: "/app/launch", label: "Launch an asset" } },
+  { icon: Building2, title: "Issuers and asset managers", body: "Issue a tokenized stock once, on Solana, or bring the token you already have. Choose the chains to distribute to, and run supply, backing and controls from one console.", cta: { href: "/app/launch", label: "Launch an asset" } },
   { icon: Handshake, title: "Distribution partners", body: "Brokers, wallets and exchanges offer the asset to their verified users on the chains they use, earn a fee on every fill, and never source liquidity.", cta: { href: "#compliance", label: "See the partner model" } },
   { icon: FileCheck2, title: "Custodians and auditors", body: "See where every unit of the asset sits, on every chain and in transit, and check it against the shares held. Live, from chain state.", cta: { href: "/docs#reserves-api", label: "Check reserves through the API" } },
 ];
@@ -149,9 +149,9 @@ export default function Landing() {
         <div className="glow absolute inset-0" aria-hidden />
         <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-5 pt-16 pb-20 lg:grid-cols-[1.05fr_1fr] lg:pt-24 lg:pb-28">
           <div>
-            <a href="#platform" className="enter enter-1 inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pr-3 pl-1 text-xs text-muted hover:text-fg">
-              <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">RWA</span>
-              Issuance, distribution and the data layer for tokenized assets
+            <a href="#data" className="enter enter-1 inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pr-3 pl-1 text-xs text-muted hover:text-fg">
+              <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">Tokenized stocks</span>
+              Issuance, distribution and the data layer
               <ArrowRight size={12} aria-hidden />
             </a>
             <h1 className="enter enter-2 mt-7 text-5xl font-semibold leading-[1.02] tracking-tight text-balance md:text-7xl">
@@ -159,8 +159,9 @@ export default function Landing() {
               <span className="text-shimmer bg-gradient-to-r from-accent via-evm to-accent bg-clip-text text-transparent">Power every other.</span>
             </h1>
             <p className="enter enter-3 mt-6 max-w-xl text-lg leading-relaxed text-muted">
-              Issue a tokenized stock or RWA once, on Solana. Run its supply, backing, controls and liquidity from one console,
-              and distribute it to every other chain through regulated partners, with no market to fund there first.
+              Issue a tokenized stock once, on Solana, and distribute it to every other chain through regulated partners. Run
+              its supply, backing, controls and liquidity from one console, and give every product that integrates it one
+              verified record of its backing, supply and price, wherever it sits.
             </p>
             <div className="enter enter-4 mt-9 flex flex-wrap gap-3">
               <Link href="/app/launch" className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-accent-contrast hover:opacity-90">
@@ -170,7 +171,7 @@ export default function Landing() {
                 <Terminal size={16} aria-hidden /> Start building
               </a>
             </div>
-            <div className="enter enter-5 mt-10 grid max-w-xl gap-3 sm:grid-cols-2">
+            <div className="enter enter-5 mt-10 grid max-w-2xl gap-3 sm:grid-cols-3">
               <div className="rounded-lg border border-line bg-surface/60 px-4 py-3">
                 <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">Solana · home</div>
                 <div className="mt-1 text-sm">Issuance · Controls · Liquidity</div>
@@ -179,6 +180,10 @@ export default function Landing() {
                 <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-evm">Every other chain</div>
                 <div className="mt-1 text-sm">Distribution · Trading · Transfers</div>
               </div>
+              <a href="#data" className="rounded-lg border border-accent/40 bg-accent-soft/60 px-4 py-3 hover:border-accent">
+                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">One ledger · every chain</div>
+                <div className="mt-1 text-sm">Backing · Supply · Price</div>
+              </a>
             </div>
           </div>
           <div className="enter enter-3 relative">
