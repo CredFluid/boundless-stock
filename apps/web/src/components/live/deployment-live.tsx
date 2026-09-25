@@ -97,7 +97,7 @@ export function DeploymentLive({ name, recorded }: { name: string; recorded: Rec
           <ReservesCard reserves={recorded.reserves} issued={live?.supply ? issuedNow : undefined} symbol={recorded.base} />
         </div>
         <Card className="self-start">
-          <CardHeader title="Primary market" subtitle={`The ${recorded.venue}: every chain's orders fill here`} />
+          <CardHeader title="Reference market" subtitle={`The ${recorded.venue}: orders placed through Boundless Stock fill here`} />
           <dl className="grid grid-cols-2 gap-y-3 p-5 text-sm">
             <dt className="text-muted">Price now</dt>
             <dd className="text-right tabular-nums">{live ? `${price(m?.price)} ${recorded.quote}` : "—"}</dd>

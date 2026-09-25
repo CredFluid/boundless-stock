@@ -42,7 +42,7 @@ const CONTROL = [
   {
     icon: Coins,
     title: "Liquidity",
-    body: "One market on Solana prices every order from every chain. No pool to fund, seed or maintain anywhere else.",
+    body: "The reference market lives on Solana and prices every order placed through Boundless Stock. No chain needs a pool of its own to be tradable; local pools can still form, and arbitrage keeps them in line.",
   },
 ];
 
@@ -50,14 +50,14 @@ const CONTROL = [
 const USE_CASES = [
   { icon: Handshake, title: "Distribution through partners", body: "Brokers, wallets and exchanges offer the asset to their verified users on the chains those users already hold funds on.", roadmap: false },
   { icon: ArrowRight, title: "Trading", body: "Buy and sell from any chain in one transaction, filled against the Solana market and settled back on the same chain.", roadmap: false },
-  { icon: Layers, title: "Holding and transfers", body: "The same backed asset on every chain, never a wrapped copy, moved natively between EVM and SVM chains.", roadmap: false },
+  { icon: Layers, title: "Holding, transfers and local markets", body: "The same backed asset on every chain, never a wrapped copy. Holders transfer it and local pools can trade it on that chain; moves between chains burn and mint.", roadmap: false },
   { icon: Scale, title: "Collateral and settlement", body: "The asset as collateral or a settlement leg on other chains, on the same supply and backing guarantees.", roadmap: true },
 ];
 
 /* Every figure here is true of the system today and measured on local multi-chain deployments. */
 const METRICS = [
   { value: "100%", label: "Backed, checked continuously", note: "supply on every chain measured against the shares held" },
-  { value: "1", label: "Market and one ledger", note: "one pool on Solana prices every chain; one supply to reconcile" },
+  { value: "1", label: "Ledger across every chain", note: "one supply, reconciled wherever the asset sits or trades" },
   { value: "0", label: "Wrapped copies", note: "every chain holds the original asset, never an IOU" },
   { value: "~1s", label: "Cross-chain settlement", note: "an order on another chain, filled on Solana and delivered back" },
 ];
@@ -66,7 +66,7 @@ const NETWORKS = ["Solana · home", "Base", "Arbitrum", "Optimism", "SVM chains"
 
 const LIFECYCLE = [
   { n: "01", title: "Order", body: "A partner's verified user places a buy or sell on their own chain. The funds leave with the order attached, in one transaction." },
-  { n: "02", title: "Execute", body: "On Solana the order fills against the one market, at or above the user's floor, or the funds are returned in full." },
+  { n: "02", title: "Execute", body: "On Solana the order fills against the reference market, at or above the user's floor, or the funds are returned in full." },
   { n: "03", title: "Settle", body: "The stock, or the proceeds of a sale, is delivered back on the chain the order came from." },
   { n: "04", title: "Reconcile", body: "Every unit is counted on every chain, in transit included, and checked against the shares that back the asset." },
 ];
@@ -142,7 +142,7 @@ export default function Landing() {
             </h1>
             <p className="enter enter-3 mt-6 max-w-xl text-lg leading-relaxed text-muted">
               Issue a tokenized stock or RWA once, on Solana. Run its supply, backing, controls and liquidity from one console,
-              and distribute it to every other chain through regulated partners, with no market to fund there.
+              and distribute it to every other chain through regulated partners, with no market to fund there first.
             </p>
             <div className="enter enter-4 mt-9 flex flex-wrap gap-3">
               <Link href="/app/launch" className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-accent-contrast hover:opacity-90">
@@ -300,7 +300,7 @@ export default function Landing() {
           <Reveal delay={250}><div className="h-full rounded-2xl border border-accent/40 bg-gradient-to-b from-accent-soft to-surface p-8">
             <div className="text-sm font-medium text-accent">With Boundless Stock</div>
             <ul className="mt-5 space-y-4">
-              <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />The asset is issued once, on Solana, and its one market lives there, holding the backed supply in one place.</li>
+              <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />The asset is issued once, on Solana, and its reference market lives there, holding the deepest liquidity in one place.</li>
               <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />Every other chain holds a mirror, minted only when stock arrives from Solana and burned when it leaves. Never a new issue.</li>
               <li className="flex gap-3"><CheckCircle2 size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />Supply on every chain is reconciled continuously against the shares behind it, from one console.</li>
             </ul>
@@ -336,7 +336,7 @@ export default function Landing() {
         <div className="mx-auto max-w-7xl px-5 py-24">
           <Reveal>
             <Eyebrow>Architecture</Eyebrow>
-            <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">Four layers. One market.</h2>
+            <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">Four layers. One ledger.</h2>
             <p className="mt-5 max-w-2xl text-lg text-muted">
               From the partner that serves the customer to the ledger an auditor checks, each layer has one job, and the chain
               a customer is on stops mattering.
@@ -348,7 +348,7 @@ export default function Landing() {
             <div className="space-y-3">
               {[
                 { tag: "Distribution", title: "Brokers · wallets · exchanges, serving verified users", tone: "border-line", items: ["Partner SDK and API", "Partner approval", "Fees on fill"] },
-                { tag: "Settlement", title: "Every chain's orders filled on the Solana market", tone: "border-accent/60 bg-accent-soft/40", items: ["One market on Solana", "Filled or refunded", "Delivered on the origin chain"] },
+                { tag: "Settlement", title: "Partner orders from any chain filled on the Solana market", tone: "border-accent/60 bg-accent-soft/40", items: ["Reference market on Solana", "Filled or refunded", "Delivered on the origin chain"] },
                 { tag: "Reconciliation", title: "One supply, measured on every chain", tone: "border-line", items: ["Supply per chain", "In-transit tracking", "Proof of reserves"] },
                 { tag: "Messaging", title: "LayerZero V2, verified between chains", tone: "border-line", items: ["Burn-and-mint transfers", "Independent verification", "EVM and SVM chains"] },
               ].map((l, i) => (

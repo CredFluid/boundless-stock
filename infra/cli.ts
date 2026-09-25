@@ -391,7 +391,7 @@ const cmd = process.argv[2];
 
 if (!cmd || !commands[cmd]) {
   out();
-  out(`  ${bold("boundless-stock")}  ${dim("one market for tokenized stocks, on Solana, reachable from every chain")}`);
+  out(`  ${bold("boundless-stock")}  ${dim("issue on Solana, distribute to every chain, reconcile everywhere")}`);
   out();
   out(`    boundless-stock chains                             the chains a stock can be mirrored to`);
   out(`    boundless-stock deploy --mirrors <chain,chain,…>   issue on Solana, mirror to those chains`);

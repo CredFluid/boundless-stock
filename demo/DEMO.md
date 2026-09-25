@@ -19,7 +19,7 @@ About three minutes: the problem in one breath, then the product in a terminal.
 **0 · The problem.** "A tokenized stock isn't like other tokens. Its supply is fixed by the real
 shares behind it: a million shares, a million tokens, and not one more. As tokenized stocks
 spread across chains, every chain carves a thin market out of that same fixed supply. Different
-prices, split liquidity, operations everywhere. We built one market instead."
+prices, split liquidity, operations everywhere. We built one reference market and one ledger instead."
 
 **1 · Install.** "Boundless Stock is one install and one command. Solana is home; these are the
 chains a stock can be mirrored to."
@@ -39,7 +39,7 @@ another chain."
 
 **5 · Market again.** "The stock has moved: some of it now lives on that other chain. The total
 hasn't changed, and it's still fully backed. Supply is conserved across every chain, and it's
-checked, not assumed. One market, on Solana, reachable from every chain."
+checked, not assumed. One reference market, on Solana, reachable from every chain."
 
 ## Recording it
 

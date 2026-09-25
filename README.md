@@ -1,7 +1,7 @@
 # Boundless Stock
 
-**One market for every tokenized stock, on Solana, reachable from every chain. Liquidity and
-operations are managed from one chain and one place.**
+**A reference market for every tokenized stock, on Solana, reachable from every chain.
+Liquidity and operations are managed from one chain and one place.**
 
 ## The problem: tokenized stocks are breaking into pieces
 
@@ -37,15 +37,21 @@ The books can be unified. **The market has not been.**
 ## Our answer: Solana is the home market, every other chain a doorway
 
 Boundless Stock makes Solana the **hub**. The stock is issued on Solana and lives there, and its
-market lives there too: one pool of liquidity and one price, holding the backed supply in one
-place instead of splitting it.
+reference market lives there too: the deepest pool of liquidity and the reference price, with
+the backed supply held in one place instead of split across chains.
 
 Every other chain is a **spoke**. Each spoke gets a **mirror** of the stock: a real, valid token
 native to that chain, which can be held, transferred and used like any other token there.
 A mirror is never a separate issue. It is minted on a spoke only when stock arrives from
 Solana, and burned when it leaves, so every mirror token is one of the original backed tokens,
-just located on another chain. The spoke needs no pool of its own: its orders are sent to the
-market on Solana.
+just located on another chain. A spoke doesn't need a pool of its own to be tradable: orders
+placed through Boundless Stock fill on the market on Solana.
+
+Once delivered, a mirror is an ordinary token on its chain. Holders transfer it to each other,
+and a local pool can list it and trade it there, without touching Solana. Supply accounting
+still holds, because only moves between chains burn and mint. Solana stays the reference
+market: it holds the deepest liquidity and sets the price, and a local pool that drifts from it
+can be arbitraged back through Boundless Stock.
 
 ```
  Other chains (spokes)                                            Solana (hub)
@@ -59,11 +65,12 @@ market on Solana.
 
 An order placed on another chain crosses to Solana, fills against the home market at the real
 market price, and the stock (or the proceeds of a sale) is delivered back on the chain the order
-came from. Nothing is wrapped, and no market is needed on that chain.
+came from. Nothing is wrapped, and the chain needs no market of its own for this to work.
 
 For the issuer, this changes where everything is managed:
 
-- **Liquidity on Solana.** The liquidity on Solana powers trades on every other chain.
+- **Liquidity on Solana.** The liquidity on Solana powers trades on every other chain, with
+  no pool to fund there first.
 - **Operations in one place.** Refunds happen automatically at the hub. Stuck-order
   cancellation, recovery of stranded returns, partners and fees are driven from one command line
   across every chain, and tracked in one issuer dashboard.

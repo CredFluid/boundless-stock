@@ -19,7 +19,7 @@ function ChainNode({ chain }: { chain: ChainView }) {
         <span className="truncate text-sm font-medium">{chain.name}</span>
         <VmBadge vm={chain.vm} />
       </div>
-      <div className="mt-0.5 text-xs text-muted">{chain.role === "home" ? "issued and traded here" : "mirror · no market needed"}</div>
+      <div className="mt-0.5 text-xs text-muted">{chain.role === "home" ? "issued and traded here" : "mirror · no market required"}</div>
     </div>
   );
 }
@@ -132,7 +132,7 @@ export default async function DeploymentPage({ params }: { params: Promise<{ nam
 
       {/* ---------------------------------------------------------------- topology */}
       <Card>
-        <CardHeader title="Distribution network" subtitle="One market on the home chain; every distribution chain holds a mirror of the same asset and reaches the market over LayerZero." />
+        <CardHeader title="Distribution network" subtitle="The reference market is on the home chain. Every distribution chain holds a mirror of the same asset, reaches that market over LayerZero, and can also trade the mirror locally." />
         <div className="grid gap-6 p-5 md:grid-cols-[minmax(0,260px)_1fr] md:items-center">
           <div>
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-accent">Home · {d.venue}</div>

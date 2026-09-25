@@ -171,7 +171,7 @@ export function LaunchWizard({ presets }: { presets: LaunchPresets }) {
             <>
               <p className="text-sm text-muted">
                 The chains to distribute to. Each gets a mirror of the asset, minted only when stock arrives from Solana, and no
-                market of its own: orders there fill on the Solana market.
+                market it needs to fund: orders placed through Boundless Stock fill on the Solana market, and holders can still transfer and trade the mirror locally.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 {chains.filter((c) => c.key !== homeKey).map((c) => {

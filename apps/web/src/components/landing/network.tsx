@@ -76,7 +76,7 @@ export function NetworkVisual() {
         <rect x={HUB.x - 122} y={HUB.y - 42} width="244" height="84" rx="16" fill="var(--surface)" stroke="var(--accent)" strokeWidth="1.5" />
         <text x={HUB.x} y={HUB.y - 12} textAnchor="middle" fontSize="11" fill="var(--accent)" letterSpacing="1.5">SOLANA · HOME</text>
         <text x={HUB.x} y={HUB.y + 10} textAnchor="middle" fontSize="15" fontWeight="600" fill="var(--text)">Issuance · Controls · Liquidity</text>
-        <text x={HUB.x} y={HUB.y + 28} textAnchor="middle" fontSize="11" fill="var(--muted)">one market · one ledger</text>
+        <text x={HUB.x} y={HUB.y + 28} textAnchor="middle" fontSize="11" fill="var(--muted)">reference market · one ledger</text>
       </g>
 
       {NODES.map((n) => (
