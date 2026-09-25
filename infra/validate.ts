@@ -19,6 +19,7 @@ import { scenario7 } from "./validation/07-solana-mirror.js";
 import { scenario8 } from "./validation/08-solana-home.js";
 import { scenario9 } from "./validation/09-solana-to-solana.js";
 import { scenario10 } from "./validation/10-partner-orders.js";
+import { scenario11 } from "./validation/11-partner-sdk.js";
 import { log } from "./lib/logger.js";
 
 function arg(name: string): string | undefined {
@@ -54,6 +55,7 @@ async function main(): Promise<void> {
     { id: "8", run: () => scenario8(h) },
     { id: "9", run: () => scenario9(h) },
     { id: "10", run: () => scenario10(h) },
+    { id: "11", run: () => scenario11(h) },
   ];
 
   // Scenarios 1–7 exercise an EVM home chain's pool and relay directly; with the home on Solana
