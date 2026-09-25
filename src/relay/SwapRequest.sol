@@ -16,6 +16,8 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import { IERC1271 } from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 import { SwapTypes } from "./SwapTypes.sol";
 
@@ -45,6 +47,16 @@ import { SwapTypes } from "./SwapTypes.sol";
  *      IMPORTANT: the user holding the quote asset here is NOT local liquidity. It is their
  *      own wallet balance. Nobody on this chain quotes a price or takes the other side of the
  *      trade; all of that happens on the home chain's pool.
+ *
+ *      PARTNERS AND FEES. Orders can come through a registered partner — a wallet, exchange or
+ *      app that owns the customer relationship and its KYC. The partner's backend signs an
+ *      EIP-712 authorisation for one specific order, and the user submits it with `buyVia` /
+ *      `sellVia`. With `partnerRequired` set, that is the only way in, which is what makes
+ *      "partners handle KYC" hold on chain rather than as a policy. A partner fee (authorised
+ *      per order, capped per partner) and a platform fee are taken from the input and held in
+ *      escrow here: paid out only if the order fills, returned to the user otherwise. All of
+ *      this is local to the mirror chain — the order that crosses the wire is unchanged, so
+ *      the home chain, the relayer and existing deployments are unaffected.
  */
 /// @dev The narrow slice of {OmniToken} this contract needs in order to restore a cancelled input.
 interface IOmniRecovery {
@@ -121,6 +133,71 @@ contract SwapRequest is OApp, IOAppComposer {
      */
     uint128 public homeComposeValue = 0.01 ether;
 
+    // ------------------------------------------------------------------ partners and fees
+
+    uint256 internal constant BPS = 10_000;
+    /// @notice Hard ceiling on any partner's fee, whatever the owner registers.
+    uint16 public constant MAX_PARTNER_FEE_BPS = 300;
+    /// @notice Hard ceiling on the platform fee.
+    uint16 public constant MAX_PLATFORM_FEE_BPS = 100;
+
+    // EIP-712, written out rather than inherited: OpenZeppelin's EIP712 and SignatureChecker
+    // need solc 0.8.24, and this repo compiles every contract with 0.8.22.
+    bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 internal constant EIP712_NAME_HASH = keccak256("CrossStock SwapRequest");
+    bytes32 internal constant EIP712_VERSION_HASH = keccak256("1");
+
+    bytes32 public constant PARTNER_ORDER_TYPEHASH = keccak256(
+        "PartnerOrder(address user,uint8 direction,uint256 amountIn,uint256 minAmountOut,uint32 partnerId,uint16 feeBps,uint256 nonce,uint256 deadline)"
+    );
+
+    struct Partner {
+        address signer; // signs order authorisations; an EOA or an ERC-1271 contract
+        address feeRecipient; // where this partner's fees accrue
+        uint16 maxFeeBps; // the most this partner may charge on one order
+        bool active;
+    }
+
+    /// @notice A partner's signed approval of one order, passed by the user who submits it.
+    struct PartnerAuth {
+        uint32 partnerId;
+        uint16 feeBps; // the partner's fee on this order, in basis points of the input
+        uint256 nonce; // single use, per partner
+        uint256 deadline; // unix seconds
+        bytes signature;
+    }
+
+    enum FeeState {
+        NONE, // no fee on this request
+        ESCROWED, // held here until the request settles
+        PAID, // the request filled; fees accrued to their recipients
+        RETURNED // the request did not fill; fees went back to the user
+    }
+
+    struct FeeEscrow {
+        uint32 partnerId;
+        FeeState state;
+        address partnerRecipient; // snapshotted at submission: the terms the user agreed to
+        address platformRecipient;
+        uint128 partnerFee; // in the input token, local decimals
+        uint128 platformFee;
+    }
+
+    /// @notice When set, orders are accepted only with a partner's authorisation.
+    bool public partnerRequired;
+    mapping(uint32 partnerId => Partner) public partners;
+    mapping(uint32 partnerId => mapping(uint256 nonce => bool)) public nonceUsed;
+
+    uint16 public platformFeeBps;
+    address public platformFeeRecipient;
+
+    mapping(uint64 requestId => FeeEscrow) internal _fees;
+    /// @notice Fees earned (or returned but undeliverable) and waiting to be claimed.
+    mapping(address token => mapping(address account => uint256)) public feesClaimable;
+    /// @notice Fee tokens held here that belong to someone: escrowed plus claimable. Never swept.
+    mapping(address token => uint256) public feesReserved;
+
     event SwapRequested(
         uint64 indexed requestId,
         address indexed user,
@@ -130,20 +207,33 @@ contract SwapRequest is OApp, IOAppComposer {
         uint256 minAmountOut
     );
     event SwapFilled(uint64 indexed requestId, address indexed user, address tokenOut, uint256 amountOut);
-    event SwapRefunded(uint64 indexed requestId, address indexed user, address token, uint256 amount, uint8 reason);
+    event SwapRefunded(
+        uint64 indexed requestId, address indexed user, address token, uint256 amount, uint8 reason
+    );
     event DustReturned(uint64 indexed requestId, address indexed user, uint256 amount);
     /// @notice The result exists on the home chain but cannot be bridged back; claim it there.
     event SwapStranded(uint64 indexed requestId, address indexed user, uint256 amount);
     /// @notice The outbound message was killed on the destination and the input restored here.
     event SwapCancelled(
-        uint64 indexed requestId,
-        address indexed user,
-        address token,
-        uint256 amount,
-        uint64 lzNonce
+        uint64 indexed requestId, address indexed user, address token, uint256 amount, uint64 lzNonce
     );
     /// @notice Tokens arrived for an already-settled request and were paid to its owner anyway.
     event LateSettlementPaid(uint64 indexed requestId, address indexed user, address token, uint256 amount);
+
+    event PartnerSet(
+        uint32 indexed partnerId, address signer, address feeRecipient, uint16 maxFeeBps, bool active
+    );
+    event PartnerRequiredSet(bool required);
+    event PlatformFeeSet(uint16 bps, address recipient);
+    event NonceInvalidated(uint32 indexed partnerId, uint256 nonce);
+    event FeesEscrowed(
+        uint64 indexed requestId, uint32 indexed partnerId, uint256 partnerFee, uint256 platformFee
+    );
+    event FeesPaid(
+        uint64 indexed requestId, uint32 indexed partnerId, uint256 partnerFee, uint256 platformFee
+    );
+    event FeesReturned(uint64 indexed requestId, address indexed user, uint256 amount);
+    event FeesClaimed(address indexed token, address indexed account, address to, uint256 amount);
 
     error UnexpectedComposeSource(address from);
     error UnexpectedOrigin(uint32 srcEid, bytes32 sender);
@@ -152,6 +242,15 @@ contract SwapRequest is OApp, IOAppComposer {
     /// @dev The whole input was below the OFT's precision floor, so nothing could be bridged.
     error AmountBelowBridgeableMinimum(uint256 amountIn, uint256 quantum);
     error UnknownRequest(uint64 requestId);
+    error PartnerRequired();
+    error UnknownPartner(uint32 partnerId);
+    error AuthorizationExpired(uint256 deadline);
+    error FeeTooHigh(uint256 feeBps, uint256 maxBps);
+    error NonceAlreadyUsed(uint32 partnerId, uint256 nonce);
+    error InvalidPartnerSignature(uint32 partnerId);
+    error InvalidPartner();
+    error NotPartnerSigner();
+    error WouldSweepFees(uint256 available);
 
     constructor(
         address _endpoint,
@@ -177,68 +276,293 @@ contract SwapRequest is OApp, IOAppComposer {
      * @param _minAmountOut Minimum stock to accept, enforced by the home chain's pool.
      *
      * @dev This is the flow the POC exists to prove: the caller is on a chain with no market
-     *      for this asset at all, and receives it here anyway.
+     *      for this asset at all, and receives it here anyway. Closed while `partnerRequired`.
      */
     function buy(uint256 _amountIn, uint256 _minAmountOut) external payable returns (uint64) {
-        return _submit(SwapTypes.Direction.BUY, _amountIn, _minAmountOut);
+        if (partnerRequired) revert PartnerRequired();
+        return _submit(SwapTypes.Direction.BUY, _amountIn, _minAmountOut, 0, 0, address(0));
     }
 
     /// @notice Sell the omnichain stock from this chain, receiving the quote asset here.
     function sell(uint256 _amountIn, uint256 _minAmountOut) external payable returns (uint64) {
-        return _submit(SwapTypes.Direction.SELL, _amountIn, _minAmountOut);
+        if (partnerRequired) revert PartnerRequired();
+        return _submit(SwapTypes.Direction.SELL, _amountIn, _minAmountOut, 0, 0, address(0));
+    }
+
+    /// @notice Buy through a partner, with its signed authorisation of exactly this order.
+    function buyVia(uint256 _amountIn, uint256 _minAmountOut, PartnerAuth calldata _auth)
+        external
+        payable
+        returns (uint64)
+    {
+        address recipient = _authorize(SwapTypes.Direction.BUY, _amountIn, _minAmountOut, _auth);
+        return
+            _submit(
+                SwapTypes.Direction.BUY, _amountIn, _minAmountOut, _auth.partnerId, _auth.feeBps, recipient
+            );
+    }
+
+    /// @notice Sell through a partner, with its signed authorisation of exactly this order.
+    function sellVia(uint256 _amountIn, uint256 _minAmountOut, PartnerAuth calldata _auth)
+        external
+        payable
+        returns (uint64)
+    {
+        address recipient = _authorize(SwapTypes.Direction.SELL, _amountIn, _minAmountOut, _auth);
+        return
+            _submit(
+                SwapTypes.Direction.SELL, _amountIn, _minAmountOut, _auth.partnerId, _auth.feeBps, recipient
+            );
+    }
+
+    /**
+     * @dev Checks a partner authorisation and consumes its nonce.
+     *
+     *      The signature binds the order to the account submitting it (`msg.sender`): an
+     *      authorisation issued for one verified user cannot be used by anyone else, and cannot
+     *      be replayed, reused for a different amount or direction, or used after its deadline.
+     *      The domain separator binds it to this contract on this chain.
+     * @return The partner's fee recipient, snapshotted into the request's escrow.
+     */
+    function _authorize(
+        SwapTypes.Direction _direction,
+        uint256 _amountIn,
+        uint256 _minAmountOut,
+        PartnerAuth calldata _auth
+    ) internal returns (address) {
+        Partner memory p = partners[_auth.partnerId];
+        if (!p.active) revert UnknownPartner(_auth.partnerId);
+        if (block.timestamp > _auth.deadline) revert AuthorizationExpired(_auth.deadline);
+        if (_auth.feeBps > p.maxFeeBps) revert FeeTooHigh(_auth.feeBps, p.maxFeeBps);
+        if (nonceUsed[_auth.partnerId][_auth.nonce]) revert NonceAlreadyUsed(_auth.partnerId, _auth.nonce);
+
+        bytes32 digest = hashPartnerOrder(
+            msg.sender,
+            _direction,
+            _amountIn,
+            _minAmountOut,
+            _auth.partnerId,
+            _auth.feeBps,
+            _auth.nonce,
+            _auth.deadline
+        );
+        if (!_validSignature(p.signer, digest, _auth.signature)) {
+            revert InvalidPartnerSignature(_auth.partnerId);
+        }
+        nonceUsed[_auth.partnerId][_auth.nonce] = true;
+        return p.feeRecipient;
+    }
+
+    /// @dev An EOA's ECDSA signature, or ERC-1271 approval from a contract signer (a multisig or
+    ///      smart account), mirroring OpenZeppelin's SignatureChecker.
+    function _validSignature(address _signer, bytes32 _digest, bytes calldata _sig)
+        internal
+        view
+        returns (bool)
+    {
+        if (_signer.code.length == 0) {
+            (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(_digest, _sig);
+            return err == ECDSA.RecoverError.NoError && recovered == _signer;
+        }
+        (bool ok, bytes memory ret) =
+            _signer.staticcall(abi.encodeCall(IERC1271.isValidSignature, (_digest, _sig)));
+        return
+            ok && ret.length >= 32
+                && abi.decode(ret, (bytes32)) == bytes32(IERC1271.isValidSignature.selector);
+    }
+
+    /// @notice EIP-712 domain separator: this contract, on this chain.
+    function DOMAIN_SEPARATOR() public view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                EIP712_DOMAIN_TYPEHASH, EIP712_NAME_HASH, EIP712_VERSION_HASH, block.chainid, address(this)
+            )
+        );
+    }
+
+    /// @notice The EIP-712 digest a partner signs to authorise an order.
+    function hashPartnerOrder(
+        address _user,
+        SwapTypes.Direction _direction,
+        uint256 _amountIn,
+        uint256 _minAmountOut,
+        uint32 _partnerId,
+        uint16 _feeBps,
+        uint256 _nonce,
+        uint256 _deadline
+    ) public view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                PARTNER_ORDER_TYPEHASH,
+                _user,
+                uint8(_direction),
+                _amountIn,
+                _minAmountOut,
+                _partnerId,
+                _feeBps,
+                _nonce,
+                _deadline
+            )
+        );
+        return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
     }
 
     function _submit(
         SwapTypes.Direction _direction,
         uint256 _amountIn,
-        uint256 _minAmountOut
+        uint256 _minAmountOut,
+        uint32 _partnerId,
+        uint16 _partnerFeeBps,
+        address _partnerRecipient
     ) internal returns (uint64 requestId) {
         if (_amountIn == 0) revert ZeroAmount();
 
-        bool isBuy = _direction == SwapTypes.Direction.BUY;
-        IERC20 tokenIn = isBuy ? quoteToken : baseToken;
-        IERC20 tokenOut = isBuy ? baseToken : quoteToken;
+        IERC20 tokenIn = _direction == SwapTypes.Direction.BUY ? quoteToken : baseToken;
 
         requestId = nextRequestId++;
         requestIds.push(requestId);
 
         tokenIn.safeTransferFrom(msg.sender, address(this), _amountIn);
 
+        // Fees come off the input and stay here in escrow; only the remainder crosses.
+        uint256 net =
+            _escrowFees(requestId, tokenIn, _amountIn, _partnerId, _partnerFeeBps, _partnerRecipient);
+        if (net == 0) revert ZeroAmount();
+
         // Dispatched in its own frame: the send needs several locals that are dead afterwards,
         // and keeping them alive here puts this function over the stack limit.
-        (uint256 sent, uint64 lzNonce) = _dispatch(requestId, _direction, tokenIn, _amountIn, _minAmountOut);
+        (uint256 sent, uint64 lzNonce) = _dispatch(requestId, _direction, tokenIn, net, _minAmountOut);
 
         // An input entirely below the OFT's precision floor bridges as zero. The home chain
         // would then have nothing to swap and nothing to send back, leaving the request
         // PENDING forever — a zombie that can never settle. Found by the invariant fuzzer;
         // see NOTES.md. Reject it at the door instead.
         if (sent == 0) {
-            revert AmountBelowBridgeableMinimum(_amountIn, _bridgeQuantum(tokenIn));
+            revert AmountBelowBridgeableMinimum(net, _bridgeQuantum(tokenIn));
         }
 
-        if (_amountIn > sent) {
-            uint256 dust = _amountIn - sent;
+        if (net > sent) {
+            uint256 dust = net - sent;
             tokenIn.safeTransfer(msg.sender, dust);
             emit DustReturned(requestId, msg.sender, dust);
         }
 
-        requests[requestId] = Request({
+        _record(requestId, _direction, tokenIn, sent, _minAmountOut, lzNonce);
+    }
+
+    function _record(
+        uint64 _requestId,
+        SwapTypes.Direction _direction,
+        IERC20 _tokenIn,
+        uint256 _sent,
+        uint256 _minAmountOut,
+        uint64 _lzNonce
+    ) internal {
+        requests[_requestId] = Request({
             user: msg.sender,
             direction: uint8(_direction),
-            tokenIn: address(tokenIn),
-            tokenOut: address(tokenOut),
-            amountIn: sent,
+            tokenIn: address(_tokenIn),
+            tokenOut: address(_direction == SwapTypes.Direction.BUY ? baseToken : quoteToken),
+            amountIn: _sent,
             minAmountOut: _minAmountOut,
             amountOut: 0,
             createdAt: uint64(block.timestamp),
             settledAt: 0,
             status: SwapTypes.Status.PENDING,
             failureReason: uint8(SwapTypes.FailureReason.NONE),
-            lzNonce: lzNonce
+            lzNonce: _lzNonce
         });
-        requestIdByNonce[address(_oftFor(tokenIn))][lzNonce] = requestId;
+        requestIdByNonce[address(_oftFor(_tokenIn))][_lzNonce] = _requestId;
 
-        emit SwapRequested(requestId, msg.sender, uint8(_direction), address(tokenIn), sent, _minAmountOut);
+        emit SwapRequested(_requestId, msg.sender, uint8(_direction), address(_tokenIn), _sent, _minAmountOut);
+    }
+
+    /**
+     * @dev Takes the partner and platform fees off `_gross` and holds them in escrow.
+     * @return net What is left to trade.
+     */
+    function _escrowFees(
+        uint64 _requestId,
+        IERC20 _tokenIn,
+        uint256 _gross,
+        uint32 _partnerId,
+        uint16 _partnerFeeBps,
+        address _partnerRecipient
+    ) internal returns (uint256 net) {
+        uint256 partnerFee = (_gross * _partnerFeeBps) / BPS;
+        uint256 platformFee = (_gross * platformFeeBps) / BPS;
+        uint256 total = partnerFee + platformFee;
+        if (total == 0) return _gross;
+
+        _fees[_requestId] = FeeEscrow({
+            partnerId: _partnerId,
+            state: FeeState.ESCROWED,
+            partnerRecipient: _partnerRecipient,
+            platformRecipient: platformFeeRecipient,
+            partnerFee: uint128(partnerFee),
+            platformFee: uint128(platformFee)
+        });
+        feesReserved[address(_tokenIn)] += total;
+        emit FeesEscrowed(_requestId, _partnerId, partnerFee, platformFee);
+        return _gross - total;
+    }
+
+    /**
+     * @dev Settles a request's escrowed fees: to their recipients if it filled, back to the
+     *      user if it did not (refunded, cancelled or stranded).
+     *
+     *      Earned fees accrue for `claimFees` rather than being pushed, so a recipient that
+     *      cannot receive the token can never block a user's settlement. A returned fee is
+     *      pushed to the user with the rest of their refund; if that transfer fails it is
+     *      credited to them as claimable instead of reverting the settlement.
+     */
+    function _releaseFees(uint64 _requestId, bool _earned) internal {
+        FeeEscrow storage f = _fees[_requestId];
+        if (f.state != FeeState.ESCROWED) return;
+        Request storage r = requests[_requestId];
+        address token = r.tokenIn;
+
+        if (_earned) {
+            f.state = FeeState.PAID;
+            if (f.partnerFee > 0) feesClaimable[token][f.partnerRecipient] += f.partnerFee;
+            if (f.platformFee > 0) feesClaimable[token][f.platformRecipient] += f.platformFee;
+            emit FeesPaid(_requestId, f.partnerId, f.partnerFee, f.platformFee);
+            return;
+        }
+
+        f.state = FeeState.RETURNED;
+        uint256 total = uint256(f.partnerFee) + f.platformFee;
+        if (IERC20(token).trySafeTransfer(r.user, total)) {
+            feesReserved[token] -= total;
+        } else {
+            feesClaimable[token][r.user] += total; // stays reserved until claimed
+        }
+        emit FeesReturned(_requestId, r.user, total);
+    }
+
+    /// @notice Withdraw fees credited to the caller, in `_token`, to `_to`.
+    function claimFees(address _token, address _to) external returns (uint256 amount) {
+        amount = feesClaimable[_token][msg.sender];
+        if (amount == 0) return 0;
+        feesClaimable[_token][msg.sender] = 0;
+        feesReserved[_token] -= amount;
+        IERC20(_token).safeTransfer(_to, amount);
+        emit FeesClaimed(_token, msg.sender, _to, amount);
+    }
+
+    /// @notice What an order of `_amountIn` pays in fees, and what is left to trade.
+    function quoteFees(uint256 _amountIn, uint16 _partnerFeeBps)
+        external
+        view
+        returns (uint256 partnerFee, uint256 platformFee, uint256 net)
+    {
+        partnerFee = (_amountIn * _partnerFeeBps) / BPS;
+        platformFee = (_amountIn * platformFeeBps) / BPS;
+        net = _amountIn - partnerFee - platformFee;
+    }
+
+    function getFees(uint64 _requestId) external view returns (FeeEscrow memory) {
+        return _fees[_requestId];
     }
 
     /**
@@ -254,7 +578,8 @@ contract SwapRequest is OApp, IOAppComposer {
         uint256 _amountIn,
         uint256 _minAmountOut
     ) internal returns (uint256 sent, uint64 lzNonce) {
-        SendParam memory sendParam = _buildSendParam(_requestId, _direction, _amountIn, _minAmountOut, msg.sender);
+        SendParam memory sendParam =
+            _buildSendParam(_requestId, _direction, _amountIn, _minAmountOut, msg.sender);
         IOFT oft = _oftFor(_tokenIn);
 
         // An adapter pulls with transferFrom rather than burning, so it needs an allowance.
@@ -266,28 +591,20 @@ contract SwapRequest is OApp, IOAppComposer {
         MessagingFee memory fee = oft.quoteSend(sendParam, false);
         if (msg.value < fee.nativeFee) revert InsufficientFee(fee.nativeFee, msg.value);
 
-        (MessagingReceipt memory msgReceipt, OFTReceipt memory oftReceipt) = oft.send{ value: msg.value }(
-            sendParam,
-            fee,
-            msg.sender
-        );
+        (MessagingReceipt memory msgReceipt, OFTReceipt memory oftReceipt) =
+            oft.send{ value: msg.value }(sendParam, fee, msg.sender);
         return (oftReceipt.amountSentLD, msgReceipt.nonce);
     }
 
     /// @notice Native fee required to submit a trade with these arguments.
-    function quoteTrade(
-        SwapTypes.Direction _direction,
-        uint256 _amountIn,
-        uint256 _minAmountOut
-    ) external view returns (MessagingFee memory) {
+    function quoteTrade(SwapTypes.Direction _direction, uint256 _amountIn, uint256 _minAmountOut)
+        external
+        view
+        returns (MessagingFee memory)
+    {
         IERC20 tokenIn = _direction == SwapTypes.Direction.BUY ? quoteToken : baseToken;
-        SendParam memory sendParam = _buildSendParam(
-            nextRequestId,
-            _direction,
-            _amountIn,
-            _minAmountOut,
-            msg.sender
-        );
+        SendParam memory sendParam =
+            _buildSendParam(nextRequestId, _direction, _amountIn, _minAmountOut, msg.sender);
         return _oftFor(tokenIn).quoteSend(sendParam, false);
     }
 
@@ -314,21 +631,18 @@ contract SwapRequest is OApp, IOAppComposer {
             })
         );
 
-        bytes memory options = OptionsBuilder
-            .newOptions()
-            .addExecutorLzReceiveOption(homeLzReceiveGas, 0)
+        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(homeLzReceiveGas, 0)
             .addExecutorLzComposeOption(0, homeComposeGas, homeComposeValue);
 
-        return
-            SendParam({
-                dstEid: homeEid,
-                to: peers[homeEid], // the SwapRelay on the home chain
-                amountLD: _amountIn,
-                minAmountLD: 0, // dust removal is handled explicitly above
-                extraOptions: options,
-                composeMsg: composeMsg,
-                oftCmd: ""
-            });
+        return SendParam({
+            dstEid: homeEid,
+            to: peers[homeEid], // the SwapRelay on the home chain
+            amountLD: _amountIn,
+            minAmountLD: 0, // dust removal is handled explicitly above
+            extraOptions: options,
+            composeMsg: composeMsg,
+            oftCmd: ""
+        });
     }
 
     /// @dev The OFT that moves `_token` across chains: itself, or its adapter.
@@ -350,13 +664,11 @@ contract SwapRequest is OApp, IOAppComposer {
      * @dev One handler covers both outcomes: on a fill the output asset arrives, on a failure
      *      the input asset comes back. Either way, tokens landed and a request closes.
      */
-    function lzCompose(
-        address _from,
-        bytes32,
-        bytes calldata _message,
-        address,
-        bytes calldata
-    ) external payable override {
+    function lzCompose(address _from, bytes32, bytes calldata _message, address, bytes calldata)
+        external
+        payable
+        override
+    {
         if (msg.sender != address(endpoint)) revert OnlyEndpoint(msg.sender);
         // The deliverer is the OFT, which is the adapter when the asset predates the deployment.
         if (_from != address(baseOft) && _from != address(quoteOft)) revert UnexpectedComposeSource(_from);
@@ -392,11 +704,13 @@ contract SwapRequest is OApp, IOAppComposer {
             r.amountOut = amountReceived;
             delivered.safeTransfer(r.user, amountReceived);
             emit SwapFilled(s.requestId, r.user, address(delivered), amountReceived);
+            _releaseFees(s.requestId, true);
         } else {
             r.status = SwapTypes.Status.REFUNDED;
             r.failureReason = s.reason;
             delivered.safeTransfer(r.user, amountReceived);
             emit SwapRefunded(s.requestId, r.user, address(delivered), amountReceived, s.reason);
+            _releaseFees(s.requestId, false);
         }
     }
 
@@ -411,13 +725,10 @@ contract SwapRequest is OApp, IOAppComposer {
      *
      *      OApp has already verified the sender is this chain's registered peer.
      */
-    function _lzReceive(
-        Origin calldata _origin,
-        bytes32,
-        bytes calldata _message,
-        address,
-        bytes calldata
-    ) internal override {
+    function _lzReceive(Origin calldata _origin, bytes32, bytes calldata _message, address, bytes calldata)
+        internal
+        override
+    {
         if (_origin.srcEid != homeEid) revert UnexpectedOrigin(_origin.srcEid, _origin.sender);
 
         SwapTypes.Settlement memory s = SwapTypes.decodeSettlement(_message);
@@ -435,6 +746,9 @@ contract SwapRequest is OApp, IOAppComposer {
         r.failureReason = s.reason;
         r.settledAt = uint64(block.timestamp);
         emit SwapStranded(s.requestId, r.user, s.amountIn);
+        // A strand may follow a fill whose return leg failed; the mirror cannot tell, so the
+        // user is not charged for an order they did not receive here.
+        _releaseFees(s.requestId, false);
     }
 
     /**
@@ -467,6 +781,7 @@ contract SwapRequest is OApp, IOAppComposer {
         // OmniToken.recoveryCredit.
         IOmniRecovery(address(_oftFor(IERC20(r.tokenIn)))).recoveryCredit(r.user, r.amountIn);
         emit SwapCancelled(requestId, r.user, r.tokenIn, r.amountIn, _lzNonce);
+        _releaseFees(requestId, false);
     }
 
     // ------------------------------------------------------------------ views
@@ -483,19 +798,65 @@ contract SwapRequest is OApp, IOAppComposer {
 
     // ------------------------------------------------------------------ admin
 
-    function setGasParams(uint128 _lzReceiveGas, uint128 _composeGas, uint128 _composeValue) external onlyOwner {
+    function setGasParams(uint128 _lzReceiveGas, uint128 _composeGas, uint128 _composeValue)
+        external
+        onlyOwner
+    {
         homeLzReceiveGas = _lzReceiveGas;
         homeComposeGas = _composeGas;
         homeComposeValue = _composeValue;
     }
 
     /**
+     * @notice Register, update or deactivate a partner.
+     * @dev Deactivating stops new orders at once; fees already escrowed or earned are unaffected.
+     */
+    function setPartner(
+        uint32 _partnerId,
+        address _signer,
+        address _feeRecipient,
+        uint16 _maxFeeBps,
+        bool _active
+    ) external onlyOwner {
+        if (_partnerId == 0 || _signer == address(0) || _feeRecipient == address(0)) {
+            revert InvalidPartner();
+        }
+        if (_maxFeeBps > MAX_PARTNER_FEE_BPS) revert FeeTooHigh(_maxFeeBps, MAX_PARTNER_FEE_BPS);
+        partners[_partnerId] = Partner(_signer, _feeRecipient, _maxFeeBps, _active);
+        emit PartnerSet(_partnerId, _signer, _feeRecipient, _maxFeeBps, _active);
+    }
+
+    /// @notice Close (or reopen) the plain `buy` / `sell` entrypoints to orders without a partner.
+    function setPartnerRequired(bool _required) external onlyOwner {
+        partnerRequired = _required;
+        emit PartnerRequiredSet(_required);
+    }
+
+    function setPlatformFee(uint16 _bps, address _recipient) external onlyOwner {
+        if (_bps > MAX_PLATFORM_FEE_BPS) revert FeeTooHigh(_bps, MAX_PLATFORM_FEE_BPS);
+        if (_bps > 0 && _recipient == address(0)) revert InvalidPartner();
+        platformFeeBps = _bps;
+        platformFeeRecipient = _recipient;
+        emit PlatformFeeSet(_bps, _recipient);
+    }
+
+    /// @notice Withdraw an authorisation before it is used. Callable by the partner's signer.
+    function invalidateNonce(uint32 _partnerId, uint256 _nonce) external {
+        if (msg.sender != partners[_partnerId].signer && msg.sender != owner()) revert NotPartnerSigner();
+        nonceUsed[_partnerId][_nonce] = true;
+        emit NonceInvalidated(_partnerId, _nonce);
+    }
+
+    /**
      * @notice Owner rescue for tokens that arrived without a matching open request.
      * @dev POC-only safety valve. A production version needs a principled claim path instead.
+     *      It can never reach fees held for users, partners or the platform.
      */
     function sweep(address _token, address _to, uint256 _amount) external onlyOwner {
+        uint256 available = IERC20(_token).balanceOf(address(this)) - feesReserved[_token];
+        if (_amount > available) revert WouldSweepFees(available);
         IERC20(_token).safeTransfer(_to, _amount);
     }
 
-    receive() external payable {}
+    receive() external payable { }
 }

@@ -32,6 +32,9 @@ impl Fixture {
             bump: 255,
             shared_decimals: 6,
             oft_program: Pubkey::new_unique(),
+            partner_required: false,
+            platform_fee_bps: 0,
+            platform_fee_recipient: Pubkey::default(),
         };
         Self { store, store_key: Pubkey::new_unique(), user: Pubkey::new_unique(), request_id: 7 }
     }

@@ -79,6 +79,8 @@ jobs:
         run: npm run typecheck
       - name: Web typecheck
         run: npm run typecheck -w @crossstock/web
+      - name: SDK typecheck and tests
+        run: npm run typecheck -w @crossstock/sdk && npm test -w @crossstock/sdk
       - name: Web build
         run: npm run web:build
 

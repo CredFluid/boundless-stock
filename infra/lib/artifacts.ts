@@ -6,6 +6,8 @@ import { repoRoot } from "./root.js";
 export interface Artifact {
   abi: Abi;
   bytecode: Hex;
+  /** Runtime code, for placing a contract in an `eth_call` state override without deploying it. */
+  deployedBytecode?: Hex;
 }
 
 const cache = new Map<string, Artifact>();
@@ -28,7 +30,8 @@ export function forgeArtifact(name: string, file = `${name}.sol`): Artifact {
   if (!bytecode || bytecode === "0x") {
     throw new Error(`Artifact ${name} has no deployable bytecode (is it an interface or library?).`);
   }
-  const artifact: Artifact = { abi: json.abi as Abi, bytecode };
+  const deployedBytecode = (json.deployedBytecode?.object ?? json.deployedBytecode) as Hex | undefined;
+  const artifact: Artifact = { abi: json.abi as Abi, bytecode, deployedBytecode };
   cache.set(key, artifact);
   return artifact;
 }

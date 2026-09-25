@@ -58,12 +58,22 @@ pub struct Store {
     /// be pinned: a caller-supplied program would receive the store's signature, and with it
     /// the power to send as this OApp and to mint through the OFT's recovery path.
     pub oft_program: Pubkey,
+    /// When set, `open_request` is closed and orders need a partner's co-signature.
+    ///
+    /// These three fields were appended within the size headroom: a store created before them
+    /// reads them as zero — partners not required, no platform fee — which is how it behaved.
+    pub partner_required: bool,
+    /// The platform's fee on partner orders, in basis points of the input.
+    pub platform_fee_bps: u16,
+    /// Wallet whose token account receives the platform fee.
+    pub platform_fee_recipient: Pubkey,
 }
 
 impl Store {
     pub const SEED: &'static [u8] = b"Store";
     /// discriminator + 4 pubkeys + 3 × [u8;32]/pubkey + eid + id + bump + shared decimals,
-    /// plus headroom.
+    /// plus headroom. The partner fields (35 bytes) came out of that headroom, so the size — and
+    /// every store already created at it — is unchanged.
     pub const SIZE: usize = 8 + 32 + 4 + 32 + 32 + 32 + 32 + 32 + 32 + 8 + 1 + 1 + 32 + 64;
 }
 
@@ -139,4 +149,61 @@ pub struct NonceIndex {
 impl NonceIndex {
     pub const SEED: &'static [u8] = b"Nonce";
     pub const SIZE: usize = 8 + 8 + 32 + 32;
+}
+
+/// A partner — a wallet, exchange or app that owns its users and their KYC — allowed to route
+/// orders here. `[b"Partner", partner_id (big-endian)]`.
+#[account]
+pub struct Partner {
+    pub partner_id: u32,
+    /// Co-signs every order the partner approves.
+    pub signer: Pubkey,
+    /// Wallet whose token account receives this partner's fees.
+    pub fee_recipient: Pubkey,
+    /// The most this partner may charge on one order, in basis points.
+    pub max_fee_bps: u16,
+    pub active: bool,
+    pub bump: u8,
+}
+
+impl Partner {
+    pub const SEED: &'static [u8] = b"Partner";
+    pub const SIZE: usize = 8 + 4 + 32 + 32 + 2 + 1 + 1 + 32;
+}
+
+/// Where a request's fees stand. Numbered as `SwapRequest.FeeState` on EVM.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FeeState {
+    None = 0,
+    /// Held in the fee vault until the request settles.
+    Escrowed = 1,
+    /// The request filled; paid to the partner and the platform.
+    Paid = 2,
+    /// The request did not fill; returned to the user.
+    Returned = 3,
+}
+
+/// A partner order's fees, held until the request settles. `[b"Fee", request_id (big-endian)]`.
+///
+/// Separate from [`Request`] so a request's layout — which clients read at fixed offsets — is
+/// the same whether or not it came through a partner.
+#[account]
+pub struct FeeEscrow {
+    pub request_id: u64,
+    pub partner_id: u32,
+    pub user: Pubkey,
+    /// The input mint, which the fees are in.
+    pub mint: Pubkey,
+    /// Snapshotted at submission: the terms the user agreed to.
+    pub partner_recipient: Pubkey,
+    pub platform_recipient: Pubkey,
+    pub partner_fee: u64,
+    pub platform_fee: u64,
+    pub state: FeeState,
+    pub bump: u8,
+}
+
+impl FeeEscrow {
+    pub const SEED: &'static [u8] = b"Fee";
+    pub const SIZE: usize = 8 + 8 + 4 + 32 * 4 + 8 + 8 + 1 + 1 + 32;
 }

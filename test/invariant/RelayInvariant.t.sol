@@ -5,6 +5,7 @@ import { console2 } from "forge-std/console2.sol";
 import { RelayFixture } from "../helpers/RelayFixture.sol";
 import { TradeHandler } from "./handlers/TradeHandler.sol";
 import { SwapTypes } from "../../src/relay/SwapTypes.sol";
+import { SwapRequest } from "../../src/relay/SwapRequest.sol";
 import { SendParam, MessagingFee } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import { OptionsBuilder } from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
 
@@ -38,6 +39,9 @@ contract RelayInvariant is RelayFixture {
         super.setUp();
         _setUpRelay(STOCK_SUPPLY, QUOTE_SUPPLY, STOCK_FLOAT, QUOTE_FLOAT);
         router.setPrice(150e6); // 150 quote per stock to begin with
+        // Every order pays a platform fee, so escrow and release run through every path the
+        // fuzzer reaches: fills, refunds, stalls and late settlements.
+        request.setPlatformFee(25, makeAddr("platformTreasury"));
 
         for (uint256 i = 0; i < ACTOR_COUNT; i++) {
             address a = makeAddr(string(abi.encodePacked("trader", vm.toString(i))));
@@ -118,7 +122,7 @@ contract RelayInvariant is RelayFixture {
             uint64 id = handler.createdAt(i);
             if (!handler.seenSettled(id)) continue;
 
-            (, , , , , , , , uint64 settledAt, SwapTypes.Status status, , ) = request.requests(id);
+            (,,,,,,,, uint64 settledAt, SwapTypes.Status status,,) = request.requests(id);
             assertTrue(status != SwapTypes.Status.PENDING, "a settled request must never revert to PENDING");
             assertEq(settledAt, handler.firstSettledAt(id), "a request must never settle twice");
         }
@@ -133,8 +137,8 @@ contract RelayInvariant is RelayFixture {
         uint256 n = handler.createdCount();
         for (uint256 i = 0; i < n; i++) {
             uint64 id = handler.createdAt(i);
-            (address u, , address tokenIn, address tokenOut, uint256 amountIn, , , , , SwapTypes.Status st, , ) = request
-                .requests(id);
+            (address u,, address tokenIn, address tokenOut, uint256 amountIn,,,,, SwapTypes.Status st,,) =
+                request.requests(id);
 
             assertTrue(u != address(0), "a created request must have an owner");
             assertTrue(st != SwapTypes.Status.NONE, "a created request must never be in state NONE");
@@ -150,8 +154,34 @@ contract RelayInvariant is RelayFixture {
      *      which today are only recoverable by the owner's `sweep()`.
      */
     function invariant_swapRequestDoesNotAccumulate() public view {
-        assertEq(mirrorStock.balanceOf(address(request)), 0, "SwapRequest must not accumulate stock");
-        assertEq(mirrorQuote.balanceOf(address(request)), 0, "SwapRequest must not accumulate quote");
+        // It holds fees — escrowed for open orders, earned and not yet claimed — and nothing else.
+        assertEq(
+            mirrorStock.balanceOf(address(request)),
+            request.feesReserved(address(mirrorStock)),
+            "SwapRequest must hold exactly the stock fees it owes"
+        );
+        assertEq(
+            mirrorQuote.balanceOf(address(request)),
+            request.feesReserved(address(mirrorQuote)),
+            "SwapRequest must hold exactly the quote fees it owes"
+        );
+    }
+
+    /// @notice A fee is kept only for a fill; every other outcome returns it.
+    function invariant_feesFollowTheOutcome() public view {
+        for (uint256 i = 0; i < handler.createdCount(); i++) {
+            uint64 id = handler.createdAt(i);
+            (,,,,,,,,, SwapTypes.Status st,,) = request.requests(id);
+            SwapRequest.FeeEscrow memory f = request.getFees(id);
+            if (f.state == SwapRequest.FeeState.NONE) continue; // an order too small to carry a fee
+            if (st == SwapTypes.Status.PENDING) {
+                assertEq(uint8(f.state), uint8(SwapRequest.FeeState.ESCROWED), "pending: fee held");
+            } else if (st == SwapTypes.Status.FILLED) {
+                assertEq(uint8(f.state), uint8(SwapRequest.FeeState.PAID), "filled: fee earned");
+            } else {
+                assertEq(uint8(f.state), uint8(SwapRequest.FeeState.RETURNED), "not filled: fee returned");
+            }
+        }
     }
 
     /// @notice The relay may hold tokens, but never more than was ever minted of them.
@@ -169,7 +199,7 @@ contract RelayInvariant is RelayFixture {
         uint256 n = handler.createdCount();
         for (uint256 i = 0; i < n; i++) {
             uint64 id = handler.createdAt(i);
-            (, , , , , , uint256 amountOut, , , SwapTypes.Status st, , ) = request.requests(id);
+            (,,,,,, uint256 amountOut,,, SwapTypes.Status st,,) = request.requests(id);
             if (st == SwapTypes.Status.FILLED) {
                 assertGt(amountOut, 0, "a FILLED request must have delivered a non-zero amount");
             }
@@ -206,7 +236,9 @@ contract RelayInvariant is RelayFixture {
         uint256 fills = handler.fillsObserved();
         assertTrue(handler.tradeAnyActor(50), "epilogue: no actor could submit a satisfiable order");
         handler.deliver();
-        assertGt(handler.fillsObserved(), fills, "epilogue: a satisfiable order on a healthy venue did not fill");
+        assertGt(
+            handler.fillsObserved(), fills, "epilogue: a satisfiable order on a healthy venue did not fill"
+        );
 
         uint256 refunds = handler.refundsObserved();
         assertTrue(handler.tradeAnyActor(150), "epilogue: no actor could submit an unsatisfiable order");
@@ -228,11 +260,15 @@ contract RelayInvariant is RelayFixture {
         // And the run as a whole reached every path it claims to test.
         assertGt(handler.tradesSubmitted(), 0, "no trade was ever submitted - invariants passed vacuously");
         assertGt(handler.fillsObserved(), 0, "no trade ever filled - the success path was never tested");
-        assertGt(handler.refundsObserved(), 0, "no trade was ever refunded - the failure path was never tested");
+        assertGt(
+            handler.refundsObserved(), 0, "no trade was ever refunded - the failure path was never tested"
+        );
         assertGt(handler.callsStall(), 0, "the stalled-compose path was never exercised");
     }
 
     function _aggregate(bool isStock) internal view returns (uint256) {
-        return isStock ? homeStock.totalSupply() + mirrorStock.totalSupply() : homeQuote.totalSupply() + mirrorQuote.totalSupply();
+        return isStock
+            ? homeStock.totalSupply() + mirrorStock.totalSupply()
+            : homeQuote.totalSupply() + mirrorQuote.totalSupply();
     }
 }

@@ -9,7 +9,7 @@ Status:
   - the live issuer dashboard;
   - trade history;
   - CI.
-- **Wallets and live trading (phase 2c) are next,** on their own branch.
+- **Phase 2c, partner distribution, is in progress.** The contracts, SDK and partner API are on `feature/partner-access-and-fees`. The reference trading page and the sandbox come next.
 
 This document is the plan for the rest.
 
@@ -140,17 +140,27 @@ What the poller does not see yet:
 - History lives on the one server that polls. A hosted indexer (Ponder, Envio, Helius) becomes
   worth it with many deployments or many servers.
 
-#### Still to do: 2c (wallets and trading)
+#### Still to do: 2c (partner distribution)
 
-- **Wallets.** wagmi + viem on EVM, and Solana wallet adapter on Solana, behind one "connect"
-  control that shows the chain the user is on.
-- **Trading app goes live.**
-  - Live quotes, taken from the home pool the same way the relay quotes: Uniswap quoter; Orca's
-    swap maths on Solana.
-  - Messaging fee from `quoteTrade` / the OFT quote.
-  - Approve and submit, then a request tracker (sent → priced at home → settled back), and a
-    user-facing refund/stranded/cancelled state with what happens next.
-- **Supply page.** Delivered in 2b, on the deployment page.
+The product decision: **partners distribute and we provide the endpoints.** Wallets, exchanges
+and apps own their users, and those users' KYC. CrossStock provides the buy and sell endpoints,
+and the contracts enforce that orders come through a registered partner. See `PARTNERS.md`.
+
+1. **Contracts: partner access and fees.** Done, on `feature/partner-access-and-fees`:
+   - EIP-712 authorisation on EVM, co-signing on Solana;
+   - `partnerRequired`;
+   - escrowed partner and platform fees, kept only on a fill.
+2. **Partner SDK and API.** Done, on the same branch:
+   - `@crossstock/sdk`;
+   - `/api/v1`: descriptor, exact quotes, order building, tracking and order lists;
+   - API keys and rate limits;
+   - signed webhooks (`npm run webhooks`).
+   See `PARTNERS.md`. Positions (balances across chains) are still to do.
+3. **Reference trading page.** `/trade` rebuilt on the SDK, with wallet connection:
+   - wagmi + viem, and the Solana wallet adapter;
+   - live quotes and the request tracker.
+   It doubles as the demo for partners.
+4. **Partner docs and a sandbox**: a hosted testnet and test tokens.
 
 ### Phase 3 — issuer operations from the browser
 
