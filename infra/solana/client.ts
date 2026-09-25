@@ -9,8 +9,12 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import {
+  AddressLookupTableProgram,
   ComputeBudgetProgram,
   Keypair,
+  TransactionMessage,
+  VersionedTransaction,
+  type AddressLookupTableAccount,
   PublicKey,
   SystemProgram,
   Transaction,
@@ -269,16 +273,75 @@ export class SolanaSwapClient {
       ],
       data: Buffer.concat([discriminator("open_request_via_partner"), o.params, fee]),
     });
-    const tx = new Transaction().add(
+    const instructions = [
       ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
       createAtaIdempotent(user.publicKey, this.store, o.tokenIn),
       createAtaIdempotent(user.publicKey, this.feeVault(), o.tokenIn),
-      ix
-    );
-    tx.feePayer = user.publicKey;
-    const signature = await this.chain.connection.sendTransaction(tx, [user, partnerSigner]);
-    await this.chain.connection.confirmTransaction(signature, "confirmed");
+      ix,
+    ];
+    // A second signature and the partner's accounts take this past Solana's 1,232-byte packet
+    // limit as a legacy transaction, so it goes as a v0 transaction that names the static
+    // LayerZero and OFT accounts through a lookup table (one byte each instead of 32).
+    const lut = await this.lookupTable(user, instructions);
+    const conn = this.chain.connection;
+    const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
+    const message = new TransactionMessage({ payerKey: user.publicKey, recentBlockhash: blockhash, instructions }).compileToV0Message([lut]);
+    const tx = new VersionedTransaction(message);
+    tx.sign([user, partnerSigner]);
+    const signature = await conn.sendTransaction(tx);
+    await conn.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
     return { requestId: o.requestId, signature, nativeFee: o.nativeFee };
+  }
+
+  private lut: AddressLookupTableAccount | null = null;
+
+  /**
+   * An address lookup table holding the accounts every order names: the programs, mints, store,
+   * escrows, and the OFT send's LayerZero accounts. Created once per client and reused; what a
+   * production deployment would publish alongside its program ids.
+   *
+   * Per-order accounts (the request, its nonce index and fee escrow) and signers are left out:
+   * they differ every time, and a signer cannot be looked up.
+   */
+  private async lookupTable(payer: Keypair, instructions: TransactionInstruction[]): Promise<AddressLookupTableAccount> {
+    if (this.lut) return this.lut;
+    const conn = this.chain.connection;
+    const signers = new Set(instructions.flatMap((i) => i.keys.filter((k) => k.isSigner).map((k) => k.pubkey.toBase58())));
+    const perOrder = new Set(instructions.at(-1)!.keys.slice(2, 4).map((k) => k.pubkey.toBase58())); // request, nonce index
+    const addresses = [
+      ...new Set(
+        instructions
+          .flatMap((i) => [i.programId, ...i.keys.map((k) => k.pubkey)])
+          .map((k) => k.toBase58())
+          .filter((k) => !signers.has(k) && !perOrder.has(k))
+      ),
+    ].map((k) => new PublicKey(k));
+
+    const [create, table] = AddressLookupTableProgram.createLookupTable({
+      authority: payer.publicKey,
+      payer: payer.publicKey,
+      recentSlot: await conn.getSlot("finalized"),
+    });
+    const send = async (ix: TransactionInstruction) => {
+      const sig = await conn.sendTransaction(new Transaction().add(ix), [payer]);
+      await conn.confirmTransaction(sig, "confirmed");
+    };
+    await send(create);
+    for (let i = 0; i < addresses.length; i += 20) {
+      await send(
+        AddressLookupTableProgram.extendLookupTable({
+          lookupTable: table,
+          authority: payer.publicKey,
+          payer: payer.publicKey,
+          addresses: addresses.slice(i, i + 20),
+        })
+      );
+    }
+    // A table's new entries are usable from the slot after they were added.
+    const extendedAt = await conn.getSlot("confirmed");
+    while ((await conn.getSlot("confirmed")) <= extendedAt) await new Promise((r) => setTimeout(r, 200));
+    this.lut = (await conn.getAddressLookupTable(table)).value!;
+    return this.lut;
   }
 
   /**

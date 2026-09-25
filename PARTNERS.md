@@ -65,7 +65,13 @@ partner's registered authoriser key:
 The program refuses a transaction that isn't co-signed by the registered key
 (`InvalidPartnerSigner`), or whose fee is above the partner's ceiling.
 
-`infra/solana/client.ts` has `openRequestViaPartner`.
+**Send it as a v0 transaction with an address lookup table.** A partner order carries a second
+signature plus the partner's and escrow accounts. Together with the OFT send's LayerZero
+accounts, that is about 1,370 bytes as a legacy transaction, above Solana's 1,232-byte limit.
+A lookup table holding the static accounts brings it well under: programs, mints, store,
+escrows, and the endpoint and library accounts. `infra/solana/client.ts` has
+`openRequestViaPartner`, which builds one. A production deployment would publish its table
+next to its program ids.
 
 ## Fees
 
