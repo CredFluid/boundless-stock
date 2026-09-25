@@ -109,7 +109,7 @@ function LandingHeader() {
           <a href="#platform" className="hover:text-fg">Platform</a>
           <a href="#compliance" className="hover:text-fg">Distribution</a>
           <a href="#security" className="hover:text-fg">Controls</a>
-          <a href="#developers" className="hover:text-fg">Developers</a>
+          <Link href="/docs" className="hover:text-fg">Docs</Link>
           <a href={REPO} className="hover:text-fg">GitHub</a>
         </nav>
         <Link href="/app" className="rounded-lg bg-fg px-4 py-2 text-sm font-medium text-bg hover:opacity-90">
@@ -148,7 +148,7 @@ export default function Landing() {
               <Link href="/app/launch" className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-accent-contrast hover:opacity-90">
                 Launch an asset <ArrowRight size={16} aria-hidden />
               </Link>
-              <a href="#developers" className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface/60 px-5 py-3 text-sm font-medium hover:bg-surface-2">
+              <a href="/docs" className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface/60 px-5 py-3 text-sm font-medium hover:bg-surface-2">
                 <Terminal size={16} aria-hidden /> Start building
               </a>
             </div>
@@ -522,7 +522,7 @@ export default function Landing() {
           </div>
           {[
             { title: "Product", links: [["Issuer console", "/app"], ["Launch an asset", "/app/launch"], ["Operations and controls", "/app/operations"], ["Partner trading preview", "/trade"]] },
-            { title: "Developers", links: [["GitHub", REPO], ["Partner SDK and API", `${REPO}/blob/main/PARTNERS.md`], ["Overview", `${REPO}#readme`]] },
+            { title: "Developers", links: [["Developer docs", "/docs"], ["Partner SDK and API", "/docs#sdk"], ["GitHub", REPO]] },
             { title: "Assurance", links: [["Proof of reserves", `${REPO}/blob/main/PROOF_OF_RESERVES.md`], ["Validation report", `${REPO}/blob/main/REPORT.md`]] },
           ].map((col) => (
             <div key={col.title}>

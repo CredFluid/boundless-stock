@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutGrid, Rocket, ShieldCheck, ArrowLeftRight } from "lucide-react";
+import { LayoutGrid, Rocket, ShieldCheck, ArrowLeftRight, BookOpen } from "lucide-react";
 import { cx } from "./ui";
 
 const ITEMS = [
@@ -10,6 +10,7 @@ const ITEMS = [
   { href: "/app/launch", label: "Launch an asset", icon: Rocket },
   { href: "/app/operations", label: "Operations and controls", icon: ShieldCheck },
   { href: "/trade", label: "Partner preview", icon: ArrowLeftRight },
+  { href: "/docs", label: "Developer docs", icon: BookOpen },
 ];
 
 export function AppNav() {

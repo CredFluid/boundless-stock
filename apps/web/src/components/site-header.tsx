@@ -16,6 +16,7 @@ export function SiteHeader() {
         <Logo />
         <nav className="flex items-center gap-1 text-sm">
           <Link href="/#platform" className="hidden rounded-md px-3 py-1.5 text-muted hover:text-fg sm:block">Platform</Link>
+          <Link href="/docs" className="rounded-md px-3 py-1.5 text-muted hover:text-fg">Docs</Link>
           <Link href="/trade" className="rounded-md px-3 py-1.5 text-muted hover:text-fg">Partner preview</Link>
           <Link href="/app" className="rounded-md bg-accent px-3 py-1.5 font-medium text-accent-contrast hover:opacity-90">Issuer console</Link>
         </nav>
