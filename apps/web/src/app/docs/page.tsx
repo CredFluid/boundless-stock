@@ -7,7 +7,7 @@ export const metadata = { title: "Developer docs" };
 /* ------------------------------------------------------------------------------------ layout */
 
 const NAV: { group: string; items: [id: string, label: string][] }[] = [
-  { group: "Get started", items: [["introduction", "Introduction"], ["quickstart", "Quickstart"], ["how-it-works", "How it works"]] },
+  { group: "Get started", items: [["introduction", "Introduction"], ["data-layer", "The data layer"], ["quickstart", "Quickstart"], ["how-it-works", "How it works"]] },
   {
     group: "Concepts",
     items: [
@@ -144,6 +144,24 @@ export default function Docs() {
               </a>
             ))}
           </div>
+
+          {/* ------------------------------------------------------------ data layer */}
+          <H2 id="data-layer">The data layer</H2>
+          <P>Boundless Stock issues the asset and carries every move between chains, so it is one source of truth for every tokenized asset on every chain. Every figure except the share count is measured from chain state, not reported by the issuer.</P>
+          <Table
+            head={["Data", "What it answers", "For"]}
+            rows={[
+              ["Proof of reserves", "Is the asset fully backed? Shares held against supply issued on every chain.", "Lending protocols, custodians, wallets"],
+              ["Supply across chains", "Where does the supply sit? Per chain and in transit, reconciled.", "Auditors, explorers, issuers"],
+              ["Reference price", "What is it worth? Price, depth and a time-averaged price from the Solana market.", "Lending, perpetuals, wallets"],
+              ["Premium or discount", "Does the token trade at fair value against the underlying share?", "Market makers, risk teams"],
+              ["Holders", "How many hold it, how concentrated, on which chains?", "Issuers, analytics"],
+              ["Flows and volume", "Movements between chains; volume by chain and by partner.", "Issuers, partners, analytics"],
+              ["Order and settlement status", "What happened to an order?", "Partners, support teams"],
+              ["Asset reference data", "Ticker, ISIN, share ratio, splits and dividends.", "Everyone integrating"],
+              ["Market status", "Is the underlying market open, closed or halted?", "Lending, market makers"],
+            ]}
+          />
 
           {/* ------------------------------------------------------------ quickstart */}
           <H2 id="quickstart">Quickstart</H2>

@@ -111,6 +111,28 @@ the order is refunded, cancelled or stranded.
 | **Proof of reserves** | Supply across every chain, in flight included, checked continuously against the shares held by the custodian, issuer or an oracle: issued ≤ held. See [`PROOF_OF_RESERVES.md`](PROOF_OF_RESERVES.md). |
 | **Solana as the home chain** | The market, the liquidity and the operations live on Solana. Other chains, EVM chains and other Solana chains alike, connect to it as spokes. |
 
+## The data layer for tokenized assets
+
+Boundless Stock issues the asset and carries every move between chains, so it sees what no
+single-chain explorer can: the backing, the supply in transit, and where the asset sits and
+trades. That makes it **one source of truth for every tokenized asset, on every chain**. Every
+figure except the share count is measured from chain state, not reported by the issuer.
+
+| Data | What it answers |
+|---|---|
+| **Proof of reserves** | Is the asset fully backed? Shares held against supply issued on every chain, with the source and date of attestation. |
+| **Supply across chains** | Where does the supply sit? Per chain and in transit, reconciled against what was issued. |
+| **Reference price** | What is it worth? Price and depth from the reference market on Solana, and a time-averaged price for any chain. |
+| **Premium or discount** | Does the token trade at fair value against the underlying share? |
+| **Holders** | How many hold it, how concentrated, on which chains? |
+| **Flows and volume** | Where is demand? Movements between chains, and volume by chain and by partner. |
+| **Order and settlement status** | What happened to an order? Filled, refunded, held or cancelled, by API and webhook. |
+| **Asset reference data** | Ticker, ISIN, share ratio, and corporate actions such as splits and dividends. |
+| **Market status** | Is the underlying market open, closed or halted? |
+
+It is built for lending protocols, wallets and exchanges, custodians and auditors, market
+makers, analytics platforms and explorers, and the issuers themselves.
+
 ## For developers
 
 Issuers bring the stock. Developers bring the users. Any wallet, exchange, neobank or trading

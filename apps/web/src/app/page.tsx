@@ -5,7 +5,11 @@ import {
   Building2,
   CheckCircle2,
   BadgeCheck,
+  Activity,
+  CalendarClock,
   Coins,
+  LineChart,
+  Users,
   FileCheck2,
   Handshake,
   Receipt,
@@ -71,6 +75,19 @@ const LIFECYCLE = [
   { n: "04", title: "Reconcile", body: "Every unit is counted on every chain, in transit included, and checked against the shares that back the asset." },
 ];
 
+/* What the data layer serves. Every figure but the share count is measured from chain state. */
+const DATA = [
+  { icon: BadgeCheck, title: "Proof of reserves", body: "Shares held against supply issued on every chain: coverage, source and date of attestation." },
+  { icon: Layers, title: "Supply across chains", body: "Supply per chain and in transit between chains, reconciled against what was issued." },
+  { icon: LineChart, title: "Reference price", body: "Price and depth from the reference market on Solana, and a time-averaged price to value the asset on any chain." },
+  { icon: Scale, title: "Premium or discount", body: "The token's price against the underlying share, so a gap is visible the moment it opens." },
+  { icon: Users, title: "Holders", body: "How many hold the asset and how concentrated it is, per chain and in total." },
+  { icon: Activity, title: "Flows and volume", body: "Movements between chains, and volume by chain and by distribution partner." },
+  { icon: CheckCircle2, title: "Order and settlement status", body: "Every order's outcome, filled, refunded, held or cancelled, by API and signed webhook." },
+  { icon: FileCheck2, title: "Asset reference data", body: "Ticker, ISIN, share ratio and corporate actions such as splits and dividends." },
+  { icon: CalendarClock, title: "Market status", body: "Whether the underlying market is open, closed or halted, for anyone pricing the asset." },
+];
+
 const COMPLIANCE = [
   { icon: Handshake, title: "Partner-gated orders", body: "Switch on the partner gate and only orders approved by a registered partner get in. The partner runs KYC on its own users; on Solana it co-signs each order." },
   { icon: Receipt, title: "Fees only on a fill", body: "Partner and platform fees are held in escrow and paid out only when an order fills. A refunded or cancelled order returns them in full." },
@@ -108,7 +125,7 @@ function LandingHeader() {
         <nav className="hidden items-center gap-7 text-sm text-muted md:flex">
           <a href="#platform" className="hover:text-fg">Platform</a>
           <a href="#compliance" className="hover:text-fg">Distribution</a>
-          <a href="#reserves" className="hover:text-fg">Reserves</a>
+          <a href="#data" className="hover:text-fg">Data</a>
           <a href="#security" className="hover:text-fg">Controls</a>
           <Link href="/docs" className="hover:text-fg">Docs</Link>
           <a href={REPO} className="hover:text-fg">GitHub</a>
@@ -134,7 +151,7 @@ export default function Landing() {
           <div>
             <a href="#platform" className="enter enter-1 inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pr-3 pl-1 text-xs text-muted hover:text-fg">
               <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">RWA</span>
-              For issuers, asset managers and their distribution partners
+              Issuance, distribution and the data layer for tokenized assets
               <ArrowRight size={12} aria-hidden />
             </a>
             <h1 className="enter enter-2 mt-7 text-5xl font-semibold leading-[1.02] tracking-tight text-balance md:text-7xl">
@@ -251,12 +268,10 @@ export default function Landing() {
           <Reveal delay={200}>
             <div className="grid h-full gap-4 sm:grid-cols-2">
               {USE_CASES.map((u) => (
-                <div key={u.title} className={`lift flex flex-col rounded-2xl border bg-surface p-6 ${u.roadmap ? "border-dashed border-line" : "border-line hover:border-evm/60"}`}>
+                <div key={u.title} className="lift flex flex-col rounded-2xl border border-line bg-surface p-6 hover:border-evm/60">
                   <div className="flex items-center justify-between">
-                    <u.icon size={18} className={u.roadmap ? "text-muted" : "text-evm"} aria-hidden />
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] ${u.roadmap ? "bg-surface-2 text-muted" : "bg-evm-soft text-evm"}`}>
-                      {u.roadmap ? "Roadmap" : "Live"}
-                    </span>
+                    <u.icon size={18} className="text-evm" aria-hidden />
+
                   </div>
                   <h3 className="mt-5 font-semibold">{u.title}</h3>
                   <p className="mt-1.5 text-sm leading-relaxed text-muted">{u.body}</p>
@@ -330,6 +345,40 @@ export default function Landing() {
             </div></Reveal>
           ))}
         </div>
+      </section>
+
+      {/* ================================================================ data layer */}
+      <section id="data" className="scroll-mt-20 mx-auto max-w-7xl px-5 pb-24">
+        <div className="grid gap-6 lg:grid-cols-[1fr_1fr] lg:items-end">
+          <Reveal>
+            <Eyebrow>The data layer for tokenized assets</Eyebrow>
+            <h2 className="mt-4 text-4xl font-semibold tracking-tight text-balance md:text-5xl">One source of truth for every tokenized asset, on every chain.</h2>
+          </Reveal>
+          <Reveal delay={120}>
+            <p className="text-lg text-muted">
+              Boundless Stock issues the asset and carries every move between chains, so it sees what no single-chain explorer
+              can: backing, supply in transit, and where the asset sits and trades. Every figure except the share count is
+              measured from chain state, not reported by the issuer.
+            </p>
+          </Reveal>
+        </div>
+        <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
+          {DATA.map((d, i) => (
+            <Reveal key={d.title} delay={(i % 3) * 90} className="bg-surface"><div className="h-full p-6 transition-colors hover:bg-surface-2">
+              <d.icon size={18} className="text-accent" aria-hidden />
+              <h3 className="mt-4 font-semibold">{d.title}</h3>
+              <p className="mt-1.5 text-sm leading-relaxed text-muted">{d.body}</p>
+            </div></Reveal>
+          ))}
+        </div>
+        <Reveal delay={100}>
+          <div className="mt-6 flex flex-wrap items-center gap-2 text-sm">
+            <span className="mr-2 font-mono text-xs uppercase tracking-[0.18em] text-muted">Built for</span>
+            {["Lending protocols", "Wallets and exchanges", "Custodians and auditors", "Market makers", "Analytics and explorers", "Issuers"].map((a) => (
+              <span key={a} className="rounded-md border border-line bg-surface px-3 py-1.5 text-muted">{a}</span>
+            ))}
+          </div>
+        </Reveal>
       </section>
 
       {/* ================================================================ proof of reserves */}
