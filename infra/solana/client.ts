@@ -6,7 +6,8 @@
  * carry every account that send — and the endpoint and message library beneath it — will
  * touch. Those are derived with LayerZero's own OFT SDK rather than listed by hand.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import {
   AddressLookupTableProgram,
@@ -29,6 +30,7 @@ import type { DeploymentConfig } from "../lib/types.js";
 import { SolanaChain } from "./chain.js";
 import { lzLocal } from "./lz-local.js";
 import { solanaManifestPath, toBytes32, type SolanaDeployment } from "./setup.js";
+import { repoRoot } from "../lib/root.js";
 
 export const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 export const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -223,7 +225,7 @@ export class SolanaSwapClient {
     minAmountOut: bigint,
     options: Hex
   ): Promise<{ requestId: bigint; signature: string; nativeFee: bigint }> {
-    const o = await this.buildOpen(user, direction, amountIn, minAmountOut, options);
+    const o = await this.buildOpen(user.publicKey, direction, amountIn, minAmountOut, options);
     const ix = new TransactionInstruction({
       programId: this.program,
       keys: [...o.baseKeys, ...o.remaining],
@@ -256,67 +258,156 @@ export class SolanaSwapClient {
     minAmountOut: bigint,
     options: Hex
   ): Promise<{ requestId: bigint; signature: string; nativeFee: bigint }> {
+    const built = await this.buildPartnerOrder(
+      user.publicKey, partnerSigner.publicKey, partnerId, feeBps, direction, amountIn, minAmountOut, options
+    );
+    built.tx.sign([user, partnerSigner]);
+    const signature = await this.submit(built.tx);
+    return { requestId: built.requestId, signature, nativeFee: built.nativeFee };
+  }
+
+  /**
+   * A partner order as an unsigned v0 transaction: what the partner API hands out. The user is
+   * the fee payer; the partner's authoriser and the user sign it, in either order.
+   *
+   * A second signature and the partner's accounts take it past Solana's 1,232-byte packet
+   * limit as a legacy transaction, so it names the static LayerZero and OFT accounts through
+   * the deployment's lookup table (one byte each instead of 32).
+   */
+  async buildPartnerOrder(
+    user: PublicKey,
+    partnerSigner: PublicKey,
+    partnerId: number,
+    feeBps: number,
+    direction: SolanaDirection,
+    amountIn: bigint,
+    minAmountOut: bigint,
+    options: Hex
+  ): Promise<{ tx: VersionedTransaction; requestId: bigint; nativeFee: bigint; lookupTable: PublicKey; blockhash: string }> {
+    const { instructions, requestId, nativeFee } = await this.partnerInstructions(
+      user, partnerSigner, partnerId, feeBps, direction, amountIn, minAmountOut, options
+    );
+    const lut = await this.lookupTable();
+    const { blockhash } = await this.chain.connection.getLatestBlockhash("confirmed");
+    const message = new TransactionMessage({ payerKey: user, recentBlockhash: blockhash, instructions }).compileToV0Message([lut]);
+    return { tx: new VersionedTransaction(message), requestId, nativeFee, lookupTable: lut.key, blockhash };
+  }
+
+  /** A plain order (no partner) as an unsigned v0 transaction, for a deployment that allows them. */
+  async buildOpenOrder(
+    user: PublicKey,
+    direction: SolanaDirection,
+    amountIn: bigint,
+    minAmountOut: bigint,
+    options: Hex
+  ): Promise<{ tx: VersionedTransaction; requestId: bigint; nativeFee: bigint; lookupTable: PublicKey }> {
+    const o = await this.buildOpen(user, direction, amountIn, minAmountOut, options);
+    const instructions = [
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+      createAtaIdempotent(user, this.store, o.tokenIn),
+      new TransactionInstruction({
+        programId: this.program,
+        keys: [...o.baseKeys, ...o.remaining],
+        data: Buffer.concat([discriminator("open_request"), o.params]),
+      }),
+    ];
+    const lut = await this.lookupTable();
+    const { blockhash } = await this.chain.connection.getLatestBlockhash("confirmed");
+    const message = new TransactionMessage({ payerKey: user, recentBlockhash: blockhash, instructions }).compileToV0Message([lut]);
+    return { tx: new VersionedTransaction(message), requestId: o.requestId, nativeFee: o.nativeFee, lookupTable: lut.key };
+  }
+
+  /** Sends a fully signed transaction and waits for it to confirm. */
+  async submit(tx: VersionedTransaction): Promise<string> {
+    const conn = this.chain.connection;
+    const signature = await conn.sendTransaction(tx);
+    const { lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
+    await conn.confirmTransaction({ signature, blockhash: tx.message.recentBlockhash, lastValidBlockHeight }, "confirmed");
+    return signature;
+  }
+
+  private async partnerInstructions(
+    user: PublicKey,
+    partnerSigner: PublicKey,
+    partnerId: number,
+    feeBps: number,
+    direction: SolanaDirection,
+    amountIn: bigint,
+    minAmountOut: bigint,
+    options: Hex
+  ): Promise<{ instructions: TransactionInstruction[]; requestId: bigint; nativeFee: bigint }> {
     const o = await this.buildOpen(user, direction, amountIn, minAmountOut, options);
     const fee = Buffer.alloc(2);
     fee.writeUInt16LE(feeBps);
-    const vaultAta = ataOf(this.feeVault(), o.tokenIn);
     const ix = new TransactionInstruction({
       programId: this.program,
       keys: [
         ...o.baseKeys,
-        { pubkey: partnerSigner.publicKey, isSigner: true, isWritable: false },
+        { pubkey: partnerSigner, isSigner: true, isWritable: false },
         { pubkey: this.partnerAddress(partnerId), isSigner: false, isWritable: false },
         { pubkey: this.feeEscrowAddress(o.requestId), isSigner: false, isWritable: true },
-        { pubkey: vaultAta, isSigner: false, isWritable: true },
+        { pubkey: ataOf(this.feeVault(), o.tokenIn), isSigner: false, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ...o.remaining,
       ],
       data: Buffer.concat([discriminator("open_request_via_partner"), o.params, fee]),
     });
-    const instructions = [
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-      createAtaIdempotent(user.publicKey, this.store, o.tokenIn),
-      createAtaIdempotent(user.publicKey, this.feeVault(), o.tokenIn),
-      ix,
-    ];
-    // A second signature and the partner's accounts take this past Solana's 1,232-byte packet
-    // limit as a legacy transaction, so it goes as a v0 transaction that names the static
-    // LayerZero and OFT accounts through a lookup table (one byte each instead of 32).
-    const lut = await this.lookupTable(user, instructions);
-    const conn = this.chain.connection;
-    const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
-    const message = new TransactionMessage({ payerKey: user.publicKey, recentBlockhash: blockhash, instructions }).compileToV0Message([lut]);
-    const tx = new VersionedTransaction(message);
-    tx.sign([user, partnerSigner]);
-    const signature = await conn.sendTransaction(tx);
-    await conn.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
-    return { requestId: o.requestId, signature, nativeFee: o.nativeFee };
+    return {
+      instructions: [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+        createAtaIdempotent(user, this.store, o.tokenIn),
+        createAtaIdempotent(user, this.feeVault(), o.tokenIn),
+        ix,
+      ],
+      requestId: o.requestId,
+      nativeFee: o.nativeFee,
+    };
   }
 
   private lut: AddressLookupTableAccount | null = null;
 
   /**
-   * An address lookup table holding the accounts every order names: the programs, mints, store,
-   * escrows, and the OFT send's LayerZero accounts. Created once per client and reused; what a
-   * production deployment would publish alongside its program ids.
+   * The deployment's address lookup table for this chain: every account an order names that is
+   * the same for all orders, in both directions — programs, mints, the store, escrows, the fee
+   * vault's accounts, and the OFT sends' LayerZero accounts. What a production deployment
+   * publishes alongside its program ids.
    *
-   * Per-order accounts (the request, its nonce index and fee escrow) and signers are left out:
-   * they differ every time, and a signer cannot be looked up.
+   * Created once by the operator's key (this chain's payer) and recorded under
+   * `.crossstock/lut/`, so every process reuses it. A recorded table that no longer exists — local
+   * chains restarted — is replaced.
    */
-  private async lookupTable(payer: Keypair, instructions: TransactionInstruction[]): Promise<AddressLookupTableAccount> {
+  async lookupTable(): Promise<AddressLookupTableAccount> {
     if (this.lut) return this.lut;
     const conn = this.chain.connection;
-    const signers = new Set(instructions.flatMap((i) => i.keys.filter((k) => k.isSigner).map((k) => k.pubkey.toBase58())));
-    const perOrder = new Set(instructions.at(-1)!.keys.slice(2, 4).map((k) => k.pubkey.toBase58())); // request, nonce index
-    const addresses = [
-      ...new Set(
-        instructions
-          .flatMap((i) => [i.programId, ...i.keys.map((k) => k.pubkey)])
-          .map((k) => k.toBase58())
-          .filter((k) => !signers.has(k) && !perOrder.has(k))
-      ),
-    ].map((k) => new PublicKey(k));
+    const record = resolve(repoRoot(), ".crossstock", "lut", `${this.deployment.name}.${this.chain.config.key}.json`);
+    if (existsSync(record)) {
+      const { address } = JSON.parse(readFileSync(record, "utf8")) as { address: string };
+      const found = (await conn.getAddressLookupTable(new PublicKey(address))).value;
+      if (found) return (this.lut = found);
+    }
 
+    // Sample orders in both directions, from a throwaway user and partner, give the full set.
+    // The OFT fee quote simulates with the user as fee payer, so the sample user must exist:
+    // the operator's own key. It is excluded from the table like any signer.
+    const [sampleUser, samplePartner] = [this.chain.payer.publicKey, Keypair.generate().publicKey];
+    const perOrder = new Set<string>();
+    const keys = new Set<string>();
+    for (const dir of [SolanaDirection.Buy, SolanaDirection.Sell]) {
+      const { instructions, requestId } = await this.partnerInstructions(
+        sampleUser, samplePartner, 1, 0, dir, 1_000_000n, 1n, "0x"
+      );
+      [this.requestAddress(requestId), this.feeEscrowAddress(requestId), this.partnerAddress(1)].forEach((k) => perOrder.add(k.toBase58()));
+      const main = instructions.at(-1)!;
+      perOrder.add(main.keys[3].pubkey.toBase58()); // nonce index
+      for (const i of instructions) {
+        keys.add(i.programId.toBase58());
+        for (const k of i.keys) if (!k.isSigner) keys.add(k.pubkey.toBase58());
+      }
+    }
+    for (const side of ["base", "quote"] as const) perOrder.add(ataOf(sampleUser, this.mint(side)).toBase58());
+    const addresses = [...keys].filter((k) => !perOrder.has(k) && k !== sampleUser.toBase58()).map((k) => new PublicKey(k));
+
+    const payer = this.chain.payer;
     const [create, table] = AddressLookupTableProgram.createLookupTable({
       authority: payer.publicKey,
       payer: payer.publicKey,
@@ -340,6 +431,8 @@ export class SolanaSwapClient {
     // A table's new entries are usable from the slot after they were added.
     const extendedAt = await conn.getSlot("confirmed");
     while ((await conn.getSlot("confirmed")) <= extendedAt) await new Promise((r) => setTimeout(r, 200));
+    mkdirSync(dirname(record), { recursive: true });
+    writeFileSync(record, JSON.stringify({ address: table.toBase58(), addresses: addresses.length }, null, 2) + "\n");
     this.lut = (await conn.getAddressLookupTable(table)).value!;
     return this.lut;
   }
@@ -349,7 +442,7 @@ export class SolanaSwapClient {
    * accounts, the OFT send's accounts, and the encoded `OpenRequestParams`.
    */
   private async buildOpen(
-    user: Keypair,
+    user: PublicKey,
     direction: SolanaDirection,
     amountIn: bigint,
     minAmountOut: bigint,
@@ -374,7 +467,7 @@ export class SolanaSwapClient {
     const { nativeFee } = await oft.quote(
       lzLocal(this.chain).rpc,
       {
-        payer: publicKey(user.publicKey.toBase58()),
+        payer: publicKey(user.toBase58()),
         tokenMint: publicKey(tokenIn.toBase58()),
         tokenEscrow: publicKey(inAsset.escrow),
       },
@@ -396,7 +489,7 @@ export class SolanaSwapClient {
     const oftIx = await oft.send(
       lzLocal(this.chain).rpc,
       {
-        payer: createNoopSigner(publicKey(user.publicKey.toBase58())),
+        payer: createNoopSigner(publicKey(user.toBase58())),
         tokenMint: publicKey(tokenIn.toBase58()),
         tokenEscrow: publicKey(inAsset.escrow),
         tokenSource: publicKey(storeEscrow.toBase58()),
@@ -414,7 +507,7 @@ export class SolanaSwapClient {
     const remaining = toWeb3JsInstruction(oftIx.instruction).keys.map((k, i) =>
       i === 0
         ? { pubkey: this.store, isSigner: false, isWritable: k.isWritable }
-        : { ...k, isSigner: k.pubkey.equals(user.publicKey) }
+        : { ...k, isSigner: k.pubkey.equals(user) }
     );
 
     const len = Buffer.alloc(4);
@@ -430,19 +523,30 @@ export class SolanaSwapClient {
     ]);
 
     const baseKeys = [
-      { pubkey: user.publicKey, isSigner: true, isWritable: true },
+      { pubkey: user, isSigner: true, isWritable: true },
       { pubkey: this.store, isSigner: false, isWritable: true },
       { pubkey: this.requestAddress(requestId), isSigner: false, isWritable: true },
       { pubkey: nonceIndex, isSigner: false, isWritable: true },
       { pubkey: tokenIn, isSigner: false, isWritable: false },
       { pubkey: tokenOut, isSigner: false, isWritable: false },
-      { pubkey: ataOf(user.publicKey, tokenIn), isSigner: false, isWritable: true },
+      { pubkey: ataOf(user, tokenIn), isSigner: false, isWritable: true },
       { pubkey: storeEscrow, isSigner: false, isWritable: true },
       { pubkey: new PublicKey(this.deployment.programs.oft), isSigner: false, isWritable: false },
       { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ];
     return { requestId, nativeFee, tokenIn, params, baseKeys, remaining };
+  }
+
+  /** The native fee an order would pay for its leg home, in lamports. */
+  async quoteMessagingFee(user: PublicKey, direction: SolanaDirection, amountIn: bigint, options: Hex): Promise<bigint> {
+    return (await this.buildOpen(user, direction, amountIn, 1n, options)).nativeFee;
+  }
+
+  /** The OFTs' cross-chain precision, as this store records it. */
+  async sharedDecimals(): Promise<number> {
+    const d = (await this.chain.connection.getAccountInfo(this.store))!.data;
+    return d[8 + 32 + 4 + 32 * 6 + 8 + 1]; // after next_request_id and bump
   }
 
   // ------------------------------------------------------------------ partners and fees
@@ -455,6 +559,20 @@ export class SolanaSwapClient {
 
   feeEscrowAddress(requestId: bigint): PublicKey {
     return PublicKey.findProgramAddressSync([Buffer.from("Fee"), u64be(requestId)], this.program)[0];
+  }
+
+  /** A registered partner, or null if the id has never been registered. */
+  async getPartner(partnerId: number): Promise<{ signer: PublicKey; feeRecipient: PublicKey; maxFeeBps: number; active: boolean } | null> {
+    const info = await this.chain.connection.getAccountInfo(this.partnerAddress(partnerId));
+    if (!info) return null;
+    const d = info.data;
+    // discriminator | partner_id u32 | signer | fee_recipient | max_fee_bps u16 | active u8
+    return {
+      signer: new PublicKey(d.subarray(12, 44)),
+      feeRecipient: new PublicKey(d.subarray(44, 76)),
+      maxFeeBps: d.readUInt16LE(76),
+      active: d[78] === 1,
+    };
   }
 
   /** The PDA that owns the fee vault's token accounts. */

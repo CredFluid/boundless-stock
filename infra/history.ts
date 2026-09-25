@@ -52,6 +52,8 @@ export interface HistoryRecord {
   settledAt: number;
   /** For a stranded request: what the home chain still holds for it (whole units), or "0" once recovered. */
   strandedHeld?: string;
+  /** The partner the order came through; absent for an order placed without one. */
+  partnerId?: number;
 }
 
 export interface History {
@@ -98,7 +100,9 @@ export async function syncHistory(cfg: DeploymentConfig, manifest: Manifest, evm
         }>(request, requestAbi, "getRequest", [id]);
         const buy = r.direction === 0;
         const [inDec, outDec] = buy ? [cfg.quoteAsset.decimals, cfg.token.decimals] : [cfg.token.decimals, cfg.quoteAsset.decimals];
+        const partnerId = prev?.partnerId ?? (await evmPartnerOf(chain, request, id));
         byKey.set(key, {
+          partnerId,
           key, chainKey: cd.key, chainName: cd.name, vm: "evm", id: id.toString(), user: r.user,
           direction: buy ? "buy" : "sell", tokenIn: buy ? sym.quote : sym.base, tokenOut: buy ? sym.base : sym.quote,
           amountIn: formatUnits(r.amountIn, inDec), minAmountOut: formatUnits(r.minAmountOut, outDec),
@@ -126,7 +130,9 @@ export async function syncHistory(cfg: DeploymentConfig, manifest: Manifest, evm
         if (!r) continue;
         const buy = r.direction === 0;
         const [inDec, outDec] = buy ? [qDec, bDec] : [bDec, qDec];
+        const partnerId = prev?.partnerId ?? (await client.getFeeEscrow(id))?.partnerId;
         byKey.set(key, {
+          partnerId,
           key, chainKey: c.key, chainName: c.name, vm: "svm", id: id.toString(), user: r.user.toBase58(),
           direction: buy ? "buy" : "sell", tokenIn: buy ? sym.quote : sym.base, tokenOut: buy ? sym.base : sym.quote,
           amountIn: formatUnits(r.amountIn, inDec), minAmountOut: formatUnits(r.minAmountOut, outDec),
@@ -161,7 +167,19 @@ export async function syncHistory(cfg: DeploymentConfig, manifest: Manifest, evm
   return out;
 }
 
-async function strandedHeld(cfg: DeploymentConfig, manifest: Manifest, evm: Map<string, Chain>, r: HistoryRecord): Promise<string> {
+/** The partner an EVM order came through, from its fee escrow; undefined for none. */
+async function evmPartnerOf(chain: Chain, request: Address, id: bigint): Promise<number | undefined> {
+  const fees = await chain.read<{ partnerId: number }>(request, forgeArtifact("SwapRequest").abi, "getFees", [id]);
+  return fees.partnerId === 0 ? undefined : fees.partnerId;
+}
+
+/** What the home chain still holds for a stranded request, in whole units; "0" once recovered. */
+export async function strandedHeld(
+  cfg: DeploymentConfig,
+  manifest: Manifest,
+  evm: Map<string, Chain>,
+  r: Pick<HistoryRecord, "chainKey" | "id">
+): Promise<string> {
   const eid = allChains(cfg).find((c) => c.key === r.chainKey)!.eid;
   if (vmOf(cfg.homeChain) === "svm") {
     const home = solanaHome(cfg)!;
