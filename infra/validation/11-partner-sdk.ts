@@ -141,6 +141,7 @@ export async function scenario11(h: Harness): Promise<ScenarioResult> {
     });
     if (built.vm !== "evm") throw new Error("expected an EVM build");
     let orderId = "";
+    const ours: string[] = []; // `${chain}#${id}` of the orders this scenario placed
     for (const t of built.transactions) {
       const hash = await user.walletClient.sendTransaction({
         account: user.account, chain: user.walletClient.chain, to: t.to as Address, data: t.data as Hex, value: BigInt(t.value),
@@ -150,6 +151,7 @@ export async function scenario11(h: Harness): Promise<ScenarioResult> {
       if (t.to.toLowerCase() === request.toLowerCase()) orderId = orderIdFromLogs(receipt.logs, request);
     }
     log.kv("transactions", built.transactions.map((t) => t.description).join(" → "));
+    ours.push(`${mirror}#${orderId}`);
     await h.waitFor(`order ${orderId} to settle`, async () => (await getOrder(ctx, mirror, orderId)).status !== "pending");
     const filled = await getOrder(ctx, mirror, orderId);
     log.kv("status", `${filled.status} — ${filled.next}`);
@@ -205,6 +207,7 @@ export async function scenario11(h: Harness): Promise<ScenarioResult> {
       const tx = VersionedTransaction.deserialize(Buffer.from(cosigned, "base64"));
       tx.sign([suser]);
       await sol.submit(tx);
+      ours.push(`${sm.key}#${sb.requestId}`);
       await h.waitFor(`Solana order ${sb.requestId} to settle`, async () => (await getOrder(ctx, sm.key, sb.requestId)).status !== "pending");
       const sf = await getOrder(ctx, sm.key, sb.requestId);
       log.kv("status", `${sf.status} — ${sf.next}`);
@@ -219,9 +222,13 @@ export async function scenario11(h: Harness): Promise<ScenarioResult> {
     log.step("g. webhooks: each fill delivered once, signed");
     await webhookPass(hooks);
     await webhookPass(hooks); // a second pass must not re-deliver
-    const fills = received.filter((e) => e.type === "order.filled");
-    const expected = sol ? 2 : 1;
-    if (fills.length !== expected) findings.push(`${fills.length} order.filled webhook(s), expected ${expected}`);
+    // Only this scenario's orders are counted: the worker also announces earlier orders of the
+    // same partner it had not yet delivered, which is the backlog behaviour, not a duplicate.
+    const fills = received.filter((e) => e.type === "order.filled" && ours.includes(`${e.order.chain}#${e.order.id}`));
+    for (const o of ours) {
+      const n = fills.filter((e) => `${e.order.chain}#${e.order.id}` === o).length;
+      if (n !== 1) findings.push(`${o}: ${n} order.filled webhook(s), expected exactly 1`);
+    }
     if (new Set(received.map((e) => e.id)).size !== received.length) findings.push("a webhook event was delivered twice");
     for (const e of fills) log.ok(`${e.type} ${e.order.chain}#${e.order.id} (${e.id})`);
     metrics["webhooks delivered"] = received.length;

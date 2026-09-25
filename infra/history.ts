@@ -58,6 +58,12 @@ export interface HistoryRecord {
 
 export interface History {
   deployment: string;
+  /**
+   * The deployment instance these records belong to: its manifest's `createdAt`, which only a
+   * fresh deploy changes. Request ids restart at 1 on a new instance, so records from an old
+   * one would shadow the new instance's orders with the same ids.
+   */
+  instance?: string;
   updatedAt: string;
   records: HistoryRecord[];
   /** Chains that could not be read on the last sync; their records are from earlier syncs. */
@@ -77,7 +83,10 @@ export function loadHistory(name: string): History {
 const live = (r: HistoryRecord) => r.status === "pending" || (r.status === "stranded" && r.strandedHeld !== "0");
 
 export async function syncHistory(cfg: DeploymentConfig, manifest: Manifest, evm: Map<string, Chain>): Promise<History> {
-  const history = loadHistory(cfg.name);
+  const stored = loadHistory(cfg.name);
+  // A redeploy under the same name starts request ids again; the old instance's records would
+  // otherwise mask the new orders that reuse their ids.
+  const history = stored.instance === manifest.createdAt ? stored : { ...stored, records: [] };
   const byKey = new Map(history.records.map((r) => [r.key, r]));
   const unreachable: string[] = [];
   const sym = { base: cfg.token.symbol, quote: cfg.quoteAsset.symbol };
@@ -158,6 +167,7 @@ export async function syncHistory(cfg: DeploymentConfig, manifest: Manifest, evm
 
   const out: History = {
     deployment: cfg.name,
+    instance: manifest.createdAt,
     updatedAt: new Date().toISOString(),
     records: [...byKey.values()].sort((a, b) => b.createdAt - a.createdAt || a.key.localeCompare(b.key)),
     unreachable,

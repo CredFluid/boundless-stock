@@ -36,6 +36,8 @@ interface Delivery {
 }
 
 interface State {
+  /** The deployment instance (manifest `createdAt`) this state is for; see `History.instance`. */
+  instance?: string;
   /** The last state each order was seen in: status, plus "held" for a stranded order still held. */
   seen: Record<string, string>;
   outbox: Delivery[];
@@ -71,8 +73,14 @@ const EVENT: Record<string, WebhookEventType | undefined> = {
 export async function webhookPass(cfg: DeploymentConfig): Promise<{ queued: number; delivered: number; failed: number }> {
   const partners = new Map<number, PartnerConfig>((cfg.partners?.partners ?? []).filter((p) => p.webhook).map((p) => [p.id, p]));
   const ctx = contextFromConfig(cfg);
-  const state = loadState(cfg.name);
+  const loaded = loadState(cfg.name);
+  // Orders of a previous instance (a fresh redeploy) are not this one's: forget what was seen,
+  // but keep undelivered events, which are still owed to partners.
+  const instance = ctx.manifest.createdAt;
+  const state: State = loaded.instance === instance ? loaded : { ...loaded, instance, seen: {} };
   const history = await syncHistory(cfg, ctx.manifest, ctx.evm);
+  // Event ids carry the instance, so a new order reusing an old id is never deduplicated away.
+  const stamp = Date.parse(instance).toString(36);
 
   let queued = 0;
   for (const r of history.records) {
@@ -84,7 +92,7 @@ export async function webhookPass(cfg: DeploymentConfig): Promise<{ queued: numb
     if (!type) continue; // pending: nothing to announce yet
     const order = await getOrder(ctx, r.chainKey, r.id);
     state.outbox.push({
-      event: { id: `${cfg.name}:${r.key}:${now}`, type, createdAt: new Date().toISOString(), order },
+      event: { id: `${cfg.name}:${stamp}:${r.key}:${now}`, type, createdAt: new Date().toISOString(), order },
       partnerId: r.partnerId,
       attempts: 0,
       nextAttemptAt: 0,
