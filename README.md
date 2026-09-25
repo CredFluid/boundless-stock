@@ -100,69 +100,40 @@ the order is refunded, cancelled or stranded.
 | **Issuers keep their token** | Bring an existing SPL mint (Token-2022 included). It is locked in a vault, never replaced, and the issuer keeps the mint authority. Or launch a new one. |
 | **Partners bring the users** | Wallets, exchanges and apps integrate buy and sell through an SDK and API, and handle KYC on their side. With `partnerRequired`, only orders a registered partner approved get in; on Solana the partner co-signs. See [`PARTNERS.md`](PARTNERS.md). |
 | **Exact quotes** | The API asks the home market itself, so an order fills at its quote to the base unit. |
-| **An issuer dashboard** | Supply per chain with the conservation check, the live market, trade history and operations queues. |
+| **An issuer dashboard** | Supply per chain with the conservation check, holders across chains, the live market, trade history and operations queues. |
+| **Proof of reserves** | Supply across every chain, in flight included, checked continuously against the shares held by the custodian, issuer or an oracle: issued ≤ held. See [`PROOF_OF_RESERVES.md`](PROOF_OF_RESERVES.md). |
 | **Solana as the home chain** | The market, the liquidity and the operations live on Solana. Other chains, EVM chains and other Solana chains alike, connect to it as spokes. |
 
 ## For developers
 
 Issuers bring the stock. Developers bring the users. Any wallet, exchange, neobank or trading
 app on another chain can offer buy and sell for a tokenized stock without running a pool, a
-bridge or its own liquidity. The developer handles its users and their KYC; the market is ours.
+bridge or its own liquidity, and any app can build on what only the home market can see. The
+SDK (`@crossstock/sdk`) and API (`/api/v1`) offer:
 
-The SDK (`@crossstock/sdk`) and API (`/api/v1`) do this in a few calls today:
+**Trading** (for developers who bring users; they handle KYC, the market is ours):
 
-| Call | What it gives the developer |
+| | |
 |---|---|
-| `deployments()` / `deployment(name)` | Which stocks are available, on which chains, with every address needed to trade them |
-| `quote()` | An exact price for a given size, from the home market itself. Orders fill at their quote to the base unit; price impact and the cross-chain messaging fee are included. |
-| `buildOrder()` | A ready-to-sign transaction, on an EVM chain or Solana, signed in the user's own wallet. The developer never holds user funds. |
-| Authorise helpers | Approve an order as the partner: a typed-data signature on EVM, a checked co-signature on Solana that refuses anything but the approved amount, side, fee and floor |
-| `order()` / `orders()` / `waitForOrder()` | Track an order until it is filled, refunded or cancelled |
-| Webhooks | Signed notifications when an order settles, with a helper to verify them |
-| Partner fee | The developer sets its own fee, up to a cap, charged only on a fill: a business model built in |
+| **Discover** | Which stocks are available, on which chains, with every address needed to trade them. |
+| **Exact quotes** | A price for a given size from the home market itself. Orders fill at their quote to the base unit; price impact and the cross-chain messaging fee are included. |
+| **Ready-to-sign orders** | A transaction, on an EVM chain or Solana, signed in the user's own wallet. The developer never holds user funds. |
+| **Partner approval** | A typed-data signature on EVM, or a checked co-signature on Solana that refuses anything but the approved amount, side, fee and floor. |
+| **Tracking and webhooks** | Follow an order until it is filled, refunded or cancelled, and receive signed notifications when it settles. |
+| **Partner fees** | The developer sets its own fee, up to a cap, charged only on a fill: a business model built in. |
+| **Contract-level buying** | Orders placed by smart contracts, not only wallets, so a vault, a savings app or an index product on another chain can buy and hold tokenized stocks automatically. |
+| **Embeddable widget** | The buy and sell flow as a drop-in component, for apps that don't want to build it. |
 
-The trading API is for developers who bring users, and it needs a partner agreement because of
-KYC. The data behind it can be open to everyone else (see below).
+**Data** (open to every developer):
 
-## What we have proven
+| | |
+|---|---|
+| **Market data on every chain** | The stock's price in the home market, and its premium or discount to the real share, for portfolio apps, dashboards and trading tools on any chain. |
+| **A price feed on every chain** | An on-chain price, checked against a reference price of the underlying share, that lending and perpetuals protocols on other chains can read. This turns a mirror token into collateral, not just something to hold. |
+| **Supply and holders** | Supply per chain, stock in flight between chains, and holder counts, for explorers, analytics platforms and investor relations. |
+| **Proof of reserves** | "Is this token fully backed right now?", as an API and an on-chain check, for lending protocols and custodians before they accept it as collateral. |
 
-Everything above runs today on local chains, with the real LayerZero V2 programs and contracts,
-and our own relayer standing in for LayerZero's network. An order of 15,000 USDC placed on an EVM
-chain crossed to Solana, filled against the home market, and delivered 99.32568 tAAPL back on
-the chain it came from, in 2.9 seconds, on a chain that has no market of its own. The same pool
-served an order from a second Solana chain (10,000 USDC for 66.137881 tAAPL) without it ever
-touching an EVM chain. The safety paths hold: an unfillable order is refunded in full, a stranded
-return is recovered by retry, and a stuck order is cancelled and restored. Partner orders are
-gated and co-signed, fees are kept only on fills, and orders placed through the SDK fill at
-exactly their quote. It all works the same with Token-2022 mints, and after every scenario the
-total supply across chains still equals what was issued. This is covered by 85 contract tests
-(fuzz and invariants included), 55 Solana program tests, SDK tests and 11 end-to-end scenarios.
-
-## Where it goes next
-
-**For issuers:**
-
-- **Proof of reserves.** The issued half (supply across every chain, in flight included) is
-  already measured live. Pairing it with a reserve source (custodian, issuer or oracle) gives a
-  continuous "issued ≤ held" check. See [`PROOF_OF_RESERVES.md`](PROOF_OF_RESERVES.md).
-- **Holders across chains,** alongside supply, in the issuer dashboard.
-
-**For developers**, opening what only the home market can see:
-
-- **Market data on every chain.** The stock's price in the home market, and its premium or
-  discount to the real share, for portfolio apps, dashboards and trading tools on any chain.
-- **Supply and holder data.** Supply per chain, stock in flight between chains, and holder
-  counts, for explorers, analytics platforms and investor relations.
-- **Proof of reserves as an API and an on-chain check.** "Is this token fully backed right
-  now?", asked by a lending protocol or custodian before accepting it as collateral.
-- **A price feed on every chain.** An on-chain price, checked against a reference price of the
-  underlying share, that lending and perpetuals protocols on other chains can read. This is what
-  turns a mirror token into collateral, not just something to hold.
-- **Contract-level buying.** Orders placed by smart contracts, not only wallets, so a vault, a
-  savings app or an index product on another chain can buy and hold tokenized stocks
-  automatically. Who carries KYC when the buyer is a contract is the question to settle first.
-- **An embeddable buy widget,** for apps that want the flow without building it.
-- **A sandbox:** test keys against a test deployment, to try it before integrating.
+**A sandbox:** test keys against a test deployment, to try everything before integrating.
 
 ## Quick start
 
@@ -190,14 +161,3 @@ Other setups are a different config, with no code changes:
 
 Onboard partners and set fees on a running deployment with `npm run partners -- --config …`. The
 partner API (`/api/v1`) and the SDK (`@crossstock/sdk`) are described in [`PARTNERS.md`](PARTNERS.md).
-
-## Honest limits
-
-- **Local chains only so far.** Deploying on Solana devnet and public testnets with LayerZero's
-  own network is the next step.
-- **Token-2022: standard mints only.** Token-2022 mints work end to end (metadata extensions
-  included; see `NOTES.md`). Mints with transfer fees, a permanent delegate or a transfer hook
-  (which includes today's PreStocks) are refused, because each needs a product decision (who
-  bears a fee, whether a delegate over the escrow is acceptable) before it can be carried safely.
-- **The stock is a test token (tAAPL),** and USDC is our own omnichain token. A live deployment
-  would pair the stock with a stablecoin that moves natively between chains.
