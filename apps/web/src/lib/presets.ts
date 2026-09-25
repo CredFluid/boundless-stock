@@ -36,7 +36,7 @@ export function launchPresets(): LaunchPresets {
       const environment = /127\.0\.0\.1|localhost/.test(c.rpcUrl) ? "local" : "testnet";
       const id = `${environment}:${c.key}`;
       if (chains.has(id)) continue;
-      chains.set(id, { key: c.key, name: c.name, vm: c.vm ?? "evm", eid: c.eid, environment, config: c });
+      chains.set(id, { key: c.key, name: displayName(c.name), vm: c.vm ?? "evm", eid: c.eid, environment, config: c });
     }
   }
   const fallback = JSON.parse(readFileSync(resolve(dir, "localnet.json"), "utf8")) as DeploymentConfig;
@@ -45,4 +45,10 @@ export function launchPresets(): LaunchPresets {
     pool: pool ?? fallback.pool,
     relay: relay ?? fallback.relay,
   };
+}
+
+/** A chain's name as an issuer would say it: no test-network or local suffixes. */
+function displayName(name: string): string {
+  if (/^SVM chain/i.test(name)) return "SVM chain";
+  return name.replace(/\s+(Sepolia|Amoy|Devnet|Testnet)\b/i, "").replace(/\s*\(local\)/i, "").trim();
 }
