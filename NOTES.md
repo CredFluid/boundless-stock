@@ -1968,6 +1968,11 @@ reimplementing it, which surfaced four things.
   - On a real cluster, several assets would mean deploying the programs once per asset, or
     seeding these PDAs by asset. That is a design choice to make before a second asset.
 
+- **Verified end to end on clean chains** with `config/localnet-solana-home-t22.json` (stock
+  and USDC as Token-2022 mints on both Solana chains). Scenarios 8–11 pass 4/4 with the same
+  figures as the classic run, and supply is conserved exactly. The classic config was re-run
+  afterwards as a regression: also 4/4, conserved.
+
 **Why it matters / what breaks if ignored:**
 
 - **Supporting a refused extension later is a product decision first:**

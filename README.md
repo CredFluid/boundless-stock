@@ -66,11 +66,15 @@ programs and contracts and our local relayer standing in for LayerZero's network
   - EIP-712 (EVM) and co-signed (Solana) approvals are enforced.
   - Fees are kept only on fills.
   - Partner-SDK orders fill **exactly** at their Orca-priced quote.
+- **Token-2022 mints, end to end.** With the stock and USDC as Token-2022 mints on both Solana
+  chains, the same four scenarios pass with the same figures (99.32568 tAAPL on Base, 66.137881
+  on the second Solana chain, partner orders filled exactly at their quote), and supply is
+  conserved. Mints with unsafe extensions are refused at initialisation.
 - **Supply conserved across VMs** after every scenario, with Solana's 9-decimal amounts rescaled
   to compare with EVM's 18.
 - **Tests:**
   - 85 Foundry tests, fuzz and invariants included;
-  - 41 + 10 Solana program host tests;
+  - 45 + 10 Solana program host tests;
   - 5 SDK tests;
   - 11 end-to-end validation scenarios.
 
@@ -95,6 +99,7 @@ Other topologies are a different config, with no code changes:
 |---|---|---|
 | `localnet-solana-home.json` | Solana (Orca) | Base, Arbitrum, Optimism |
 | `localnet-solana-home-svm-mirror.json` | Solana (Orca) | the above plus a second Solana chain |
+| `localnet-solana-home-t22.json` | Solana (Orca), **Token-2022 mints** | the above plus a second Solana chain |
 | `localnet-solana-home-adapter.json` | Solana, **the issuer's existing SPL mint** | Base, Arbitrum, Optimism |
 | `localnet-solana.json` | Base (Uniswap V3) | Arbitrum, Optimism, Solana |
 | `localnet.json` | Base (Uniswap V3) | Arbitrum, Optimism |
@@ -155,8 +160,9 @@ config/         deployment configs — the home chain is one of them
 
 - **Local chains only so far.** Deploying on Solana devnet and public testnets with LayerZero's
   own network is the next step.
-- **Token-2022 is partial.** Standard Token-2022 mints are supported (see `NOTES.md`). Mints with
-  transfer fees, a permanent delegate or a transfer hook are refused, because each needs a
+- **Token-2022: standard mints only.** Token-2022 mints work end to end (metadata extensions
+  included; see `NOTES.md`). Mints with transfer fees, a permanent delegate or a transfer hook
+  (which includes today's PreStocks) are refused, because each needs a
   product decision (who bears a fee, whether a delegate over the escrow is acceptable) before it
   can be carried safely.
 - **The stock is a test token (tAAPL),** and USDC is our own omnichain token. A live deployment
