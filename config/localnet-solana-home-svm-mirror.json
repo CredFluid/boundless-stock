@@ -103,8 +103,8 @@
         "name": "Demo Wallet",
         "maxFeeBps": 30,
         "evm": {
-          "signer": "0x90F79bf6EB2c4f870365E785982E1f89C4a8Fb90",
-          "feeRecipient": "0x90F79bf6EB2c4f870365E785982E1f89C4a8Fb90"
+          "signer": "0x90f79bf6eB2c4f870365e785982e1F89c4a8b906",
+          "feeRecipient": "0x90f79bf6eB2c4f870365e785982e1F89c4a8b906"
         }
       }
     ]

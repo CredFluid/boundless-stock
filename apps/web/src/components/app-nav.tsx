@@ -27,7 +27,7 @@ export function AppNav() {
               active ? "bg-surface-2 font-medium text-fg" : "text-muted hover:bg-surface-2 hover:text-fg"
             )}
           >
-            <Icon size={16} aria-hidden />
+            <Icon size={16} className="shrink-0" aria-hidden />
             {label}
           </Link>
         );
