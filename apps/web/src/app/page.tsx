@@ -361,8 +361,9 @@ export default function Landing() {
           </Reveal>
           <Reveal delay={120}>
             <p className="text-lg text-muted">
-              Boundless Stock issues the asset and carries every move between chains, so it sees what no single-chain explorer
-              can: backing, supply in transit, and where the asset sits and trades. Every figure except the share count is
+              Every chain&apos;s copy of an asset is part of one Boundless Stock deployment, and every move between chains goes
+              through it, so Boundless Stock sees what no single-chain explorer can: backing, supply in transit, and where the
+              asset sits and trades. Every figure except the share count is
               measured from chain state, not reported by the issuer.
             </p>
           </Reveal>

@@ -147,7 +147,7 @@ export default function Docs() {
 
           {/* ------------------------------------------------------------ data layer */}
           <H2 id="data-layer">The data layer</H2>
-          <P>Boundless Stock issues the asset and carries every move between chains, so it is one source of truth for every tokenized asset on every chain. Every figure except the share count is measured from chain state, not reported by the issuer.</P>
+          <P>Every chain&apos;s copy of an asset is part of one Boundless Stock deployment, and every move between chains goes through it, so Boundless Stock is one source of truth for every tokenized asset on every chain. Every figure except the share count is measured from chain state, not reported by the issuer.</P>
           <Table
             head={["Data", "What it answers", "For"]}
             rows={[
@@ -281,7 +281,7 @@ npx boundless-stock market                                   # supply moved; tot
           <P>Lists the home chain and every chain the asset can be mirrored to, by short name.</P>
 
           <H3 id="cli-deploy">boundless-stock deploy</H3>
-          <P>Starts fresh local chains, deploys the Solana programs, issues the asset on Solana, creates a mirror on each chosen chain, opens the market, registers partners, and verifies every cross-chain connection.</P>
+          <P>Starts fresh local chains, deploys the Solana programs, creates the asset&apos;s token on Solana for the issuer, creates a mirror on each chosen chain, opens the market, registers partners, and verifies every cross-chain connection.</P>
           <Table
             head={["Flag", "Default", "Description"]}
             rows={[
