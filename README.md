@@ -5,9 +5,11 @@ operations are managed from one chain and one place.**
 
 ## The problem: tokenized stocks are breaking into pieces
 
-A tokenized stock is not like other tokens: its supply is fixed by what backs it. An issuer
-holding 100,000 real shares can issue 100,000 tokens, and not one more. That limited supply is
-the whole point, and it is also the problem.
+A tokenized stock is not like other tokens. When a team launches a token on chain, it decides
+how much to mint, and can mint more whenever a new market needs liquidity. A tokenized stock
+has no such freedom: its supply is fixed by the real shares that back it. An issuer holding
+100,000 shares can issue 100,000 tokens, and not one more. That limited supply is the whole
+point, and it is also the problem.
 
 Tokenized stocks are arriving on many chains at once. Every chain the stock goes to takes a
 slice of that same fixed supply, and with it gets:
