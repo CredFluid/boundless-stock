@@ -6,6 +6,7 @@ import { loadConfig, allChains, vmOf } from "../lib/config.js";
 import { loadManifestAt, loadManifest } from "../lib/manifest.js";
 import { forgeArtifact } from "../lib/artifacts.js";
 import { Options } from "../lib/options.js";
+import { PARTNER_ABI } from "../lib/partners.js";
 import { toBytes32 } from "../lib/address.js";
 import { Relayer } from "../relayer.js";
 import { SolanaChain } from "../solana/chain.js";
@@ -401,10 +402,16 @@ export class Harness {
     }
 
     // The infra must never seed anything here. The only way an asset reaches a mirror chain is
-    // a user bridging it into their own wallet.
+    // a user bridging it into their own wallet. The one thing SwapRequest may hold is fees from
+    // partner orders — escrowed, or earned and not yet withdrawn — which are owed to someone
+    // and are not liquidity; the contract tracks them exactly in `feesReserved`.
     const requestAddr = this.addr(mirrorKey, "SwapRequest");
-    const stockHeld = await this.tokenBalance(mirrorKey, requestAddr);
-    const quoteHeld = await this.quoteBalance(mirrorKey, requestAddr);
+    const reserved = (token: Address) =>
+      this.chain(mirrorKey).read<bigint>(requestAddr, PARTNER_ABI, "feesReserved", [token]);
+    const stockHeld =
+      (await this.tokenBalance(mirrorKey, requestAddr)) - (await reserved(this.addr(mirrorKey, "TokenizedStock")));
+    const quoteHeld =
+      (await this.quoteBalance(mirrorKey, requestAddr)) - (await reserved(this.addr(mirrorKey, "QuoteAsset")));
     if (stockHeld !== 0n) findings.push(`${mirrorKey} SwapRequest holds ${stockHeld} stock before the test`);
     if (quoteHeld !== 0n) findings.push(`${mirrorKey} SwapRequest holds ${quoteHeld} quote before the test`);
 
