@@ -151,7 +151,7 @@ export default function Landing() {
           <div>
             <a href="#data" className="enter enter-1 inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pr-3 pl-1 text-xs text-muted hover:text-fg">
               <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">Tokenized stocks</span>
-              Issuance, distribution and the data layer
+              Distribution, deployment and the data layer
               <ArrowRight size={12} aria-hidden />
             </a>
             <h1 className="enter enter-2 mt-7 text-5xl font-semibold leading-[1.02] tracking-tight text-balance md:text-7xl">
@@ -159,16 +159,22 @@ export default function Landing() {
               <span className="text-shimmer bg-gradient-to-r from-accent via-evm to-accent bg-clip-text text-transparent">Power every other.</span>
             </h1>
             <p className="enter enter-3 mt-6 max-w-xl text-lg leading-relaxed text-muted">
-              Issue a tokenized stock once, on Solana, and distribute it to every other chain through regulated partners. Run
-              its supply, backing, controls and liquidity from one console, and give every product that integrates it one
-              verified record of its backing, supply and price, wherever it sits.
+              Issuers already mint stocks on Solana. Boundless Stock distributes them to every chain, keeps them in step
+              (supply, backing, dividends and splits), and gives integrators one verified record, for any issuer.
+            </p>
+            <p className="enter enter-3 mt-3 max-w-xl text-base leading-relaxed text-muted">
+              <span className="font-medium text-fg">Launching a new one?</span> Deploy it through Boundless Stock: issued on
+              Solana, mirrored to the chains you choose and connected to its market, in one command.
             </p>
             <div className="enter enter-4 mt-9 flex flex-wrap gap-3">
               <Link href="/app/launch" className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-accent-contrast hover:opacity-90">
-                Launch an asset <ArrowRight size={16} aria-hidden />
+                Distribute a stock <ArrowRight size={16} aria-hidden />
               </Link>
+              <a href="/docs#quickstart" className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface/60 px-5 py-3 text-sm font-medium hover:bg-surface-2">
+                Launch a new one
+              </a>
               <a href="/docs" className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface/60 px-5 py-3 text-sm font-medium hover:bg-surface-2">
-                <Terminal size={16} aria-hidden /> Start building
+                <Terminal size={16} aria-hidden /> Docs
               </a>
             </div>
             <div className="enter enter-5 mt-10 grid max-w-2xl gap-3 sm:grid-cols-3">
@@ -181,7 +187,7 @@ export default function Landing() {
                 <div className="mt-1 text-sm">Distribution · Trading · Transfers</div>
               </div>
               <a href="#data" className="rounded-lg border border-accent/40 bg-accent-soft/60 px-4 py-3 hover:border-accent">
-                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">One ledger · every chain</div>
+                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">One ledger</div>
                 <div className="mt-1 text-sm">Backing · Supply · Price</div>
               </a>
             </div>
@@ -362,7 +368,7 @@ export default function Landing() {
           <Reveal delay={120}>
             <p className="text-lg text-muted">
               Every chain&apos;s copy of an asset is part of one Boundless Stock deployment, and every move between chains goes
-              through it, so Boundless Stock sees what no single-chain explorer can: backing, supply in transit, and where the
+              through it, so Boundless Stock sees in one place the backing, the supply in transit, and where the
               asset sits and trades. Every figure except the share count is
               measured from chain state, not reported by the issuer.
             </p>

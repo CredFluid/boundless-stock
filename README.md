@@ -1,7 +1,8 @@
 # Boundless Stock
 
-**A reference market for every tokenized stock, on Solana, reachable from every chain.
-Liquidity and operations are managed from one chain and one place.**
+**Issuers already mint stocks on Solana. Boundless Stock distributes them to every chain, keeps
+them in step (supply, backing, dividends and splits), and gives integrators one verified record,
+for any issuer. Launching a new one? Deploy it through Boundless Stock in one command.**
 
 ## The problem: tokenized stocks are breaking into pieces
 
@@ -20,7 +21,7 @@ slice of that same fixed supply, and with it gets:
 - **its own liquidity to fund,** so an issuer seeds many small markets instead of one deep one;
 - **its own operations,** so contracts, fees, stuck transfers and refunds are handled chain by
   chain, by hand;
-- **its own ledger,** so nobody can say, at a glance, how much of the stock exists in total or
+- **its own ledger,** so it is hard to say, at a glance, how much of the stock exists in total or
   where it sits.
 
 This is fragmentation, and it is what has held tokenized assets back. The industry's usual
@@ -114,7 +115,7 @@ the order is refunded, cancelled or stranded.
 ## The data layer for tokenized assets
 
 Every chain's copy of an asset is part of one Boundless Stock deployment, and every move between
-chains goes through it, so Boundless Stock sees what no single-chain explorer can: the backing,
+chains goes through it, so Boundless Stock sees in one place the backing,
 the supply in transit, and where the asset sits and trades. That makes it **one source of truth for every tokenized asset, on every chain**. Every
 figure except the share count is measured from chain state, not reported by the issuer.
 
@@ -137,7 +138,7 @@ makers, analytics platforms and explorers, and the issuers themselves.
 
 Issuers bring the stock. Developers bring the users. Any wallet, exchange, neobank or trading
 app on another chain can offer buy and sell for a tokenized stock without running a pool, a
-bridge or its own liquidity, and any app can build on what only the home market can see. The
+bridge or its own liquidity, and any app can build on the home market's data. The
 SDK (`@boundless-stock/sdk`) and API (`/api/v1`) offer:
 
 **Trading** (for developers who bring users; they handle KYC, the market is ours):
